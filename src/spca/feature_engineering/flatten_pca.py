@@ -142,8 +142,8 @@ def _flatten_inputs(
                 wavelength_column,
             ).iter_rows():
                 feature_names.append(
-                    f"{wavelength_column}*{int(step)}*{int(sequence)}_"
-                    f"{float(time):.2f}nm"
+                    f"{wavelength_column}_{int(step)}_{int(sequence)}_"
+                    f"{float(time):.2f}"
                 )
                 feature_values.append(intensity)
 

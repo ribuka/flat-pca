@@ -511,7 +511,7 @@ def test_flatten_real_fixture_has_deterministic_columns_and_values() -> None:
         key=lambda row: tuple(float(value) for value in row),
     )
     expected_columns = ["filename"] + [
-        f"{wavelength}*{int(step)}*{int(sequence)}_{float(time):.2f}nm"
+        f"{wavelength}_{int(step)}_{int(sequence)}_{float(time):.2f}"
         for wavelength in wavelength_columns
         for step, sequence, time in metadata_rows
     ]
@@ -563,10 +563,10 @@ def test_flatten_sorts_step_and_sequence_and_rejects_name_collisions() -> None:
     )
 
     assert flattened.columns[1:5] == [
-        f"{first_wavelength}*0*0_0.00nm",
-        f"{first_wavelength}*0*1_1.00nm",
-        f"{first_wavelength}*1*0_0.00nm",
-        f"{first_wavelength}*1*1_1.00nm",
+        f"{first_wavelength}_0_0_0.00",
+        f"{first_wavelength}_0_1_1.00",
+        f"{first_wavelength}_1_0_0.00",
+        f"{first_wavelength}_1_1_1.00",
     ]
 
     collision = fixture.head(2).with_columns(

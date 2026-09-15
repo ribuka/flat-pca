@@ -95,10 +95,10 @@ def flatten_pca(
 - flatten前に、波長、`Step`、`Sequence`、`Time`をそれぞれ数値として昇順に並べる。
 - flatten後の特徴量列は、`(w, s, q, t)`をsort keyとして昇順に並べる。
 - `Sequence`列の値を`q`とする。
-- 特徴量列名は`f"{w}*{s}*{q}_{t}"`の形式とする。
+- 特徴量列名は`f"{w}_{s}_{q}_{t}"`の形式とする。
 - `w`は`f"{v:.1f}nm"`で表現される入力波長列名をそのまま使用する。
 - `s`、`q` は int型で表現する。
-- `t`は `f"{t:.2f}nm"` で表現する。
+- `t`は `f"{t:.2f}"` で表現する。
 - 正規化後の特徴量列名が重複する場合は`ValueError`を送出する。
 - flatten結果`df`の列順は、`filename`、flattenした特徴量列の順とする。
 
