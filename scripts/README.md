@@ -39,7 +39,7 @@ uv run -m scripts.ralph_runner --prompt-file <prompt-file>
 ```
 
 ```powershell
-uv run -m scripts.ralph_runner --model "gpt-5.6-sol"
+uv run -m scripts.ralph_runner --model "gpt-5.6-sol" --max-loops 1
 ```
 
 すべてのオプションと終了コードは以下で確認できます。
