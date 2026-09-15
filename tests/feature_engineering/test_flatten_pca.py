@@ -8,6 +8,7 @@ import pytest
 
 from spca.feature_engineering.flatten_pca import (
     _apply_t_smoothing,
+    _apply_w_smoothing,
     _load_and_validate_inputs,
 )
 
@@ -243,3 +244,57 @@ def test_t_smoothing_rejects_invalid_windows(window: float) -> None:
 
     with pytest.raises(ValueError, match="t_smoothing_window"):
         _apply_t_smoothing(frame, window)
+
+
+def test_w_smoothing_uses_closed_real_wavelength_windows_on_real_fixture() -> None:
+    """Average real wavelengths without assuming equal wavelength spacing."""
+    frame = pl.read_parquet(_fixture_paths()[0]).head(3)
+    wavelength_columns = [
+        column for column in frame.columns if column not in METADATA_COLUMNS
+    ]
+    wavelengths = [float(column.removesuffix("nm")) for column in wavelength_columns]
+    gaps = [right - left for left, right in pairwise(wavelengths)]
+    window = min(gaps)
+
+    smoothed = _apply_w_smoothing(frame, window)
+    expected = [
+        [
+            frame.select(
+                column
+                for column, candidate in zip(wavelength_columns, wavelengths)
+                if wavelength - window <= candidate <= wavelength + window
+            ).row(row_index)
+            for wavelength in wavelengths
+        ]
+        for row_index in range(frame.height)
+    ]
+
+    assert len(set(gaps)) > 1
+    for row_index in range(frame.height):
+        expected_means = [sum(values) / len(values) for values in expected[row_index]]
+        assert smoothed.select(wavelength_columns).row(row_index) == pytest.approx(
+            expected_means
+        )
+    assert smoothed.select("Time", "Step", "Sequence").equals(
+        frame.select("Time", "Step", "Sequence")
+    )
+    assert smoothed.shape == frame.shape
+
+
+def test_w_smoothing_none_preserves_real_fixture() -> None:
+    """Return the validated real fixture unchanged when smoothing is disabled."""
+    frame = pl.read_parquet(_fixture_paths()[0])
+
+    assert _apply_w_smoothing(frame, None).equals(frame)
+
+
+@pytest.mark.parametrize(
+    "window",
+    [0.0, -1.0, float("nan"), float("inf"), float("-inf")],
+)
+def test_w_smoothing_rejects_invalid_windows(window: float) -> None:
+    """Reject nonpositive and nonfinite w-smoothing half-window widths."""
+    frame = pl.read_parquet(_fixture_paths()[0])
+
+    with pytest.raises(ValueError, match="w_smoothing_window"):
+        _apply_w_smoothing(frame, window)

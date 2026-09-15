@@ -58,7 +58,7 @@
 
 ## TASK-003: w方向smoothing
 
-- Status: pending
+- Status: completed
 - Priority: 3
 - Depends on: TASK-001
 

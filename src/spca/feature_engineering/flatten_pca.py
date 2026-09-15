@@ -75,6 +75,62 @@ def _apply_t_smoothing(
     )
 
 
+def _apply_w_smoothing(
+    frame: pl.DataFrame,
+    w_smoothing_window: float | None,
+) -> pl.DataFrame:
+    """Smooth spectral intensities within centered real-wavelength windows.
+
+    Parameters
+    ----------
+    frame : pl.DataFrame
+        Validated Flatten-PCA input containing metadata and wavelength columns.
+    w_smoothing_window : float | None
+        Positive finite half-window width in the same units as the wavelengths.
+        If ``None``, smoothing is disabled.
+
+    Returns
+    -------
+    pl.DataFrame
+        Input rows and metadata with each wavelength intensity replaced by the
+        arithmetic mean in its closed wavelength window.
+
+    Raises
+    ------
+    ValueError
+        If ``w_smoothing_window`` is not finite and greater than zero.
+    """
+    if w_smoothing_window is None:
+        return frame
+    try:
+        window = float(w_smoothing_window)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "w_smoothing_window must be finite and greater than 0"
+        ) from error
+    if isinstance(w_smoothing_window, bool) or not isfinite(window) or window <= 0:
+        raise ValueError("w_smoothing_window must be finite and greater than 0")
+
+    wavelength_columns = [
+        column for column in frame.columns if column not in _METADATA_COLUMNS
+    ]
+    wavelengths = np.asarray([_parse_wavelength(column) for column in wavelength_columns])
+    source_values = frame.select(wavelength_columns).to_numpy().astype(
+        float,
+        copy=False,
+    )
+    smoothed_values = source_values.copy()
+
+    for column_index, wavelength in enumerate(wavelengths):
+        in_window = np.abs(wavelengths - wavelength) <= window
+        smoothed_values[:, column_index] = source_values[:, in_window].mean(axis=1)
+
+    return frame.with_columns(
+        pl.Series(column, smoothed_values[:, column_index])
+        for column_index, column in enumerate(wavelength_columns)
+    )
+
+
 def _parse_wavelength(column: str) -> float:
     """Parse and validate a canonical wavelength column name.
 
