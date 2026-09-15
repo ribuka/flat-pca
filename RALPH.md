@@ -89,6 +89,19 @@ Append to `PROGRESS.md` using this format. All headings and content must be writ
 
 The final output must reflect the actual state. After one loop ends, do not start another task.
 
+## Automated runner
+
+Run consecutive loops with the repository runner:
+
+```powershell
+uv run -m scripts.ralph_runner
+```
+
+The runner starts a fresh `codex exec` process for each loop and stops when all
+tasks are complete, a task is incomplete or blocked, Codex fails, the output
+protocol is invalid, or the configured loop limit is reached. Run
+`uv run -m scripts.ralph_runner --help` for available options and exit codes.
+
 ## Git and external operations
 
 * Each loop with repository changes must create exactly one commit containing only files changed in that loop, including updates to `TASKS.md` and `PROGRESS.md`.
