@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import IntEnum
 from pathlib import Path
@@ -21,10 +22,41 @@ DEFAULT_MAX_LOOPS = 20
 TASK_COMPLETED_PATTERN = re.compile(r"TASK_COMPLETED: (TASK-\d{3})")
 TASK_INCOMPLETE_PATTERN = re.compile(r"TASK_INCOMPLETE: (TASK-\d{3})")
 TASK_BLOCKED_PATTERN = re.compile(r"TASK_BLOCKED: (TASK-\d{3})")
-TASK_STATUS_PATTERN = re.compile(
-    r"^## TASK-\d{3}:.*?\r?\n\r?\n- Status: (?P<status>\w+)$",
+TASK_SECTION_PATTERN = re.compile(
+    r"^## (?P<task_id>TASK-\d{3}):.*?$"
+    r"(?P<body>.*?)(?=^## TASK-\d{3}:|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+TASK_ID_PATTERN = re.compile(r"TASK-\d{3}")
+TASK_STATUS_FIELD_PATTERN = re.compile(r"^- Status: (?P<value>\w+)$", re.MULTILINE)
+TASK_PRIORITY_FIELD_PATTERN = re.compile(r"^- Priority: (?P<value>\d+)$", re.MULTILINE)
+TASK_DEPENDENCIES_FIELD_PATTERN = re.compile(
+    r"^- Depends on: (?P<value>[^\r\n]+)$",
     re.MULTILINE,
 )
+TASK_STATUSES = frozenset({"pending", "completed", "blocked"})
+
+
+@dataclass(frozen=True)
+class _RalphTask:
+    """Task metadata required for Ralph progress and selection.
+
+    Attributes
+    ----------
+    task_id : str
+        Stable ``TASK-XXX`` identifier.
+    status : str
+        Current task ledger status.
+    priority : int
+        Numeric task selection priority.
+    dependencies : tuple[str, ...]
+        Task identifiers that must be completed first.
+    """
+
+    task_id: str
+    status: str
+    priority: int
+    dependencies: tuple[str, ...]
 
 
 class ExitCode(IntEnum):
@@ -230,8 +262,72 @@ def _classify_output(message: str) -> tuple[str, str | None]:
     raise ValueError(f"invalid Ralph status line: {token!r}")
 
 
-def _task_progress(tasks_path: Path) -> tuple[int, int]:
-    """Return remaining and total task counts from a Ralph task file.
+def _validate_selected_task(
+    status: str,
+    reported_task_id: str | None,
+    selected_task_id: str | None,
+) -> None:
+    """Validate that Codex processed the task selected before its launch.
+
+    Parameters
+    ----------
+    status : str
+        Classified Ralph terminal status.
+    reported_task_id : str | None
+        Task identifier reported by Codex, if present.
+    selected_task_id : str | None
+        Task identifier selected from the pre-launch ledger.
+
+    Raises
+    ------
+    ValueError
+        If the terminal status contradicts the pre-launch selection.
+    """
+    if status == "all-completed":
+        if selected_task_id is not None:
+            raise ValueError(
+                f"Codex reported all tasks completed while {selected_task_id} "
+                "was eligible"
+            )
+        return
+    if reported_task_id != selected_task_id:
+        raise ValueError(
+            f"Codex reported {reported_task_id}, expected {selected_task_id}"
+        )
+
+
+def _require_task_field(pattern: re.Pattern[str], body: str, field: str, task_id: str) -> str:
+    """Return one required task field from a task section.
+
+    Parameters
+    ----------
+    pattern : re.Pattern[str]
+        Compiled pattern containing a named ``value`` group.
+    body : str
+        Markdown content belonging to one task.
+    field : str
+        Human-readable field name for an error message.
+    task_id : str
+        Identifier of the task being parsed.
+
+    Returns
+    -------
+    str
+        Parsed field value.
+
+    Raises
+    ------
+    ValueError
+        If the required field is absent.
+    """
+    match = pattern.search(body)
+    if match is None:
+        raise ValueError(f"{task_id} has no {field} field")
+    return match.group("value")
+
+
+def _read_ralph_tasks(tasks_path: Path) -> tuple[_RalphTask, ...]:
+    """Read task metadata used by the Ralph runner.
 
     Parameters
     ----------
@@ -240,20 +336,111 @@ def _task_progress(tasks_path: Path) -> tuple[int, int]:
 
     Returns
     -------
-    tuple[int, int]
-        Number of tasks not yet completed and total task count.
+    tuple[_RalphTask, ...]
+        Parsed task metadata in ledger order.
 
     Raises
     ------
     ValueError
-        If the file does not contain any task status fields.
+        If task metadata is missing, duplicated, or invalid.
     """
-    statuses = [match.group("status") for match in TASK_STATUS_PATTERN.finditer(
-        tasks_path.read_text(encoding="utf-8")
-    )]
-    if not statuses:
-        raise ValueError(f"no task statuses found: {tasks_path}")
-    return sum(status != "completed" for status in statuses), len(statuses)
+    text = tasks_path.read_text(encoding="utf-8")
+    tasks: list[_RalphTask] = []
+    for section in TASK_SECTION_PATTERN.finditer(text):
+        task_id = section.group("task_id")
+        body = section.group("body")
+        status = _require_task_field(
+            TASK_STATUS_FIELD_PATTERN,
+            body,
+            "Status",
+            task_id,
+        )
+        if status not in TASK_STATUSES:
+            raise ValueError(f"{task_id} has invalid status: {status}")
+        priority = int(
+            _require_task_field(
+                TASK_PRIORITY_FIELD_PATTERN,
+                body,
+                "Priority",
+                task_id,
+            )
+        )
+        dependency_field = _require_task_field(
+            TASK_DEPENDENCIES_FIELD_PATTERN,
+            body,
+            "Depends on",
+            task_id,
+        )
+        dependencies = (
+            ()
+            if dependency_field == "none"
+            else tuple(value.strip() for value in dependency_field.split(","))
+        )
+        if any(TASK_ID_PATTERN.fullmatch(value) is None for value in dependencies):
+            raise ValueError(f"{task_id} has invalid dependencies: {dependency_field}")
+        tasks.append(_RalphTask(task_id, status, priority, dependencies))
+
+    if not tasks:
+        raise ValueError(f"no tasks found: {tasks_path}")
+    task_ids = {task.task_id for task in tasks}
+    if len(task_ids) != len(tasks):
+        raise ValueError(f"duplicate task IDs found: {tasks_path}")
+    missing_dependencies = {
+        dependency
+        for task in tasks
+        for dependency in task.dependencies
+        if dependency not in task_ids
+    }
+    if missing_dependencies:
+        missing = ", ".join(sorted(missing_dependencies))
+        raise ValueError(f"unknown task dependencies: {missing}")
+    return tuple(tasks)
+
+
+def _task_snapshot(tasks_path: Path) -> tuple[int, int, str | None]:
+    """Return task counts and the next eligible task identifier.
+
+    Parameters
+    ----------
+    tasks_path : Path
+        UTF-8 Ralph task ledger.
+
+    Returns
+    -------
+    tuple[int, int, str | None]
+        Incomplete count, total count, and next eligible task identifier.
+    """
+    tasks = _read_ralph_tasks(tasks_path)
+    statuses = {task.task_id: task.status for task in tasks}
+    candidates = [
+        task
+        for task in tasks
+        if task.status == "pending"
+        and all(statuses[dependency] == "completed" for dependency in task.dependencies)
+    ]
+    selected = min(candidates, key=lambda task: (task.priority, task.task_id), default=None)
+    return (
+        sum(task.status != "completed" for task in tasks),
+        len(tasks),
+        selected.task_id if selected is not None else None,
+    )
+
+
+def _task_progress(tasks_path: Path) -> tuple[int, int]:
+    """Return incomplete and total task counts from a Ralph task file.
+
+    Parameters
+    ----------
+    tasks_path : Path
+        UTF-8 Ralph task ledger.
+
+    Returns
+    -------
+    tuple[int, int]
+        Number of incomplete tasks and total task count.
+    """
+    incomplete, total, _ = _task_snapshot(tasks_path)
+    return incomplete, total
 
 
 def _resolve_codex_executable(executable: str) -> str | None:
@@ -431,7 +618,7 @@ def _finalize_log(
         timestamp += timedelta(seconds=1)
 
 
-def run(
+def _run(
     repo: Path,
     prompt_path: Path,
     max_loops: int,
@@ -493,7 +680,26 @@ def run(
     logs_directory = repo / "logs"
     logs_directory.mkdir(exist_ok=True)
 
+    try:
+        incomplete_tasks, total_tasks, selected_task_id = _task_snapshot(tasks_path)
+    except (OSError, UnicodeError, ValueError) as error:
+        logger.error("{}", error)
+        return ExitCode.PREFLIGHT_ERROR
+    logger.info(
+        "Incompleted tasks: {} / All tasks: {}",
+        incomplete_tasks,
+        total_tasks,
+    )
+    logger.info("Total loops: {}", max_loops)
+
     for loop_number in range(1, max_loops + 1):
+        logger.info("Ralph loop start ({}/{})", loop_number, max_loops)
+        if loop_number > 1:
+            try:
+                _, _, selected_task_id = _task_snapshot(tasks_path)
+            except (OSError, UnicodeError, ValueError) as error:
+                logger.error("{}", error)
+                return ExitCode.PREFLIGHT_ERROR
         before = _require_git_output(repo, "rev-parse", "HEAD")
         started_at = datetime.now(tz=UTC).astimezone()
         codex_environment = _build_codex_environment(repo)
@@ -520,14 +726,8 @@ def run(
             delete=False,
         ) as log_file:
             temporary_log_path = Path(log_file.name)
-        try:
-            remaining_tasks, total_tasks = _task_progress(tasks_path)
-        except (OSError, UnicodeError, ValueError) as error:
-            output_path.unlink(missing_ok=True)
-            temporary_log_path.unlink(missing_ok=True)
-            logger.error("{}", error)
-            return ExitCode.PREFLIGHT_ERROR
-        logger.info("Ralph tasks {}/{} started", remaining_tasks, total_tasks)
+        if selected_task_id is not None:
+            logger.info("Ralph task {} started", selected_task_id)
         if dry_run:
             print(subprocess.list2cmdline(command))
             output_path.unlink(missing_ok=True)
@@ -557,6 +757,7 @@ def run(
                 return ExitCode.CODEX_FAILURE
             message = output_path.read_text(encoding="utf-8")
             status, task_id = _classify_output(message)
+            _validate_selected_task(status, task_id, selected_task_id)
         except (OSError, UnicodeError, ValueError) as error:
             log_path = _finalize_log(
                 temporary_log_path,
@@ -699,6 +900,54 @@ def run(
 
     logger.warning("Stopped after reaching the {}-loop limit", max_loops)
     return ExitCode.MAX_LOOPS_REACHED
+
+
+def run(
+    repo: Path,
+    prompt_path: Path,
+    max_loops: int,
+    codex_executable: str,
+    model: str | None = None,
+    auto_approve: bool = False,
+    dry_run: bool = False,
+) -> ExitCode:
+    """Run Ralph with one pair of runner lifecycle log messages.
+
+    Parameters
+    ----------
+    repo : Path
+        Git repository to modify.
+    prompt_path : Path
+        UTF-8 prompt file used for every loop.
+    max_loops : int
+        Maximum number of Codex processes to start.
+    codex_executable : str
+        Codex executable name or path.
+    model : str | None, default None
+        Optional model override.
+    auto_approve : bool, default False
+        Automatically approve Codex requests in the workspace-write sandbox.
+    dry_run : bool, default False
+        Validate inputs and print the command without invoking Codex.
+
+    Returns
+    -------
+    ExitCode
+        Runner outcome.
+    """
+    logger.info("Ralph runner start")
+    try:
+        return _run(
+            repo=repo,
+            prompt_path=prompt_path,
+            max_loops=max_loops,
+            codex_executable=codex_executable,
+            model=model,
+            auto_approve=auto_approve,
+            dry_run=dry_run,
+        )
+    finally:
+        logger.info("Ralph runner end")
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

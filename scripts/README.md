@@ -52,11 +52,31 @@ uv run -m scripts.ralph_runner --help
 ## 1 loopの流れ
 
 1. Git rootとclean working treeを確認する。
-2. `scripts/ralph_prompt.md`を渡して`codex exec`を1回実行し、`RALPH.md`、
+2. `TASKS.md`から依存関係、priority、task IDの順に着手taskを決定する。
+3. `scripts/ralph_prompt.md`を渡して`codex exec`を1回実行し、`RALPH.md`、
    `RALPH_PROJECT.md`、残りのプロジェクト文書を所定の順序で読み込ませる。
-3. 最終メッセージの最後の非空行を`RALPH.md`の終了トークンとして検証する。
-4. Codexがcommitしていないことを確認し、runnerが当該loopの変更をステージして1コミットする。続けてGitがcleanであることと、新しいコミット数を検証する。
-5. `TASK_COMPLETED: TASK-XXX`なら次loopを開始し、それ以外では停止する。
+4. 最終メッセージの最後の非空行を`RALPH.md`の終了トークンとして検証し、
+   事前に決定したtask IDと一致することを確認する。
+5. Codexがcommitしていないことを確認し、runnerが当該loopの変更をステージして1コミットする。続けてGitがcleanであることと、新しいコミット数を検証する。
+6. `TASK_COMPLETED: TASK-XXX`なら次loopを開始し、それ以外では停止する。
+
+## terminalログ
+
+runner全体の開始時に未完了task数、全task数、loop上限を表示し、終了経路に
+かかわらず最後に終了を表示します。各loopではloop番号を表示し、着手可能なtaskが
+決定した場合はCodex起動前にtask IDを表示します。
+
+```text
+Ralph runner start
+Incompleted tasks: 3 / All tasks: 9
+Total loops: 20
+Ralph loop start (1/20)
+Ralph task TASK-007 started
+Ralph runner end
+```
+
+これらのstatusログはLoguruを介してterminalへ出力されます。`--dry-run`で表示する
+Codexコマンド文字列だけは、実行対象そのものを確認する出力として`print()`を使います。
 
 デフォルトでは`workspace-write` sandboxを使い、Codexからの確認を受けます。
 無人実行が必要な場合だけ`--auto-approve`を指定してください。この場合は

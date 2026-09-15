@@ -88,7 +88,8 @@ def test_ralph_main_uses_formatted_console_logging(
 
     captured = capsys.readouterr()
     assert exit_code == ExitCode.PREFLIGHT_ERROR
-    assert captured.out == ""
+    assert captured.out.count("Ralph runner start") == 1
+    assert captured.out.count("Ralph runner end") == 1
     assert "ERROR" in captured.err
     assert "--max-loops must be at least 1" in captured.err
     assert re.search(r"ralph_runner\.py:\d+", captured.err)

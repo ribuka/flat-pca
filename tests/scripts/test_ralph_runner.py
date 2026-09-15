@@ -15,6 +15,9 @@ from scripts.ralph_runner import (
     _resolve_codex_executable,
     _run_codex,
     _task_progress,
+    _task_snapshot,
+    _validate_selected_task,
+    run,
 )
 
 
@@ -52,6 +55,12 @@ def test_classify_output_rejects_invalid_terminal_status(message: str) -> None:
         _classify_output(message)
 
 
+def test_validate_selected_task_rejects_a_different_reported_task() -> None:
+    """Reject a terminal token for a task other than the pre-launch selection."""
+    with pytest.raises(ValueError, match="reported TASK-003, expected TASK-002"):
+        _validate_selected_task("completed", "TASK-003", "TASK-002")
+
+
 def test_task_progress_counts_uncompleted_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
     """Count every task while treating only completed status as resolved."""
     task_file = Path("TASKS.md")
@@ -61,17 +70,118 @@ def test_task_progress_counts_uncompleted_tasks(monkeypatch: pytest.MonkeyPatch)
         lambda path, *, encoding: """## TASK-001: first
 
 - Status: completed
+- Priority: 1
+- Depends on: none
 
 ## TASK-002: second
 
 - Status: pending
+- Priority: 2
+- Depends on: TASK-001
 
 ## TASK-003: third
 
-- Status: blocked""",
+- Status: blocked
+- Priority: 3
+- Depends on: TASK-002""",
     )
 
     assert _task_progress(task_file) == (2, 3)
+
+
+def test_task_snapshot_selects_by_dependencies_priority_and_id(tmp_path: Path) -> None:
+    """Select the lowest-priority eligible task and use its ID as a tie-breaker."""
+    task_file = tmp_path / "TASKS.md"
+    task_file.write_text(
+        """## TASK-001: completed dependency
+
+- Status: completed
+- Priority: 1
+- Depends on: none
+
+## TASK-004: blocked by an incomplete dependency
+
+- Status: pending
+- Priority: 1
+- Depends on: TASK-003
+
+## TASK-003: eligible later ID
+
+- Status: pending
+- Priority: 2
+- Depends on: TASK-001
+
+## TASK-002: eligible earlier ID
+
+- Status: pending
+- Priority: 2
+- Depends on: TASK-001
+""",
+        encoding="utf-8",
+    )
+
+    assert _task_snapshot(task_file) == (3, 4, "TASK-002")
+
+
+def test_run_logs_runner_progress_loop_and_selected_task_once(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Log the agreed lifecycle and selected task before a dry-run command."""
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("one loop", encoding="utf-8")
+    (tmp_path / "TASKS.md").write_text(
+        """## TASK-001: completed
+
+- Status: completed
+- Priority: 1
+- Depends on: none
+
+## TASK-002: next
+
+- Status: pending
+- Priority: 2
+- Depends on: TASK-001
+""",
+        encoding="utf-8",
+    )
+    messages: list[str] = []
+
+    def fake_git_output(repo: Path, *args: str) -> str:
+        """Return the values required by dry-run Git preflight."""
+        if args == ("rev-parse", "--show-toplevel"):
+            return str(repo)
+        if args == ("rev-parse", "HEAD"):
+            return "before"
+        raise AssertionError(args)
+
+    def record_info(message: str, *args: object) -> None:
+        """Record a rendered Loguru-style informational message."""
+        messages.append(message.format(*args))
+
+    monkeypatch.setattr("scripts.ralph_runner._resolve_codex_executable", lambda value: value)
+    monkeypatch.setattr("scripts.ralph_runner._require_git_output", fake_git_output)
+    monkeypatch.setattr("scripts.ralph_runner._require_clean_worktree", lambda repo: None)
+    monkeypatch.setattr("scripts.ralph_runner._build_codex_environment", lambda repo: {})
+    monkeypatch.setattr("scripts.ralph_runner.logger.info", record_info)
+
+    result = run(
+        repo=tmp_path,
+        prompt_path=prompt_path,
+        max_loops=3,
+        codex_executable="codex",
+        dry_run=True,
+    )
+
+    assert result == 0
+    assert messages == [
+        "Ralph runner start",
+        "Incompleted tasks: 1 / All tasks: 2",
+        "Total loops: 3",
+        "Ralph loop start (1/3)",
+        "Ralph task TASK-002 started",
+        "Ralph runner end",
+    ]
 
 
 def test_resolve_codex_executable_uses_which_absolute_path(
