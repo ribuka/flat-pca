@@ -25,6 +25,19 @@ before marking the task as completed.
 - Use fully synthetic data only for a minimal test case that cannot be expressed
   from the real fixture. Document the reason in the test docstring or a comment.
 
+### Architecture and maintainability
+
+- Keep one primary responsibility per Python module.
+- NEVER append a distinct responsibility to an existing module; create a focused
+  module or package instead.
+- Split independently testable stages such as input, validation, preprocessing,
+  transformation, and orchestration into cohesive modules when appropriate.
+- Keep public API modules and `__init__.py` files thin, explicitly re-export
+  public symbols, and preserve documented import paths during refactoring.
+- NEVER introduce circular imports or generic catch-all modules such as `utils.py`.
+- Organize tests by responsibility and share setup through narrowly scoped pytest
+  fixtures. NEVER split modules based on line count alone.
+
 ## Temporary files
 
 - Create all temporary scripts and investigation files under `tmp/` at the repository root.

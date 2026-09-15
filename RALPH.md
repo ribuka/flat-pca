@@ -38,18 +38,31 @@ If all incomplete tasks are blocked by dependencies, make no changes and end the
 
 1. Read the selected task's `requirements`, `tests`, and `acceptance_commands`.
 2. Search the codebase to check whether the requirements are already implemented.
-3. Add or update tests that verify the task requirements.
+3. Identify the responsibilities of the source and test files that will be
+   changed. If the selected task adds a distinct responsibility, determine
+   whether it belongs in a new module or package before implementing it.
+4. Add or update tests that verify the task requirements.
 
    * For Flatten-PCA tasks, include at least one test that loads `tests/fixtures/real_subset`, as required by `AGENTS.md`.
-4. Run the relevant tests and confirm they fail appropriately for unimplemented requirements.
-5. Implement only the minimum changes required for the selected task.
-6. Run the relevant tests again.
-7. Run all `acceptance_commands` defined for the task.
-8. Verify every `requirement` against the implementation and tests.
-9. Change the selected task's `Status` to `completed` only if all completion criteria are met.
-10. Append the loop result to `PROGRESS.md` in English.
-11. Review only the files changed in this loop. The automated runner creates the
-   required single Git commit after validating the loop result, then ends the loop.
+5. Run the relevant tests and confirm they fail appropriately for unimplemented requirements.
+6. Implement only the minimum changes required for the selected task.
+7. Run the relevant tests again.
+8. Run all `acceptance_commands` defined for the task.
+9. Verify every `requirement` against the implementation and tests.
+10. Change the selected task's `Status` to `completed` only if all completion criteria are met.
+11. Append the loop result to `PROGRESS.md` in English.
+12. Review only the files changed in this loop, including the following
+    maintainability checks:
+
+    * Each module has a clear primary responsibility.
+    * Public API modules are thin and contain no avoidable implementation details.
+    * Dependencies follow one direction and introduce no circular imports.
+    * Tests are organized by the behavior they verify.
+    * No dead code, compatibility shim, or generic helper module was introduced
+      without a documented need.
+
+    The automated runner creates the required single Git commit after validating
+    the loop result, then ends the loop.
 
 NEVER weaken requirements or delete, skip, or xfail tests only to make tests pass.
 
@@ -64,6 +77,9 @@ The selected task is complete only if all of the following are true:
 * All `acceptance_commands` exit with code 0.
 * No unrelated functionality or public API is changed.
 * No temporary debug code, generated artifacts, or unused files remain.
+* Changed modules have clear responsibility boundaries consistent with
+  `AGENTS.md`.
+* Public import paths remain compatible unless the task explicitly changes them.
 
 Passing tests alone does not mean the task is complete if requirement verification fails.
 
