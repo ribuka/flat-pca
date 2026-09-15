@@ -9,3 +9,11 @@ Append Ralph loop results in English using the format defined in `RALPH.md`.
 - Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` (13 passed); `uv run -m pytest` (31 passed); `uv run -m ruff check .` (passed).
 - Requirements: Verified one-or-more path handling and deterministic normalized ordering; missing paths and duplicate stems are rejected; metadata and spectral schemas are validated; null, NaN, infinity, and duplicate keys are rejected; wavelength and metadata-key sets must match across files.
 - Notes: TASK-002 is now unblocked. Pytest temporary and cache paths were directed under repository `tmp/` for this environment; no fixture Parquet files were modified.
+
+## 2026-09-15 20:38 - TASK-002
+
+- Result: completed
+- Changes: Added centered t-direction smoothing for validated spectral frames, using closed real-Time windows within separate `(Step, Sequence)` groups while preserving row order, metadata, and shape. Added real-fixture tests for neighboring and isolated observations, unequal Time spacing, group isolation, disabled smoothing, and invalid window widths.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py -k t_smoothing` (8 passed); `uv run -m pytest` with repository `tmp` ignored during collection (41 passed); `uv run -m ruff check .` (passed).
+- Requirements: Verified that `None` preserves the input; only positive finite half-window widths are accepted; spectral values use arithmetic means over centered closed real-Time intervals per `(Step, Sequence, wavelength)`; unequal spacing, interval endpoints, and group boundaries are respected; metadata, row count, wavelength count, and column order are preserved.
+- Notes: TASK-003 is the next eligible task. The full test run ignored existing access-restricted pytest directories under repository `tmp`; no fixture Parquet files were modified.

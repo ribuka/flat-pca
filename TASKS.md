@@ -32,7 +32,7 @@
 
 ## TASK-002: t方向smoothing
 
-- Status: pending
+- Status: completed
 - Priority: 2
 - Depends on: TASK-001
 

@@ -1,11 +1,15 @@
 """Tests for Flatten-PCA input loading and validation."""
 
+from itertools import pairwise
 from pathlib import Path
 
 import polars as pl
 import pytest
 
-from spca.feature_engineering.flatten_pca import _load_and_validate_inputs
+from spca.feature_engineering.flatten_pca import (
+    _apply_t_smoothing,
+    _load_and_validate_inputs,
+)
 
 FIXTURE_DIRECTORY = Path("tests/fixtures/real_subset")
 METADATA_COLUMNS = {"Time", "Step", "Sequence"}
@@ -168,3 +172,74 @@ def test_rejects_wavelength_and_key_mismatches_between_files(tmp_path: Path) -> 
         _load_and_validate_inputs([baseline, bad_wavelengths])
     with pytest.raises(ValueError, match="metadata-key sets"):
         _load_and_validate_inputs([baseline, bad_keys])
+
+
+def test_t_smoothing_uses_closed_real_time_windows_on_real_fixture() -> None:
+    """Average adjacent real observations without assuming equal Time spacing."""
+    frame = pl.read_parquet(_fixture_paths()[0]).sort("Time")
+    wavelength = next(
+        column for column in frame.columns if column not in METADATA_COLUMNS
+    )
+    times = frame["Time"].to_list()
+    gaps = [right - left for left, right in pairwise(times)]
+    window = min(gaps)
+
+    without_neighbors = _apply_t_smoothing(frame, window / 2)
+    with_neighbors = _apply_t_smoothing(frame, window)
+    expected = [
+        frame.filter(
+            (pl.col("Time") >= time - window)
+            & (pl.col("Time") <= time + window)
+        )[wavelength].mean()
+        for time in times
+    ]
+
+    assert len(set(gaps)) > 1
+    assert without_neighbors.equals(frame)
+    assert with_neighbors[wavelength].to_list() == pytest.approx(expected)
+    assert with_neighbors.select("Time", "Step", "Sequence").equals(
+        frame.select("Time", "Step", "Sequence")
+    )
+    assert with_neighbors.shape == frame.shape
+
+
+def test_t_smoothing_keeps_step_and_sequence_groups_separate() -> None:
+    """Keep nearby rows in different Step or Sequence groups isolated."""
+    frame = pl.read_parquet(_fixture_paths()[0]).head(4).with_columns(
+        pl.Series("Time", [0.0, 1.0, 1.0, 2.0]),
+        pl.Series("Step", [0, 0, 1, 1]),
+        pl.Series("Sequence", [0, 1, 0, 0]),
+    )
+    wavelength = next(
+        column for column in frame.columns if column not in METADATA_COLUMNS
+    )
+
+    smoothed = _apply_t_smoothing(frame, 1.0)
+
+    assert smoothed[wavelength][0] == pytest.approx(frame[wavelength][0])
+    assert smoothed[wavelength][1] == pytest.approx(frame[wavelength][1])
+    assert smoothed[wavelength][2] == pytest.approx(
+        frame[wavelength].slice(2, 2).mean()
+    )
+    assert smoothed[wavelength][3] == pytest.approx(
+        frame[wavelength].slice(2, 2).mean()
+    )
+
+
+def test_t_smoothing_none_preserves_real_fixture() -> None:
+    """Return the validated real fixture unchanged when smoothing is disabled."""
+    frame = pl.read_parquet(_fixture_paths()[0])
+
+    assert _apply_t_smoothing(frame, None).equals(frame)
+
+
+@pytest.mark.parametrize(
+    "window",
+    [0.0, -1.0, float("nan"), float("inf"), float("-inf")],
+)
+def test_t_smoothing_rejects_invalid_windows(window: float) -> None:
+    """Reject nonpositive and nonfinite t-smoothing half-window widths."""
+    frame = pl.read_parquet(_fixture_paths()[0])
+
+    with pytest.raises(ValueError, match="t_smoothing_window"):
+        _apply_t_smoothing(frame, window)

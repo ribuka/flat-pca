@@ -6,9 +6,73 @@ from collections.abc import Sequence
 from math import isfinite
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 
 _METADATA_COLUMNS = ("Time", "Step", "Sequence")
+
+
+def _apply_t_smoothing(
+    frame: pl.DataFrame,
+    t_smoothing_window: float | None,
+) -> pl.DataFrame:
+    """Smooth spectral intensities within centered real-Time windows.
+
+    Parameters
+    ----------
+    frame : pl.DataFrame
+        Validated Flatten-PCA input containing metadata and wavelength columns.
+    t_smoothing_window : float | None
+        Positive finite half-window width in the same units as ``Time``. If
+        ``None``, smoothing is disabled.
+
+    Returns
+    -------
+    pl.DataFrame
+        Input rows and metadata with wavelength intensities replaced by the
+        arithmetic mean in each closed Time window and metadata group.
+
+    Raises
+    ------
+    ValueError
+        If ``t_smoothing_window`` is not finite and greater than zero.
+    """
+    if t_smoothing_window is None:
+        return frame
+    try:
+        window = float(t_smoothing_window)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "t_smoothing_window must be finite and greater than 0"
+        ) from error
+    if isinstance(t_smoothing_window, bool) or not isfinite(window) or window <= 0:
+        raise ValueError("t_smoothing_window must be finite and greater than 0")
+
+    wavelength_columns = [
+        column for column in frame.columns if column not in _METADATA_COLUMNS
+    ]
+    source_values = frame.select(wavelength_columns).to_numpy().astype(
+        float,
+        copy=False,
+    )
+    smoothed_values = source_values.copy()
+    times = frame["Time"].cast(pl.Float64).to_numpy()
+    groups: dict[tuple[object, object], list[int]] = {}
+    for row_index, group in enumerate(frame.select("Step", "Sequence").iter_rows()):
+        groups.setdefault(group, []).append(row_index)
+
+    for indices in groups.values():
+        group_indices = np.asarray(indices)
+        group_times = times[group_indices]
+        group_values = source_values[group_indices]
+        for local_index, row_index in enumerate(indices):
+            in_window = np.abs(group_times - group_times[local_index]) <= window
+            smoothed_values[row_index] = group_values[in_window].mean(axis=0)
+
+    return frame.with_columns(
+        pl.Series(column, smoothed_values[:, column_index])
+        for column_index, column in enumerate(wavelength_columns)
+    )
 
 
 def _parse_wavelength(column: str) -> float:
