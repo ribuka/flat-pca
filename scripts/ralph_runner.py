@@ -178,6 +178,29 @@ def _classify_output(message: str) -> tuple[str, str | None]:
     raise ValueError(f"invalid Ralph status line: {token!r}")
 
 
+def _resolve_codex_executable(executable: str) -> str | None:
+    """Resolve a Codex executable name to an absolute executable path.
+
+    Parameters
+    ----------
+    executable : str
+        Codex executable name or path.
+
+    Returns
+    -------
+    str | None
+        Absolute executable path, or ``None`` when it cannot be found.
+    """
+    executable_path = Path(executable)
+    if executable_path.is_file():
+        return str(executable_path.resolve())
+
+    resolved_path = shutil.which(executable)
+    if resolved_path is None:
+        return None
+    return str(Path(resolved_path).resolve())
+
+
 def _build_codex_command(
     executable: str,
     repo: Path,
@@ -261,7 +284,8 @@ def run(
     if not prompt_path.is_file():
         print(f"error: prompt file does not exist: {prompt_path}", file=sys.stderr)
         return ExitCode.PREFLIGHT_ERROR
-    if shutil.which(codex_executable) is None and not Path(codex_executable).is_file():
+    resolved_codex_executable = _resolve_codex_executable(codex_executable)
+    if resolved_codex_executable is None:
         print(f"error: Codex executable not found: {codex_executable}", file=sys.stderr)
         return ExitCode.PREFLIGHT_ERROR
 
@@ -289,7 +313,7 @@ def run(
             output_path = Path(output_file.name)
 
         command = _build_codex_command(
-            codex_executable,
+            resolved_codex_executable,
             repo,
             output_path,
             prompt,

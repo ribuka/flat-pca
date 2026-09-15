@@ -4,7 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from scripts.ralph_runner import _build_codex_command, _classify_output
+from scripts.ralph_runner import (
+    _build_codex_command,
+    _classify_output,
+    _resolve_codex_executable,
+)
 
 
 @pytest.mark.parametrize(
@@ -39,6 +43,19 @@ def test_classify_output_rejects_invalid_terminal_status(message: str) -> None:
     """Reject missing, malformed, or non-terminal Ralph status tokens."""
     with pytest.raises(ValueError, match="invalid Ralph status line"):
         _classify_output(message)
+
+
+def test_resolve_codex_executable_uses_which_absolute_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Use the path resolved during preflight to launch the Codex subprocess."""
+    executable_path = Path("C:/tools/codex.exe")
+    monkeypatch.setattr(
+        "scripts.ralph_runner.shutil.which",
+        lambda executable: str(executable_path),
+    )
+
+    assert _resolve_codex_executable("codex") == str(executable_path.resolve())
 
 
 def test_build_codex_command_uses_safe_non_interactive_options() -> None:
