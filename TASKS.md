@@ -4,7 +4,7 @@
 
 ## TASK-001: Parquet入力の読み込みと検証
 
-- Status: pending
+- Status: completed
 - Priority: 1
 - Depends on: none
 
