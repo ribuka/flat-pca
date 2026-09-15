@@ -17,7 +17,7 @@ Do not invent requirements that are not documented. If specifications conflict, 
 ## Task selection
 
 1. Consider only tasks with `Status: pending`.
-2. Confirm that all tasks listed in `depends_on` are `completed`.
+2. Confirm that all tasks listed in `Depends on` are `completed`.
 3. Select the task with the lowest `priority`.
 4. If multiple tasks have the same priority, select the lowest `id`.
 5. Select, implement, and complete only one task per loop.
