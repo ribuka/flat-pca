@@ -5,7 +5,6 @@ from typing import Literal
 
 import polars as pl
 
-
 ScalingStrategy = Literal["none", "z-score", "minmax", "robust"]
 
 

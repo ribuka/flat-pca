@@ -4,7 +4,7 @@ from typing import Literal
 
 import polars as pl
 
-OutlierStrategy = Literal[None, "winsorize", "drop"]
+OutlierStrategy = Literal["winsorize", "drop"] | None
 
 
 def _compute_outlier_bounds(

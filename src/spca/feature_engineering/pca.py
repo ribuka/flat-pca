@@ -50,7 +50,7 @@ class PcaModel:
 
     def get_feature_contribution_ranking(
         self,
-        cumulative_explained_variance: float | int | None = None,
+        cumulative_explained_variance: float | None = None,
         include_component_breakdown: bool = False,
         component_prefix: str = "contribution_pc",
     ) -> pl.DataFrame:
