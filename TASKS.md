@@ -212,7 +212,7 @@
 
 ## TASK-009: Flatten-PCA実装の責務分割
 
-- Status: pending
+- Status: completed
 - Priority: 9
 - Depends on: TASK-008
 
