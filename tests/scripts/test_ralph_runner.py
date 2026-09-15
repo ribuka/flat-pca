@@ -10,6 +10,7 @@ from scripts.ralph_runner import (
     _classify_output,
     _commit_loop_changes,
     _resolve_codex_executable,
+    _run_codex,
 )
 
 
@@ -108,6 +109,35 @@ def test_build_codex_command_auto_approves_only_when_requested() -> None:
         "--approve-for-me",
         "one loop",
     ]
+
+
+def test_run_codex_writes_combined_output_to_loop_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Keep Codex output out of the terminal while preserving it in the log."""
+
+    def fake_run(
+        command: list[str],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        """Write representative Codex output to the configured log stream."""
+        stdout = kwargs["stdout"]
+        assert hasattr(stdout, "write")
+        stdout.write("standard output\nstandard error\n")  # type: ignore[union-attr]
+        assert kwargs["stderr"] is subprocess.STDOUT
+        assert kwargs["cwd"] == tmp_path
+        assert kwargs["check"] is False
+        assert kwargs["text"] is True
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("scripts.ralph_runner.subprocess.run", fake_run)
+    log_path = tmp_path / "loop_001.log"
+
+    completed = _run_codex(["codex", "exec"], tmp_path, log_path)
+
+    assert completed.returncode == 0
+    assert log_path.read_text(encoding="utf-8") == "standard output\nstandard error\n"
 
 
 def test_commit_loop_changes_stages_and_commits_completed_task(

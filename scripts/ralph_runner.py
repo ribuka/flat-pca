@@ -293,6 +293,34 @@ def _build_codex_command(
     return command
 
 
+def _run_codex(command: Sequence[str], repo: Path, log_path: Path) -> subprocess.CompletedProcess[str]:
+    """Run Codex and write its combined output to a loop log.
+
+    Parameters
+    ----------
+    command : Sequence[str]
+        Codex subprocess argument vector.
+    repo : Path
+        Repository working directory.
+    log_path : Path
+        File receiving Codex standard output and standard error.
+
+    Returns
+    -------
+    subprocess.CompletedProcess[str]
+        Completed Codex process.
+    """
+    with log_path.open("w", encoding="utf-8") as log_file:
+        return subprocess.run(
+            command,
+            cwd=repo,
+            check=False,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+
+
 def run(
     repo: Path,
     prompt_path: Path,
@@ -351,6 +379,8 @@ def run(
     prompt = prompt_path.read_text(encoding="utf-8")
     temp_directory = repo / "tmp"
     temp_directory.mkdir(exist_ok=True)
+    logs_directory = repo / "logs"
+    logs_directory.mkdir(exist_ok=True)
 
     for loop_number in range(1, max_loops + 1):
         before = _require_git_output(repo, "rev-parse", "HEAD")
@@ -370,17 +400,19 @@ def run(
             model,
             auto_approve,
         )
-        print(f"Ralph loop {loop_number}/{max_loops}")
+        log_path = logs_directory / f"loop_{loop_number:03d}.log"
+        print(f"Ralph loop {loop_number}/{max_loops} started ({log_path.relative_to(repo)})")
         if dry_run:
             print(subprocess.list2cmdline(command))
             output_path.unlink(missing_ok=True)
             return ExitCode.SUCCESS
 
         try:
-            completed = subprocess.run(command, cwd=repo, check=False)
+            completed = _run_codex(command, repo, log_path)
             if completed.returncode != 0:
                 print(
-                    f"error: Codex exited with code {completed.returncode}",
+                    f"error: Codex exited with code {completed.returncode}; "
+                    f"see {log_path.relative_to(repo)}",
                     file=sys.stderr,
                 )
                 return ExitCode.CODEX_FAILURE
