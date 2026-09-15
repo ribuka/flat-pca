@@ -16,7 +16,7 @@
 def flatten_pca(
     paths: Sequence[str | Path],
     *,
-    n_component: int,
+    n_component: int | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
@@ -26,7 +26,7 @@ def flatten_pca(
 ```
 
 - `paths`は1個以上のParquetファイルへのパスとする。
-- `n_component`は1以上かつ`min(n_samples, n_features)`以下の整数とする。
+- `n_component`は1以上かつ`min(n_samples, n_features)`以下の整数、または`None`とする。`None`の場合はこの上限を使用する。
 - `t_smoothing_window`はt方向smoothingの片側窓幅をTimeと同じ単位で指定し、`None`の場合は適用しない。
 - `w_smoothing_window`はw方向smoothingの片側窓幅を波長と同じ単位で指定し、`None`の場合は適用しない。
 - `t_normalization_range`はt方向規格化に用いる閉区間`(t1, t2)`を指定し、`None`の場合は適用しない。
@@ -95,10 +95,10 @@ def flatten_pca(
 - flatten前に、波長、`Step`、`Sequence`、`Time`をそれぞれ数値として昇順に並べる。
 - flatten後の特徴量列は、`(w, s, q, t)`をsort keyとして昇順に並べる。
 - `Sequence`列の値を`q`とする。
-- 特徴量列名は`f"{w}*{s}*{q}_{t}"`の形式とする。
+- 特徴量列名は`f"{w}_{s}_{q}_{t}"`の形式とする。
 - `w`は`f"{v:.1f}nm"`で表現される入力波長列名をそのまま使用する。
 - `s`、`q` は int型で表現する。
-- `t`は `f"{t:.2f}nm"` で表現する。
+- `t`は `f"{t:.2f}"` で表現する。
 - 正規化後の特徴量列名が重複する場合は`ValueError`を送出する。
 - flatten結果`df`の列順は、`filename`、flattenした特徴量列の順とする。
 

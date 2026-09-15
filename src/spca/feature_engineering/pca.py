@@ -15,6 +15,38 @@ from .scaling import ScalingModel, ScalingStrategy, apply_scaler, fit_scaler
 
 @dataclass(frozen=True)
 class PcaModel:
+    """Store a fitted PCA pipeline and its preprocessing state.
+
+    Attributes
+    ----------
+    columns : tuple[str, ...]
+        Feature columns expected by the model.
+    n_component : int
+        Number of fitted principal components.
+    impute_strategy : {"drop", "median"}
+        Missing-value handling strategy.
+    impute_values : dict[str, float]
+        Per-column values used for median imputation.
+    outlier_strategy : OutlierStrategy
+        Fitted outlier-handling strategy.
+    iqr_multiplier : float
+        IQR multiplier used to determine outlier bounds.
+    outlier_lower_bounds : dict[str, float]
+        Per-column lower outlier thresholds.
+    outlier_upper_bounds : dict[str, float]
+        Per-column upper outlier thresholds.
+    winsor_lower_bounds : dict[str, float]
+        Per-column lower clipping bounds.
+    winsor_upper_bounds : dict[str, float]
+        Per-column upper clipping bounds.
+    scaling_model : ScalingModel
+        Fitted feature-scaling state.
+    pca : PCA
+        Fitted scikit-learn PCA estimator.
+    pca_column_names : tuple[str, ...]
+        Output score-column names.
+    """
+
     columns: tuple[str, ...]
     n_component: int
     impute_strategy: Literal["drop", "median"]
@@ -30,7 +62,23 @@ class PcaModel:
     pca_column_names: tuple[str, ...]
 
     def get_component_coefficients(self, component: int) -> pl.DataFrame:
-        """Return feature coefficients for a PCA component sorted by absolute value."""
+        """Return coefficients for one component ordered by absolute value.
+
+        Parameters
+        ----------
+        component : int
+            One-based component number.
+
+        Returns
+        -------
+        pl.DataFrame
+            Feature coefficients sorted by descending absolute magnitude.
+
+        Raises
+        ------
+        ValueError
+            If the component number is outside the fitted component range.
+        """
         if component <= 0:
             raise ValueError("component must be greater than 0")
         if component > self.n_component:
@@ -167,7 +215,13 @@ class PcaModel:
         return ranking_df
 
     def to_transform_payload(self) -> dict[str, object]:
-        """Return JSON-serializable parameters required to reproduce transform."""
+        """Return parameters required to reproduce transformation.
+
+        Returns
+        -------
+        dict[str, object]
+            JSON-serializable preprocessing and PCA state.
+        """
         return {
             "columns": list(self.columns),
             "n_component": self.n_component,
@@ -199,12 +253,29 @@ class PcaModel:
         }
 
     def to_transform_json(self) -> str:
-        """Return transform payload as a JSON string."""
+        """Serialize the transformation state as JSON.
+
+        Returns
+        -------
+        str
+            JSON representation of the preprocessing and PCA state.
+        """
         return json.dumps(self.to_transform_payload(), ensure_ascii=False)
 
     @classmethod
     def from_transform_payload(cls, payload: dict[str, object]) -> PcaModel:
-        """Restore a PcaModel from transform payload data."""
+        """Restore a model from transformation payload data.
+
+        Parameters
+        ----------
+        payload : dict[str, object]
+            State previously produced by :meth:`to_transform_payload`.
+
+        Returns
+        -------
+        PcaModel
+            Reconstructed model ready for transformation.
+        """
         columns = tuple(cast(list[str], payload["columns"]))
         n_component = int(payload["n_component"])
         impute_strategy = cast(
@@ -325,7 +396,18 @@ class PcaModel:
 
     @classmethod
     def from_transform_json(cls, payload_json: str) -> PcaModel:
-        """Restore a PcaModel from transform JSON string."""
+        """Restore a model from serialized transformation state.
+
+        Parameters
+        ----------
+        payload_json : str
+            JSON produced by :meth:`to_transform_json`.
+
+        Returns
+        -------
+        PcaModel
+            Reconstructed model ready for transformation.
+        """
         payload = cast(dict[str, object], json.loads(payload_json))
         return cls.from_transform_payload(payload)
 
@@ -420,7 +502,37 @@ def fit_pca(
     iqr_multiplier: float = 1.5,
     scaling_strategy: ScalingStrategy = "robust",
 ) -> PcaModel:
-    """validate -> impute -> outlier -> scaling -> fit PCA"""
+    """Fit a PCA model with the configured preprocessing pipeline.
+
+    Parameters
+    ----------
+    df : pl.LazyFrame
+        Input data containing the selected feature columns.
+    columns : list[str]
+        Numeric columns used to fit PCA.
+    n_component : int | None, default None
+        Requested component count, or ``None`` to use the configured maximum.
+    max_n_component : int | None, default 100
+        Additional component-count cap, or ``None`` for no cap.
+    impute_strategy : {"drop", "median"}, default "drop"
+        Missing-value handling strategy.
+    outlier_strategy : OutlierStrategy, default None
+        Optional outlier handling performed before scaling.
+    iqr_multiplier : float, default 1.5
+        Positive multiplier used to calculate IQR outlier bounds.
+    scaling_strategy : ScalingStrategy, default "robust"
+        Scaling applied before PCA fitting.
+
+    Returns
+    -------
+    PcaModel
+        Fitted preprocessing and PCA state.
+
+    Raises
+    ------
+    ValueError
+        If arguments, columns, or the prepared data are invalid.
+    """
     _validate_pca_args(
         df,
         columns,
@@ -506,7 +618,25 @@ def transform_pca(
     df: pl.LazyFrame,
     pca_model: PcaModel,
 ) -> pl.LazyFrame:
-    """Apply a fitted PCA pipeline and append PCA columns."""
+    """Apply a fitted PCA pipeline and append score columns.
+
+    Parameters
+    ----------
+    df : pl.LazyFrame
+        Input data containing the model's feature columns.
+    pca_model : PcaModel
+        Fitted preprocessing and PCA state.
+
+    Returns
+    -------
+    pl.LazyFrame
+        Prepared input columns with PCA score columns appended.
+
+    Raises
+    ------
+    ValueError
+        If input data are incompatible or no rows remain after preparation.
+    """
     columns = list(pca_model.columns)
 
     _validate_pca_args(
@@ -584,7 +714,37 @@ def fit_and_transform_pca(
     iqr_multiplier: float = 1.5,
     scaling_strategy: ScalingStrategy = "robust",
 ) -> pl.LazyFrame:
-    """Fit and apply PCA in one call."""
+    """Fit and apply PCA in one call.
+
+    Parameters
+    ----------
+    df : pl.LazyFrame
+        Input data containing the selected feature columns.
+    columns : list[str]
+        Numeric columns used to fit and transform PCA.
+    n_component : int | None, default None
+        Requested component count, or ``None`` to use the configured maximum.
+    max_n_component : int | None, default 100
+        Additional component-count cap, or ``None`` for no cap.
+    impute_strategy : {"drop", "median"}, default "drop"
+        Missing-value handling strategy.
+    outlier_strategy : OutlierStrategy, default None
+        Optional outlier handling performed before scaling.
+    iqr_multiplier : float, default 1.5
+        Positive multiplier used to calculate IQR outlier bounds.
+    scaling_strategy : ScalingStrategy, default "robust"
+        Scaling applied before PCA fitting.
+
+    Returns
+    -------
+    pl.LazyFrame
+        Prepared input columns with fitted PCA score columns appended.
+
+    Raises
+    ------
+    ValueError
+        If arguments, columns, or the prepared data are invalid.
+    """
     pca_model = fit_pca(
         df=df,
         columns=columns,

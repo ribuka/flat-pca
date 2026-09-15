@@ -1,26 +1,30 @@
 """Tests for the Ralph loop runner protocol."""
 
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from scripts.ralph_runner import (
     _build_codex_command,
+    _build_codex_environment,
     _classify_output,
     _commit_loop_changes,
+    _finalize_log,
     _resolve_codex_executable,
     _run_codex,
+    _task_progress,
 )
 
 
 @pytest.mark.parametrize(
     ("token", "expected"),
     [
-        ("TASK_COMPLETED: TASK-001", ("task_completed", "TASK-001")),
-        ("TASK_INCOMPLETE: TASK-002", ("task_incomplete", "TASK-002")),
-        ("TASK_BLOCKED: TASK-003", ("task_blocked", "TASK-003")),
-        ("ALL_TASKS_COMPLETED", ("all_completed", None)),
+        ("TASK_COMPLETED: TASK-001", ("completed", "TASK-001")),
+        ("TASK_INCOMPLETE: TASK-002", ("incompleted", "TASK-002")),
+        ("TASK_BLOCKED: TASK-003", ("blocked", "TASK-003")),
+        ("ALL_TASKS_COMPLETED", ("all-completed", None)),
     ],
 )
 def test_classify_output_uses_last_non_empty_line(
@@ -46,6 +50,28 @@ def test_classify_output_rejects_invalid_terminal_status(message: str) -> None:
     """Reject missing, malformed, or non-terminal Ralph status tokens."""
     with pytest.raises(ValueError, match="invalid Ralph status line"):
         _classify_output(message)
+
+
+def test_task_progress_counts_uncompleted_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Count every task while treating only completed status as resolved."""
+    task_file = Path("TASKS.md")
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda path, *, encoding: """## TASK-001: first
+
+- Status: completed
+
+## TASK-002: second
+
+- Status: pending
+
+## TASK-003: third
+
+- Status: blocked""",
+    )
+
+    assert _task_progress(task_file) == (2, 3)
 
 
 def test_resolve_codex_executable_uses_which_absolute_path(
@@ -111,6 +137,28 @@ def test_build_codex_command_auto_approves_only_when_requested() -> None:
     ]
 
 
+def test_build_codex_environment_uses_repository_temporary_directories(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Direct child-process caches and temporary files into the repository."""
+    monkeypatch.setenv("UV_CACHE_DIR", "outside-uv-cache")
+    monkeypatch.setenv("TMP", "outside-tmp")
+    monkeypatch.setenv("TEMP", "outside-temp")
+
+    environment = _build_codex_environment(tmp_path)
+    next_environment = _build_codex_environment(tmp_path)
+
+    assert environment["UV_CACHE_DIR"] == str((tmp_path / "tmp" / "uv-cache").resolve())
+    runtime_directory = Path(environment["TMP"])
+    assert runtime_directory.parent == (tmp_path / "tmp" / "runtime").resolve()
+    assert runtime_directory.name.startswith("ralph-")
+    assert environment["TEMP"] == environment["TMP"]
+    assert next_environment["TMP"] != environment["TMP"]
+    assert (tmp_path / "tmp" / "uv-cache").is_dir()
+    assert runtime_directory.is_dir()
+
+
 def test_run_codex_writes_combined_output_to_loop_log(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -129,15 +177,56 @@ def test_run_codex_writes_combined_output_to_loop_log(
         assert kwargs["cwd"] == tmp_path
         assert kwargs["check"] is False
         assert kwargs["text"] is True
+        assert kwargs["env"] is environment
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr("scripts.ralph_runner.subprocess.run", fake_run)
     log_path = tmp_path / "loop_001.log"
+    environment = {"UV_CACHE_DIR": "repo-cache"}
 
-    completed = _run_codex(["codex", "exec"], tmp_path, log_path)
+    completed = _run_codex(["codex", "exec"], tmp_path, log_path, environment)
 
     assert completed.returncode == 0
     assert log_path.read_text(encoding="utf-8") == "standard output\nstandard error\n"
+
+
+def test_finalize_log_uses_timestamp_task_number_and_status(tmp_path: Path) -> None:
+    """Name a completed task log using the documented final filename format."""
+    temporary_path = tmp_path / ".ralph-running.log"
+    temporary_path.write_text("loop output", encoding="utf-8")
+
+    final_path = _finalize_log(
+        temporary_path,
+        tmp_path,
+        datetime(2026, 9, 15, 20, 11, 19, tzinfo=UTC),
+        "TASK-002",
+        "completed",
+    )
+
+    assert final_path.name == "ralph_20260915T201119_002_completed.log"
+    assert final_path.read_text(encoding="utf-8") == "loop output"
+    assert not temporary_path.exists()
+
+
+def test_finalize_log_keeps_logs_when_a_name_already_exists(tmp_path: Path) -> None:
+    """Advance the timestamp to preserve a log with an identical base name."""
+    timestamp = datetime(2026, 9, 15, 20, 11, 19, tzinfo=UTC)
+    existing_path = tmp_path / "ralph_20260915T201119_002_completed.log"
+    existing_path.write_text("first run", encoding="utf-8")
+    temporary_path = tmp_path / ".ralph-running.log"
+    temporary_path.write_text("second run", encoding="utf-8")
+
+    final_path = _finalize_log(
+        temporary_path,
+        tmp_path,
+        timestamp,
+        "TASK-002",
+        "completed",
+    )
+
+    assert final_path.name == "ralph_20260915T201120_002_completed.log"
+    assert existing_path.read_text(encoding="utf-8") == "first run"
+    assert final_path.read_text(encoding="utf-8") == "second run"
 
 
 def test_commit_loop_changes_stages_and_commits_completed_task(
@@ -158,7 +247,7 @@ def test_commit_loop_changes_stages_and_commits_completed_task(
 
     monkeypatch.setattr("scripts.ralph_runner._run_git", fake_run_git)
 
-    _commit_loop_changes(Path("repo"), "TASK-001", "task_completed")
+    _commit_loop_changes(Path("repo"), "TASK-001", "completed")
 
     assert commands == [
         ("diff", "--check"),
@@ -187,6 +276,6 @@ def test_commit_loop_changes_uses_wip_subject_for_blocked_task(
 
     monkeypatch.setattr("scripts.ralph_runner._run_git", fake_run_git)
 
-    _commit_loop_changes(Path("repo"), "TASK-002", "task_blocked")
+    _commit_loop_changes(Path("repo"), "TASK-002", "blocked")
 
     assert commands[-1] == ("commit", "-m", "wip(TASK-002): Ralph loop changes")
