@@ -355,9 +355,9 @@ def _validate_pca_args(
         raise ValueError("outlier_strategy must be None, 'winsorize', or 'drop'")
     if iqr_multiplier <= 0:
         raise ValueError("iqr_multiplier must be greater than 0")
-    if scaling_strategy not in {"z-score", "minmax", "robust"}:
+    if scaling_strategy not in {"none", "z-score", "minmax", "robust"}:
         raise ValueError(
-            "scaling_strategy must be 'z-score', 'minmax', or 'robust'"
+            "scaling_strategy must be 'none', 'z-score', 'minmax', or 'robust'"
         )
 
     schema_names = set(df.collect_schema().names())
@@ -582,7 +582,7 @@ def fit_and_transform_pca(
     impute_strategy: Literal["drop", "median"] = "drop",
     outlier_strategy: OutlierStrategy = None,
     iqr_multiplier: float = 1.5,
-    scaling_strategy: Literal["z-score", "minmax", "robust"] = "robust",
+    scaling_strategy: ScalingStrategy = "robust",
 ) -> pl.LazyFrame:
     """Fit and apply PCA in one call."""
     pca_model = fit_pca(

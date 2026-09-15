@@ -6,7 +6,7 @@ from typing import Literal
 import polars as pl
 
 
-ScalingStrategy = Literal["z-score", "minmax", "robust"]
+ScalingStrategy = Literal["none", "z-score", "minmax", "robust"]
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,12 @@ def fit_scaler(
     if not columns:
         return ScalingModel(strategy=strategy, centers={}, scales={})
 
+    if strategy == "none":
+        return ScalingModel(
+            strategy=strategy,
+            centers={col: 0.0 for col in columns},
+            scales={col: 1.0 for col in columns},
+        )
     if strategy == "z-score":
         stats_df = _collect_to_df(
             df.select(
@@ -79,7 +85,7 @@ def apply_scaler(
     scaling_model: ScalingModel,
 ) -> pl.LazyFrame:
     """Apply fitted scaling parameters to selected columns."""
-    if not columns:
+    if not columns or scaling_model.strategy == "none":
         return df
 
     exprs = [
