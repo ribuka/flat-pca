@@ -58,8 +58,8 @@ def test_resolve_codex_executable_uses_which_absolute_path(
     assert _resolve_codex_executable("codex") == str(executable_path.resolve())
 
 
-def test_build_codex_command_uses_safe_non_interactive_options() -> None:
-    """Use workspace isolation and a file for the final protocol message."""
+def test_build_codex_command_requires_confirmation_by_default() -> None:
+    """Use the workspace-write sandbox without automatic approval by default."""
     command = _build_codex_command(
         executable="codex",
         repo=Path("repo"),
@@ -72,14 +72,37 @@ def test_build_codex_command_uses_safe_non_interactive_options() -> None:
         "codex",
         "exec",
         "--ephemeral",
-        "--sandbox",
-        "workspace-write",
-        "--approve-for-me",
         "--cd",
         "repo",
         "--output-last-message",
         str(Path("tmp/last-message.txt")),
+        "--sandbox",
+        "workspace-write",
         "--model",
         "test-model",
+        "one loop",
+    ]
+
+
+def test_build_codex_command_auto_approves_only_when_requested() -> None:
+    """Use automatic approval without a conflicting sandbox argument."""
+    command = _build_codex_command(
+        executable="codex",
+        repo=Path("repo"),
+        output_path=Path("tmp/last-message.txt"),
+        prompt="one loop",
+        model=None,
+        auto_approve=True,
+    )
+
+    assert command == [
+        "codex",
+        "exec",
+        "--ephemeral",
+        "--cd",
+        "repo",
+        "--output-last-message",
+        str(Path("tmp/last-message.txt")),
+        "--approve-for-me",
         "one loop",
     ]

@@ -207,6 +207,7 @@ def _build_codex_command(
     output_path: Path,
     prompt: str,
     model: str | None,
+    auto_approve: bool = False,
 ) -> list[str]:
     """Build the non-interactive Codex command for one loop.
 
@@ -222,6 +223,8 @@ def _build_codex_command(
         Prompt for one Ralph loop.
     model : str | None
         Optional model override.
+    auto_approve : bool, default False
+        Automatically approve Codex requests in the workspace-write sandbox.
 
     Returns
     -------
@@ -232,14 +235,15 @@ def _build_codex_command(
         executable,
         "exec",
         "--ephemeral",
-        "--sandbox",
-        "workspace-write",
-        "--approve-for-me",
         "--cd",
         str(repo),
         "--output-last-message",
         str(output_path),
     ]
+    if auto_approve:
+        command.append("--approve-for-me")
+    else:
+        command.extend(["--sandbox", "workspace-write"])
     if model is not None:
         command.extend(["--model", model])
     command.append(prompt)
@@ -252,6 +256,7 @@ def run(
     max_loops: int,
     codex_executable: str,
     model: str | None = None,
+    auto_approve: bool = False,
     dry_run: bool = False,
 ) -> ExitCode:
     """Run Ralph loops until a terminal status or safety limit is reached.
@@ -268,6 +273,8 @@ def run(
         Codex executable name or path.
     model : str | None, default None
         Optional model override.
+    auto_approve : bool, default False
+        Automatically approve Codex requests in the workspace-write sandbox.
     dry_run : bool, default False
         Validate inputs and print the command without invoking Codex.
 
@@ -318,6 +325,7 @@ def run(
             output_path,
             prompt,
             model,
+            auto_approve,
         )
         print(f"Ralph loop {loop_number}/{max_loops}")
         if dry_run:
@@ -415,6 +423,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--codex", default="codex", help="Codex executable name or path")
     parser.add_argument("--model", help="optional Codex model override")
     parser.add_argument(
+        "--auto-approve",
+        action="store_true",
+        help="automatically approve Codex requests in the workspace-write sandbox",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="validate inputs and print one Codex command without running it",
@@ -443,6 +456,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_loops=args.max_loops,
             codex_executable=args.codex,
             model=args.model,
+            auto_approve=args.auto_approve,
             dry_run=args.dry_run,
         )
     )

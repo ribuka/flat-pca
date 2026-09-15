@@ -36,6 +36,7 @@ uv run -m scripts.ralph_runner --max-loops 8
 uv run -m scripts.ralph_runner --model <model>
 uv run -m scripts.ralph_runner --codex <codex-executable>
 uv run -m scripts.ralph_runner --prompt-file <prompt-file>
+uv run -m scripts.ralph_runner --auto-approve
 ```
 
 ```powershell
@@ -56,8 +57,10 @@ uv run -m scripts.ralph_runner --help
 4. Gitがcleanであることと、新しいコミット数を検証する。
 5. `TASK_COMPLETED: TASK-XXX`なら次loopを開始し、それ以外では停止する。
 
-Codexには`workspace-write` sandboxと自動承認を指定します。runner自身はpush、
-pull、publish、deployを行いません。
+デフォルトでは`workspace-write` sandboxを使い、Codexからの確認を受けます。
+無人実行が必要な場合だけ`--auto-approve`を指定してください。この場合は
+`--approve-for-me`を渡しますが、競合する`--sandbox`は渡しません。runner自身は
+push、pull、publish、deployを行いません。
 
 ## 停止条件と終了コード
 
