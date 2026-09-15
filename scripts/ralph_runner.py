@@ -228,7 +228,7 @@ def _last_non_empty_line(message: str) -> str:
     return next((line.strip() for line in reversed(message.splitlines()) if line.strip()), "")
 
 
-def _classify_output(message: str) -> tuple[str, str | None]:
+def _classify_output(message: str) -> tuple[str, str]:
     """Classify the Ralph protocol token in a final agent message.
 
     Parameters
@@ -238,8 +238,8 @@ def _classify_output(message: str) -> tuple[str, str | None]:
 
     Returns
     -------
-    tuple[str, str | None]
-        Protocol status and optional task ID.
+    tuple[str, str]
+        Protocol status and task ID.
 
     Raises
     ------
@@ -247,9 +247,6 @@ def _classify_output(message: str) -> tuple[str, str | None]:
         If the last non-empty line is not a valid Ralph status token.
     """
     token = _last_non_empty_line(message)
-    if token == "ALL_TASKS_COMPLETED":
-        return "all-completed", None
-
     for status, pattern in (
         ("completed", TASK_COMPLETED_PATTERN),
         ("incompleted", TASK_INCOMPLETE_PATTERN),
@@ -264,8 +261,8 @@ def _classify_output(message: str) -> tuple[str, str | None]:
 
 def _validate_selected_task(
     status: str,
-    reported_task_id: str | None,
-    selected_task_id: str | None,
+    reported_task_id: str,
+    selected_task_id: str,
 ) -> None:
     """Validate that Codex processed the task selected before its launch.
 
@@ -273,9 +270,9 @@ def _validate_selected_task(
     ----------
     status : str
         Classified Ralph terminal status.
-    reported_task_id : str | None
-        Task identifier reported by Codex, if present.
-    selected_task_id : str | None
+    reported_task_id : str
+        Task identifier reported by Codex.
+    selected_task_id : str
         Task identifier selected from the pre-launch ledger.
 
     Raises
@@ -283,13 +280,6 @@ def _validate_selected_task(
     ValueError
         If the terminal status contradicts the pre-launch selection.
     """
-    if status == "all-completed":
-        if selected_task_id is not None:
-            raise ValueError(
-                f"Codex reported all tasks completed while {selected_task_id} "
-                "was eligible"
-            )
-        return
     if reported_task_id != selected_task_id:
         raise ValueError(
             f"Codex reported {reported_task_id}, expected {selected_task_id}"
@@ -691,15 +681,27 @@ def _run(
         total_tasks,
     )
     logger.info("Total loops: {}", max_loops)
+    if incomplete_tasks == 0:
+        logger.success("All Ralph tasks are complete")
+        return ExitCode.SUCCESS
+    if selected_task_id is None:
+        logger.warning("Stopped because no incomplete Ralph task is eligible")
+        return ExitCode.TASK_BLOCKED
 
     for loop_number in range(1, max_loops + 1):
-        logger.info("Ralph loop start ({}/{})", loop_number, max_loops)
         if loop_number > 1:
             try:
-                _, _, selected_task_id = _task_snapshot(tasks_path)
+                incomplete_tasks, _, selected_task_id = _task_snapshot(tasks_path)
             except (OSError, UnicodeError, ValueError) as error:
                 logger.error("{}", error)
                 return ExitCode.PREFLIGHT_ERROR
+            if incomplete_tasks == 0:
+                logger.success("All Ralph tasks are complete")
+                return ExitCode.SUCCESS
+            if selected_task_id is None:
+                logger.warning("Stopped because no incomplete Ralph task is eligible")
+                return ExitCode.TASK_BLOCKED
+        logger.info("Ralph loop start ({}/{})", loop_number, max_loops)
         before = _require_git_output(repo, "rev-parse", "HEAD")
         started_at = datetime.now(tz=UTC).astimezone()
         codex_environment = _build_codex_environment(repo)
@@ -778,10 +780,7 @@ def _run(
                 raise RuntimeError(
                     f"Codex created {agent_commits} commits; the runner owns loop commits"
                 )
-            if status != "all-completed":
-                if task_id is None:
-                    raise RuntimeError("task status did not include a task ID")
-                _commit_loop_changes(repo, task_id, status)
+            _commit_loop_changes(repo, task_id, status)
             _require_clean_worktree(repo)
             after = _require_git_output(repo, "rev-parse", "HEAD")
             new_commits = _commit_count(repo, before, after)
@@ -819,6 +818,27 @@ def _run(
                 task_id,
                 status,
             )
+            try:
+                incomplete_tasks, _, next_task_id = _task_snapshot(tasks_path)
+            except (OSError, UnicodeError, ValueError) as error:
+                logger.error("{}", error)
+                return ExitCode.PREFLIGHT_ERROR
+            if incomplete_tasks == 0:
+                logger.success(
+                    "Completed {} ({})",
+                    task_id,
+                    log_path.relative_to(repo),
+                )
+                logger.success("All Ralph tasks are complete")
+                return ExitCode.SUCCESS
+            if next_task_id is None:
+                logger.success(
+                    "Completed {} ({})",
+                    task_id,
+                    log_path.relative_to(repo),
+                )
+                logger.warning("Stopped because no incomplete Ralph task is eligible")
+                return ExitCode.TASK_BLOCKED
             logger.success(
                 "Completed {}; starting the next loop ({})",
                 task_id,
@@ -826,7 +846,7 @@ def _run(
             )
             continue
 
-        if new_commits != 1 and status != "all-completed":
+        if new_commits != 1:
             log_path = _finalize_log(
                 temporary_log_path,
                 logs_directory,
@@ -840,43 +860,6 @@ def _run(
                 log_path.relative_to(repo),
             )
             return ExitCode.GIT_STATE_ERROR
-        if new_commits > 1:
-            log_path = _finalize_log(
-                temporary_log_path,
-                logs_directory,
-                started_at,
-                task_id,
-                "git-error",
-            )
-            logger.error(
-                "Terminal loop created {} commits; see {}",
-                new_commits,
-                log_path.relative_to(repo),
-            )
-            return ExitCode.GIT_STATE_ERROR
-        if status == "all-completed":
-            if new_commits != 0:
-                log_path = _finalize_log(
-                    temporary_log_path,
-                    logs_directory,
-                    started_at,
-                    task_id,
-                    "git-error",
-                )
-                logger.error(
-                    "All-completed loop created a commit; see {}",
-                    log_path.relative_to(repo),
-                )
-                return ExitCode.GIT_STATE_ERROR
-            _finalize_log(
-                temporary_log_path,
-                logs_directory,
-                started_at,
-                task_id,
-                status,
-            )
-            logger.success("All Ralph tasks are complete")
-            return ExitCode.SUCCESS
         if status == "incompleted":
             _finalize_log(
                 temporary_log_path,

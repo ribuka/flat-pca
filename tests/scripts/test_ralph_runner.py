@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from scripts.ralph_runner import (
+    ExitCode,
     _build_codex_command,
     _build_codex_environment,
     _classify_output,
@@ -27,12 +28,11 @@ from scripts.ralph_runner import (
         ("TASK_COMPLETED: TASK-001", ("completed", "TASK-001")),
         ("TASK_INCOMPLETE: TASK-002", ("incompleted", "TASK-002")),
         ("TASK_BLOCKED: TASK-003", ("blocked", "TASK-003")),
-        ("ALL_TASKS_COMPLETED", ("all-completed", None)),
     ],
 )
 def test_classify_output_uses_last_non_empty_line(
     token: str,
-    expected: tuple[str, str | None],
+    expected: tuple[str, str],
 ) -> None:
     """Recognize each valid terminal status after a human-readable summary."""
     message = f"Loop summary\n\n{token}\n"
@@ -47,6 +47,7 @@ def test_classify_output_uses_last_non_empty_line(
         "TASK_COMPLETED: TASK-1",
         "TASK_COMPLETED: TASK-001 trailing text",
         "TASK_COMPLETED: TASK-001\nsummary after token",
+        "ALL_TASKS_COMPLETED",
     ],
 )
 def test_classify_output_rejects_invalid_terminal_status(message: str) -> None:
@@ -182,6 +183,200 @@ def test_run_logs_runner_progress_loop_and_selected_task_once(
         "Ralph task TASK-002 started",
         "Ralph runner end",
     ]
+
+
+def test_run_does_not_start_codex_when_all_tasks_are_already_complete(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Return success without starting a loop for an already-complete ledger."""
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("one loop", encoding="utf-8")
+    (tmp_path / "TASKS.md").write_text(
+        """## TASK-001: completed
+
+- Status: completed
+- Priority: 1
+- Depends on: none
+""",
+        encoding="utf-8",
+    )
+    success_messages: list[str] = []
+
+    def fake_git_output(repo: Path, *args: str) -> str:
+        """Return the Git root required by preflight."""
+        if args == ("rev-parse", "--show-toplevel"):
+            return str(repo)
+        raise AssertionError(args)
+
+    monkeypatch.setattr("scripts.ralph_runner._resolve_codex_executable", lambda value: value)
+    monkeypatch.setattr("scripts.ralph_runner._require_git_output", fake_git_output)
+    monkeypatch.setattr("scripts.ralph_runner._require_clean_worktree", lambda repo: None)
+    monkeypatch.setattr(
+        "scripts.ralph_runner._run_codex",
+        lambda *args, **kwargs: pytest.fail("Codex must not be started"),
+    )
+    monkeypatch.setattr(
+        "scripts.ralph_runner.logger.success",
+        lambda message, *args: success_messages.append(message.format(*args)),
+    )
+
+    result = run(
+        repo=tmp_path,
+        prompt_path=prompt_path,
+        max_loops=3,
+        codex_executable="codex",
+    )
+
+    assert result == ExitCode.SUCCESS
+    assert success_messages == ["All Ralph tasks are complete"]
+    assert list((tmp_path / "logs").iterdir()) == []
+
+
+def test_run_does_not_start_codex_when_no_incomplete_task_is_eligible(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Return blocked without starting a loop when dependencies prevent selection."""
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("one loop", encoding="utf-8")
+    (tmp_path / "TASKS.md").write_text(
+        """## TASK-001: blocked dependency
+
+- Status: blocked
+- Priority: 1
+- Depends on: none
+
+## TASK-002: dependent task
+
+- Status: pending
+- Priority: 2
+- Depends on: TASK-001
+""",
+        encoding="utf-8",
+    )
+    warning_messages: list[str] = []
+
+    def fake_git_output(repo: Path, *args: str) -> str:
+        """Return the Git root required by preflight."""
+        if args == ("rev-parse", "--show-toplevel"):
+            return str(repo)
+        raise AssertionError(args)
+
+    monkeypatch.setattr("scripts.ralph_runner._resolve_codex_executable", lambda value: value)
+    monkeypatch.setattr("scripts.ralph_runner._require_git_output", fake_git_output)
+    monkeypatch.setattr("scripts.ralph_runner._require_clean_worktree", lambda repo: None)
+    monkeypatch.setattr(
+        "scripts.ralph_runner._run_codex",
+        lambda *args, **kwargs: pytest.fail("Codex must not be started"),
+    )
+    monkeypatch.setattr(
+        "scripts.ralph_runner.logger.warning",
+        lambda message, *args: warning_messages.append(message.format(*args)),
+    )
+
+    result = run(
+        repo=tmp_path,
+        prompt_path=prompt_path,
+        max_loops=3,
+        codex_executable="codex",
+    )
+
+    assert result == ExitCode.TASK_BLOCKED
+    assert warning_messages == ["Stopped because no incomplete Ralph task is eligible"]
+    assert list((tmp_path / "logs").iterdir()) == []
+
+
+def test_run_stops_after_completing_the_last_task(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Complete the final task without starting a redundant confirmation loop."""
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("one loop", encoding="utf-8")
+    tasks_path = tmp_path / "TASKS.md"
+    tasks_path.write_text(
+        """## TASK-009: final task
+
+- Status: pending
+- Priority: 1
+- Depends on: none
+""",
+        encoding="utf-8",
+    )
+    commit_created = False
+    codex_calls = 0
+    success_messages: list[str] = []
+
+    def fake_git_output(repo: Path, *args: str) -> str:
+        """Return deterministic repository states around the runner commit."""
+        if args == ("rev-parse", "--show-toplevel"):
+            return str(repo)
+        if args == ("rev-parse", "HEAD"):
+            return "after" if commit_created else "before"
+        raise AssertionError(args)
+
+    def fake_commit_loop_changes(repo: Path, task_id: str, status: str) -> None:
+        """Record the single runner-owned commit."""
+        nonlocal commit_created
+        assert repo == tmp_path
+        assert task_id == "TASK-009"
+        assert status == "completed"
+        commit_created = True
+
+    def fake_run_codex(
+        command: list[str],
+        repo: Path,
+        log_path: Path,
+        environment: dict[str, str],
+    ) -> subprocess.CompletedProcess[str]:
+        """Complete the ledger task and emit its valid terminal token."""
+        nonlocal codex_calls
+        del environment
+        codex_calls += 1
+        assert repo == tmp_path
+        output_path = Path(command[command.index("--output-last-message") + 1])
+        output_path.write_text("TASK_COMPLETED: TASK-009\n", encoding="utf-8")
+        log_path.write_text("codex output\n", encoding="utf-8")
+        tasks_path.write_text(
+            tasks_path.read_text(encoding="utf-8").replace(
+                "- Status: pending",
+                "- Status: completed",
+            ),
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("scripts.ralph_runner._resolve_codex_executable", lambda value: value)
+    monkeypatch.setattr("scripts.ralph_runner._require_git_output", fake_git_output)
+    monkeypatch.setattr("scripts.ralph_runner._require_clean_worktree", lambda repo: None)
+    monkeypatch.setattr("scripts.ralph_runner._build_codex_environment", lambda repo: {})
+    monkeypatch.setattr("scripts.ralph_runner._run_codex", fake_run_codex)
+    monkeypatch.setattr("scripts.ralph_runner._commit_loop_changes", fake_commit_loop_changes)
+    monkeypatch.setattr(
+        "scripts.ralph_runner._commit_count",
+        lambda repo, before, after: int(before != after),
+    )
+    monkeypatch.setattr(
+        "scripts.ralph_runner.logger.success",
+        lambda message, *args: success_messages.append(message.format(*args)),
+    )
+
+    result = run(
+        repo=tmp_path,
+        prompt_path=prompt_path,
+        max_loops=3,
+        codex_executable="codex",
+    )
+
+    assert result == ExitCode.SUCCESS
+    assert codex_calls == 1
+    assert success_messages[0].startswith("Completed TASK-009 (logs")
+    assert success_messages[1] == "All Ralph tasks are complete"
+    assert "starting the next loop" not in "\n".join(success_messages)
+    log_names = [path.name for path in (tmp_path / "logs").iterdir()]
+    assert len(log_names) == 1
+    assert log_names[0].endswith("_009_completed.log")
 
 
 def test_resolve_codex_executable_uses_which_absolute_path(

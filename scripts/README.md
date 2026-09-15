@@ -58,7 +58,9 @@ uv run -m scripts.ralph_runner --help
 4. 最終メッセージの最後の非空行を`RALPH.md`の終了トークンとして検証し、
    事前に決定したtask IDと一致することを確認する。
 5. Codexがcommitしていないことを確認し、runnerが当該loopの変更をステージして1コミットする。続けてGitがcleanであることと、新しいコミット数を検証する。
-6. `TASK_COMPLETED: TASK-XXX`なら次loopを開始し、それ以外では停止する。
+6. `TASK_COMPLETED: TASK-XXX`なら更新後の台帳を再確認する。未完了taskが残って
+   いれば次loopを開始し、全taskが完了していればCodexを再起動せず正常終了する。
+   それ以外の終了トークンでは停止する。
 
 ## terminalログ
 
@@ -87,10 +89,11 @@ push、pull、publish、deployを行いません。
 
 | 最終トークンまたは状態 | runnerの動作 | 終了コード |
 | --- | --- | --- |
-| `TASK_COMPLETED: TASK-XXX` | runnerが1コミットして次loopへ進む | 継続 |
-| `ALL_TASKS_COMPLETED` | 正常終了 | 0 |
+| `TASK_COMPLETED: TASK-XXX`（未完了taskあり） | runnerが1コミットして次loopへ進む | 継続 |
+| `TASK_COMPLETED: TASK-XXX`（全task完了） | 追加loopを起動せず正常終了 | 0 |
 | `TASK_INCOMPLETE: TASK-XXX` | 停止 | 20 |
 | `TASK_BLOCKED: TASK-XXX` | 停止 | 21 |
+| 未完了taskあり・着手可能taskなし | Codexを起動せず停止 | 21 |
 | Codex実行失敗 | 停止 | 10 |
 | 不正な最終トークン | 停止 | 11 |
 | Git状態・コミット数が規約違反 | 停止 | 12 |
@@ -111,11 +114,15 @@ ralph_YYYYMMDDTHHMMSS_NNN_status.log
 
 - `YYYYMMDDTHHMMSS`: 実行開始時刻（ローカル時刻）
 - `NNN`: `TASK-XXX`の数値部分を3桁で表したもの。taskを特定できない失敗では`000`
-- `status`: `completed`、`incompleted`、`blocked`、`all-completed`、
-  `codex-failure`、`protocol-error`、`git-error`
+- `status`: `completed`、`incompleted`、`blocked`、`codex-failure`、
+  `protocol-error`、`git-error`
 
 同一秒に同じtask・statusのログが既にある場合は、既存ログを上書きしないよう時刻を
 1秒ずつ進めた名前を使います。
+
+最終taskの完了によって全taskが完了した場合、そのCodex実行のログは個別taskの結果を
+表す`NNN_completed.log`として保存します。完了確認だけを行う追加loopは生成しません。
+起動時点ですでに全taskが完了している場合も、Codexを起動せず正常終了します。
 
 ## 関連ファイル
 
