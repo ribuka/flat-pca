@@ -128,6 +128,49 @@ def _commit_count(repo: Path, before: str, after: str) -> int:
     return int(_require_git_output(repo, "rev-list", "--count", f"{before}..{after}"))
 
 
+def _commit_loop_changes(repo: Path, task_id: str, status: str) -> None:
+    """Commit all changes produced by one clean-start Ralph loop.
+
+    Parameters
+    ----------
+    repo : Path
+        Repository working directory, verified clean before the loop started.
+    task_id : str
+        Ralph task identifier reported by Codex.
+    status : str
+        Terminal Ralph status, either ``task_completed``, ``task_incomplete``,
+        or ``task_blocked``.
+
+    Raises
+    ------
+    RuntimeError
+        If the working tree contains no changes or Git cannot stage or commit
+        the loop changes.
+    ValueError
+        If ``status`` is not a task terminal status.
+    """
+    subjects = {
+        "task_completed": f"feat({task_id}): Ralph loop changes",
+        "task_incomplete": f"wip({task_id}): Ralph loop changes",
+        "task_blocked": f"wip({task_id}): Ralph loop changes",
+    }
+    try:
+        subject = subjects[status]
+    except KeyError as error:
+        raise ValueError(f"cannot commit loop status: {status}") from error
+
+    _require_git_output(repo, "diff", "--check")
+    _require_git_output(repo, "add", "--all")
+    staged = _run_git(repo, "diff", "--cached", "--quiet")
+    if staged.returncode == 0:
+        raise RuntimeError("task loop produced no changes to commit")
+    if staged.returncode != 1:
+        detail = staged.stderr.strip() or staged.stdout.strip()
+        raise RuntimeError(detail or "could not inspect staged changes")
+    _require_git_output(repo, "diff", "--cached", "--check")
+    _require_git_output(repo, "commit", "-m", subject)
+
+
 def _last_non_empty_line(message: str) -> str:
     """Return the last non-empty line from an agent message.
 
@@ -349,9 +392,19 @@ def run(
         finally:
             output_path.unlink(missing_ok=True)
 
-        after = _require_git_output(repo, "rev-parse", "HEAD")
         try:
+            after_agent = _require_git_output(repo, "rev-parse", "HEAD")
+            agent_commits = _commit_count(repo, before, after_agent)
+            if agent_commits != 0:
+                raise RuntimeError(
+                    f"Codex created {agent_commits} commits; the runner owns loop commits"
+                )
+            if status != "all_completed":
+                if task_id is None:
+                    raise RuntimeError("task status did not include a task ID")
+                _commit_loop_changes(repo, task_id, status)
             _require_clean_worktree(repo)
+            after = _require_git_output(repo, "rev-parse", "HEAD")
             new_commits = _commit_count(repo, before, after)
         except RuntimeError as error:
             print(f"error: {error}", file=sys.stderr)
@@ -368,6 +421,12 @@ def run(
             print(f"Completed {task_id}; starting the next loop.")
             continue
 
+        if new_commits != 1 and status != "all_completed":
+            print(
+                f"error: terminal loop created {new_commits} commits",
+                file=sys.stderr,
+            )
+            return ExitCode.GIT_STATE_ERROR
         if new_commits > 1:
             print(
                 f"error: terminal loop created {new_commits} commits",

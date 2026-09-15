@@ -1,5 +1,6 @@
 """Tests for the Ralph loop runner protocol."""
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from scripts.ralph_runner import (
     _build_codex_command,
     _classify_output,
+    _commit_loop_changes,
     _resolve_codex_executable,
 )
 
@@ -106,3 +108,55 @@ def test_build_codex_command_auto_approves_only_when_requested() -> None:
         "--approve-for-me",
         "one loop",
     ]
+
+
+def test_commit_loop_changes_stages_and_commits_completed_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Commit the changes from a clean-start completed loop once."""
+    commands: list[tuple[str, ...]] = []
+
+    def fake_run_git(
+        repo: Path,
+        *args: str,
+    ) -> subprocess.CompletedProcess[str]:
+        """Record Git calls and report staged changes after ``git add``."""
+        del repo
+        commands.append(args)
+        returncode = 1 if args == ("diff", "--cached", "--quiet") else 0
+        return subprocess.CompletedProcess(["git", *args], returncode, "", "")
+
+    monkeypatch.setattr("scripts.ralph_runner._run_git", fake_run_git)
+
+    _commit_loop_changes(Path("repo"), "TASK-001", "task_completed")
+
+    assert commands == [
+        ("diff", "--check"),
+        ("add", "--all"),
+        ("diff", "--cached", "--quiet"),
+        ("diff", "--cached", "--check"),
+        ("commit", "-m", "feat(TASK-001): Ralph loop changes"),
+    ]
+
+
+def test_commit_loop_changes_uses_wip_subject_for_blocked_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preserve blocked-loop progress in a WIP commit."""
+    commands: list[tuple[str, ...]] = []
+
+    def fake_run_git(
+        repo: Path,
+        *args: str,
+    ) -> subprocess.CompletedProcess[str]:
+        """Report staged changes after ``git add``."""
+        del repo
+        commands.append(args)
+        returncode = 1 if args == ("diff", "--cached", "--quiet") else 0
+        return subprocess.CompletedProcess(["git", *args], returncode, "", "")
+
+    monkeypatch.setattr("scripts.ralph_runner._run_git", fake_run_git)
+
+    _commit_loop_changes(Path("repo"), "TASK-002", "task_blocked")
+
+    assert commands[-1] == ("commit", "-m", "wip(TASK-002): Ralph loop changes")

@@ -54,7 +54,7 @@ uv run -m scripts.ralph_runner --help
 1. Git rootとclean working treeを確認する。
 2. `scripts/ralph_prompt.md`を渡して`codex exec`を1回実行する。
 3. 最終メッセージの最後の非空行を`RALPH.md`の終了トークンとして検証する。
-4. Gitがcleanであることと、新しいコミット数を検証する。
+4. Codexがcommitしていないことを確認し、runnerが当該loopの変更をステージして1コミットする。続けてGitがcleanであることと、新しいコミット数を検証する。
 5. `TASK_COMPLETED: TASK-XXX`なら次loopを開始し、それ以外では停止する。
 
 デフォルトでは`workspace-write` sandboxを使い、Codexからの確認を受けます。
@@ -66,7 +66,7 @@ push、pull、publish、deployを行いません。
 
 | 最終トークンまたは状態 | runnerの動作 | 終了コード |
 | --- | --- | --- |
-| `TASK_COMPLETED: TASK-XXX` | 1コミットを確認して次loopへ進む | 継続 |
+| `TASK_COMPLETED: TASK-XXX` | runnerが1コミットして次loopへ進む | 継続 |
 | `ALL_TASKS_COMPLETED` | 正常終了 | 0 |
 | `TASK_INCOMPLETE: TASK-XXX` | 停止 | 20 |
 | `TASK_BLOCKED: TASK-XXX` | 停止 | 21 |
@@ -76,7 +76,8 @@ push、pull、publish、deployを行いません。
 | 上限loop数に到達 | 停止 | 22 |
 | 前提条件不足 | 停止 | 23 |
 
-`TASK_INCOMPLETE`または`TASK_BLOCKED`で停止した場合は、`PROGRESS.md`を読み、
+`TASK_INCOMPLETE`または`TASK_BLOCKED`で停止した場合も、loopで生じた変更はrunnerが
+`wip(TASK-XXX): Ralph loop changes`としてコミットします。`PROGRESS.md`を読み、
 人間による判断または仕様の補完後に改めて実行してください。
 
 ## 関連ファイル

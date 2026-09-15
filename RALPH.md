@@ -38,7 +38,8 @@ If all incomplete tasks are blocked by dependencies, make no changes and end the
 8. Verify every `requirement` against the implementation and tests.
 9. Change the selected task's `Status` to `completed` only if all completion criteria are met.
 10. Append the loop result to `PROGRESS.md` in English.
-11. Commit only the files changed in this loop as a single Git commit, then end the loop.
+11. Review only the files changed in this loop. The automated runner creates the
+   required single Git commit after validating the loop result, then ends the loop.
 
 NEVER weaken requirements or delete, skip, or xfail tests only to make tests pass.
 
@@ -105,7 +106,7 @@ protocol is invalid, or the configured loop limit is reached. Run
 ## Git and external operations
 
 * Each loop with repository changes must create exactly one commit containing only files changed in that loop, including updates to `TASKS.md` and `PROGRESS.md`.
-* Before committing, review the diff and staged files. Do not include pre-existing user changes or unrelated changes.
+* The runner starts only from a clean working tree, stages the loop changes, checks the unstaged and staged diff for whitespace errors, and creates that commit. Codex must review its diff but must not stage or commit it.
 * For completed tasks, the commit message must include `TASK-XXX` and a short description of the change.
 * If incomplete or blocked work must be preserved, commit it as `wip(TASK-XXX): ...` and record failed checks and remaining work in `PROGRESS.md`.
 * Do not create empty commits for loops with no file changes.
