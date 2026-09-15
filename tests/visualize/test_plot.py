@@ -6,14 +6,15 @@ from spca.visualize import create_spectra_heatmap
 
 
 def test_create_spectra_heatmap_ignores_metadata_columns() -> None:
-    """Ignore non-numeric column names when selecting wavelengths."""
+    """Select nanometre-suffixed wavelength columns only."""
     spectra = pl.DataFrame(
         {
             "Time": [0.0, 1.0],
             "Step": [1, 2],
             "Sequence": ["a", "b"],
-            "650.0": [10.0, 20.0],
-            "651.0": [30.0, 40.0],
+            "650.00nm": [10.0, 20.0],
+            "651.00nm": [30.0, 40.0],
+            "652.0nm": [50.0, 60.0],
         }
     )
 

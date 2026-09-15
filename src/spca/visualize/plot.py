@@ -4,7 +4,7 @@ import polars as pl
 
 
 def _is_wavelength_column(column: str) -> bool:
-    """Return whether a column name represents a numeric wavelength.
+    """Return whether a column name represents a wavelength in nanometres.
 
     Parameters
     ----------
@@ -14,13 +14,16 @@ def _is_wavelength_column(column: str) -> bool:
     Returns
     -------
     bool
-        ``True`` when the column name can be represented as a float.
+        ``True`` when the column name has a numeric value followed by ``nm``.
     """
+    if not column.endswith("nm"):
+        return False
+
     try:
-        float(column)
+        wavelength = float(column.removesuffix("nm"))
     except ValueError:
         return False
-    return True
+    return column == f"{wavelength:.2f}nm"
 
 
 def create_spectra_heatmap(spectra: pl.DataFrame) -> go.Figure:
@@ -29,8 +32,8 @@ def create_spectra_heatmap(spectra: pl.DataFrame) -> go.Figure:
     Parameters
     ----------
     spectra : pl.DataFrame
-        Spectral data with a ``Time`` column and numeric wavelength-named
-        columns. Other metadata columns are ignored.
+        Spectral data with a ``Time`` column and wavelength columns named as
+        ``f"{wavelength:.2f}nm"``. Other metadata columns are ignored.
 
     Returns
     -------
@@ -48,7 +51,9 @@ def create_spectra_heatmap(spectra: pl.DataFrame) -> go.Figure:
             variable_name="wavelength",
             value_name="intensity",
         )
-        .with_columns(pl.col("wavelength").cast(pl.Float64))
+        .with_columns(
+            pl.col("wavelength").str.strip_suffix("nm").cast(pl.Float64)
+        )
     )
     heatmap_data = spectra_long.pivot(
         on="wavelength",
