@@ -12,6 +12,76 @@ import polars as pl
 _METADATA_COLUMNS = ("Time", "Step", "Sequence")
 
 
+def _apply_w_normalization(
+    frame: pl.DataFrame,
+    w_normalization_range: tuple[float, float] | None,
+) -> pl.DataFrame:
+    """Normalize spectra by a mean from an inclusive wavelength interval.
+
+    Parameters
+    ----------
+    frame : pl.DataFrame
+        Validated Flatten-PCA input containing metadata and wavelength columns.
+    w_normalization_range : tuple[float, float] | None
+        Inclusive reference interval in the same units as the wavelengths. If
+        ``None``, normalization is disabled.
+
+    Returns
+    -------
+    pl.DataFrame
+        Input rows and metadata with each row's intensities divided by its
+        reference-wavelength mean.
+
+    Raises
+    ------
+    ValueError
+        If the range is malformed, reversed, or nonfinite; the interval has no
+        wavelengths; or a row's reference mean is zero or nonfinite.
+    """
+    if w_normalization_range is None:
+        return frame
+    if (
+        not isinstance(w_normalization_range, tuple)
+        or len(w_normalization_range) != 2
+        or any(isinstance(bound, bool) for bound in w_normalization_range)
+    ):
+        raise ValueError("w_normalization_range must contain two finite bounds")
+    try:
+        lower, upper = (float(bound) for bound in w_normalization_range)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "w_normalization_range must contain two finite bounds"
+        ) from error
+    if not isfinite(lower) or not isfinite(upper) or lower > upper:
+        raise ValueError(
+            "w_normalization_range must contain ordered finite bounds"
+        )
+
+    wavelength_columns = [
+        column for column in frame.columns if column not in _METADATA_COLUMNS
+    ]
+    wavelengths = np.asarray([_parse_wavelength(column) for column in wavelength_columns])
+    in_reference = (wavelengths >= lower) & (wavelengths <= upper)
+    if not in_reference.any():
+        raise ValueError("w_normalization_range reference interval is empty")
+
+    source_values = frame.select(wavelength_columns).to_numpy().astype(
+        float,
+        copy=False,
+    )
+    reference_mean = source_values[:, in_reference].mean(axis=1)
+    if not np.isfinite(reference_mean).all() or (reference_mean == 0).any():
+        raise ValueError(
+            "w_normalization_range reference mean must be finite and nonzero"
+        )
+    normalized_values = source_values / reference_mean[:, np.newaxis]
+
+    return frame.with_columns(
+        pl.Series(column, normalized_values[:, column_index])
+        for column_index, column in enumerate(wavelength_columns)
+    )
+
+
 def _apply_t_normalization(
     frame: pl.DataFrame,
     t_normalization_range: tuple[float, float] | None,

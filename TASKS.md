@@ -108,7 +108,7 @@
 
 ## TASK-005: w方向規格化
 
-- Status: pending
+- Status: completed
 - Priority: 5
 - Depends on: TASK-001
 
