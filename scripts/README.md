@@ -38,6 +38,10 @@ uv run -m scripts.ralph_runner --codex <codex-executable>
 uv run -m scripts.ralph_runner --prompt-file <prompt-file>
 ```
 
+```powershell
+uv run -m scripts.ralph_runner --model "gpt-5.6-sol"
+```
+
 すべてのオプションと終了コードは以下で確認できます。
 
 ```powershell
