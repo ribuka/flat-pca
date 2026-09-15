@@ -1,6 +1,6 @@
 # Progress
 
-Append Ralph loop results in English using the format defined in `RALPH.md`.
+Append Ralph loop results in English using the format defined in `RALPH_PROJECT.md`.
 
 ## 2026-09-15 18:18 - TASK-001
 

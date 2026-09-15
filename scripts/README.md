@@ -1,16 +1,16 @@
 # Ralph runner
 
-`ralph_runner.py` は、`RALPH.md` の「1 loop = 1 task」という規約を保ったまま、
-Codex CLI を繰り返し起動するローカル自動実行ツールです。各 Codex プロセスは
-1 task だけを処理し、完了した場合だけ次のプロセスを起動します。
+`ralph_runner.py` は、`RALPH.md` の一般原則と `RALPH_PROJECT.md` の
+リポジトリ設定に従い、Codex CLI を繰り返し起動するローカル自動実行ツールです。
+各 Codex プロセスは1 taskだけを処理し、完了した場合だけ次のプロセスを起動します。
 
 ## 前提条件
 
 - Git リポジトリのルートで実行する。
 - `codex` CLI がPATH上にあり、認証済みである。
 - 実行開始時のworking treeがcleanである。
-- `RALPH.md`、`TASKS.md`、`PROGRESS.md`、および本runnerのセットアップ変更を
-  先にコミットする。
+- `RALPH.md`、`RALPH_PROJECT.md`、`TASKS.md`、`PROGRESS.md`、および本runnerの
+  セットアップ変更を先にコミットする。
 
 runnerは既存のユーザー変更を誤ってtaskのコミットに含めないため、dirty
 worktreeでは終了コード23で停止します。
@@ -52,7 +52,8 @@ uv run -m scripts.ralph_runner --help
 ## 1 loopの流れ
 
 1. Git rootとclean working treeを確認する。
-2. `scripts/ralph_prompt.md`を渡して`codex exec`を1回実行する。
+2. `scripts/ralph_prompt.md`を渡して`codex exec`を1回実行し、`RALPH.md`、
+   `RALPH_PROJECT.md`、残りのプロジェクト文書を所定の順序で読み込ませる。
 3. 最終メッセージの最後の非空行を`RALPH.md`の終了トークンとして検証する。
 4. Codexがcommitしていないことを確認し、runnerが当該loopの変更をステージして1コミットする。続けてGitがcleanであることと、新しいコミット数を検証する。
 5. `TASK_COMPLETED: TASK-XXX`なら次loopを開始し、それ以外では停止する。
@@ -100,7 +101,8 @@ ralph_YYYYMMDDTHHMMSS_NNN_status.log
 
 - `ralph_runner.py`: Codex起動、終了トークン、Git状態を検証するrunner本体
 - `ralph_prompt.md`: Codexへ渡す1 loop用プロンプト
-- `../RALPH.md`: task選択、完了条件、コミット規約の正本
+- `../RALPH.md`: 1 taskの選択、loop手順、完了・blocked判定、終了トークンの正本
+- `../RALPH_PROJECT.md`: 台帳、検証、fixture、runner、コミット運用の正本
 
 実装は[Codexの非対話実行ドキュメント](https://learn.chatgpt.com/docs/non-interactive-mode)
 にある`codex exec`の運用方法に基づいています。
