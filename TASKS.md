@@ -160,7 +160,7 @@
 
 ## TASK-007: 前処理とPCAを統合した公開API
 
-- Status: pending
+- Status: completed
 - Priority: 7
 - Depends on: TASK-002, TASK-003, TASK-004, TASK-005, TASK-006
 

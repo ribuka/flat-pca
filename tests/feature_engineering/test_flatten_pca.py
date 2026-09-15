@@ -3,9 +3,11 @@
 from itertools import pairwise
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 import pytest
 
+from spca.feature_engineering import flatten_pca
 from spca.feature_engineering.flatten_pca import (
     _apply_t_normalization,
     _apply_t_smoothing,
@@ -14,6 +16,7 @@ from spca.feature_engineering.flatten_pca import (
     _flatten_inputs,
     _load_and_validate_inputs,
 )
+from spca.feature_engineering.pca import fit_and_transform_pca
 
 FIXTURE_DIRECTORY = Path("tests/fixtures/real_subset")
 METADATA_COLUMNS = {"Time", "Step", "Sequence"}
@@ -573,3 +576,162 @@ def test_flatten_sorts_step_and_sequence_and_rejects_name_collisions() -> None:
     )
     with pytest.raises(ValueError, match="duplicate flattened feature names"):
         _flatten_inputs([(path, collision)])
+
+
+def _expected_flatten_pca(
+    paths: list[Path],
+    *,
+    n_component: int,
+    t_smoothing_window: float | None = None,
+    w_smoothing_window: float | None = None,
+    t_normalization_range: tuple[float, float] | None = None,
+    w_normalization_range: tuple[float, float] | None = None,
+) -> pl.DataFrame:
+    """Build the expected public workflow from its specified stages.
+
+    Parameters
+    ----------
+    paths : list[Path]
+        Real Parquet fixture paths.
+    n_component : int
+        Number of PCA score columns.
+    t_smoothing_window : float | None, default None
+        Time-direction smoothing half-window.
+    w_smoothing_window : float | None, default None
+        Wavelength-direction smoothing half-window.
+    t_normalization_range : tuple[float, float] | None, default None
+        Inclusive time normalization interval.
+    w_normalization_range : tuple[float, float] | None, default None
+        Inclusive wavelength normalization interval.
+
+    Returns
+    -------
+    pl.DataFrame
+        Flattened feature rows with appended PCA scores.
+    """
+    prepared_inputs = []
+    for path, frame in _load_and_validate_inputs(paths):
+        prepared = _apply_t_smoothing(frame, t_smoothing_window)
+        prepared = _apply_w_smoothing(prepared, w_smoothing_window)
+        prepared = _apply_t_normalization(prepared, t_normalization_range)
+        prepared = _apply_w_normalization(prepared, w_normalization_range)
+        prepared_inputs.append((path, prepared))
+    flattened = _flatten_inputs(prepared_inputs)
+    feature_columns = flattened.columns[1:]
+    return fit_and_transform_pca(
+        df=flattened.lazy(),
+        columns=feature_columns,
+        n_component=n_component,
+        max_n_component=None,
+        impute_strategy="drop",
+        outlier_strategy=None,
+        scaling_strategy="none",
+    ).collect()
+
+
+def _assert_flatten_pca_matches(
+    result: pl.DataFrame,
+    expected: pl.DataFrame,
+    n_component: int,
+) -> None:
+    """Compare workflow output while permitting independent PCA sign flips.
+
+    Parameters
+    ----------
+    result : pl.DataFrame
+        Public API output.
+    expected : pl.DataFrame
+        Output assembled directly from the specified processing stages.
+    n_component : int
+        Number of trailing PCA score columns.
+    """
+    feature_columns = result.columns[1:-n_component]
+    pca_columns = result.columns[-n_component:]
+    assert result.columns == expected.columns
+    assert result["filename"].to_list() == expected["filename"].to_list()
+    assert result.select(feature_columns).to_numpy() == pytest.approx(
+        expected.select(feature_columns).to_numpy()
+    )
+    for column in pca_columns:
+        actual_scores = result[column].to_numpy()
+        expected_scores = expected[column].to_numpy()
+        assert np.allclose(actual_scores, expected_scores) or np.allclose(
+            actual_scores,
+            -expected_scores,
+        )
+
+
+def test_flatten_pca_runs_all_real_fixtures_end_to_end() -> None:
+    """Return deterministic flattened features and PCA scores for all fixtures."""
+    paths = _fixture_paths()
+    expected = _expected_flatten_pca(paths, n_component=3)
+
+    result = flatten_pca(paths, n_component=3)
+
+    assert len(paths) == 6
+    assert result.columns == [*expected.columns[:-3], "pca-1", "pca-2", "pca-3"]
+    assert result.height == len(paths)
+    _assert_flatten_pca_matches(result, expected, 3)
+    assert np.isfinite(result.select(pl.exclude("filename")).to_numpy()).all()
+    features = result.select(result.columns[1:-3]).to_numpy()
+    scores = result.select(result.columns[-3:]).to_numpy()
+    singular_values = np.linalg.svd(
+        features - features.mean(axis=0),
+        compute_uv=False,
+    )
+    assert np.square(scores).sum(axis=0) == pytest.approx(
+        np.square(singular_values[:3])
+    )
+
+
+@pytest.mark.parametrize(
+    "preprocessing",
+    [
+        {"t_smoothing_window": 0.5},
+        {"w_smoothing_window": 0.5},
+        {"t_normalization_range": (0.0, 4.0)},
+        {"w_normalization_range": (350.0, 850.0)},
+    ],
+)
+def test_flatten_pca_applies_each_preprocessing_stage(
+    preprocessing: dict[str, object],
+) -> None:
+    """Match the specified pipeline when each preprocessing stage is enabled."""
+    paths = _fixture_paths()
+    expected = _expected_flatten_pca(paths, n_component=2, **preprocessing)  # type: ignore[arg-type]
+
+    result = flatten_pca(paths, n_component=2, **preprocessing)  # type: ignore[arg-type]
+
+    _assert_flatten_pca_matches(result, expected, 2)
+
+
+def test_flatten_pca_applies_all_preprocessing_in_specified_order() -> None:
+    """Apply t/w smoothing before t/w normalization using real fixture data."""
+    paths = _fixture_paths()
+    first = pl.read_parquet(paths[0])
+    wavelengths = [
+        float(column.removesuffix("nm"))
+        for column in first.columns
+        if column not in METADATA_COLUMNS
+    ]
+    preprocessing = {
+        "t_smoothing_window": 0.5,
+        "w_smoothing_window": 0.5,
+        "t_normalization_range": (
+            float(first["Time"].min()),
+            float(first["Time"].max()),
+        ),
+        "w_normalization_range": (min(wavelengths), max(wavelengths)),
+    }
+    expected = _expected_flatten_pca(paths, n_component=2, **preprocessing)
+
+    result = flatten_pca(paths, n_component=2, **preprocessing)
+
+    _assert_flatten_pca_matches(result, expected, 2)
+
+
+@pytest.mark.parametrize("n_component", [0, 7])
+def test_flatten_pca_rejects_invalid_component_counts(n_component: int) -> None:
+    """Reject component counts outside one through the PCA matrix rank bound."""
+    with pytest.raises(ValueError, match="n_component"):
+        flatten_pca(_fixture_paths(), n_component=n_component)

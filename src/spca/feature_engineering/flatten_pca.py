@@ -4,12 +4,88 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from math import isfinite
+from numbers import Integral
 from pathlib import Path
 
 import numpy as np
 import polars as pl
 
+from .pca import fit_and_transform_pca
+
 _METADATA_COLUMNS = ("Time", "Step", "Sequence")
+
+
+def flatten_pca(
+    paths: Sequence[str | Path],
+    *,
+    n_component: int,
+    t_smoothing_window: float | None = None,
+    w_smoothing_window: float | None = None,
+    t_normalization_range: tuple[float, float] | None = None,
+    w_normalization_range: tuple[float, float] | None = None,
+) -> pl.DataFrame:
+    """Preprocess, flatten, and fit PCA across spectral Parquet files.
+
+    Parameters
+    ----------
+    paths : Sequence[str | Path]
+        One or more Parquet input paths.
+    n_component : int
+        Number of PCA score columns to append.
+    t_smoothing_window : float | None, default None
+        Positive time-direction smoothing half-window, or ``None``.
+    w_smoothing_window : float | None, default None
+        Positive wavelength-direction smoothing half-window, or ``None``.
+    t_normalization_range : tuple[float, float] | None, default None
+        Inclusive time interval used for normalization, or ``None``.
+    w_normalization_range : tuple[float, float] | None, default None
+        Inclusive wavelength interval used for normalization, or ``None``.
+
+    Returns
+    -------
+    pl.DataFrame
+        One row per input file containing ``filename``, deterministic flattened
+        features, and PCA score columns named ``pca-1`` through
+        ``pca-{n_component}``.
+
+    Raises
+    ------
+    FileNotFoundError
+        If an input path does not exist.
+    ValueError
+        If inputs, preprocessing arguments, or ``n_component`` are invalid.
+    """
+    loaded_inputs = _load_and_validate_inputs(paths)
+    prepared_inputs: list[tuple[Path, pl.DataFrame]] = []
+    for path, frame in loaded_inputs:
+        prepared = _apply_t_smoothing(frame, t_smoothing_window)
+        prepared = _apply_w_smoothing(prepared, w_smoothing_window)
+        prepared = _apply_t_normalization(prepared, t_normalization_range)
+        prepared = _apply_w_normalization(prepared, w_normalization_range)
+        prepared_inputs.append((path, prepared))
+
+    flattened = _flatten_inputs(prepared_inputs)
+    feature_columns = flattened.columns[1:]
+    max_component = min(flattened.height, len(feature_columns))
+    if (
+        isinstance(n_component, bool)
+        or not isinstance(n_component, Integral)
+        or not 1 <= n_component <= max_component
+    ):
+        raise ValueError(
+            "n_component must be an integer between 1 and "
+            f"{max_component}"
+        )
+
+    return fit_and_transform_pca(
+        df=flattened.lazy(),
+        columns=feature_columns,
+        n_component=int(n_component),
+        max_n_component=None,
+        impute_strategy="drop",
+        outlier_strategy=None,
+        scaling_strategy="none",
+    ).collect()
 
 
 def _flatten_inputs(
