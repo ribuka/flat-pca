@@ -7,12 +7,15 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from enum import IntEnum
 from pathlib import Path
+
+from loguru import logger
+
+from scripts.console_logging import configure_console_logging
 
 DEFAULT_MAX_LOOPS = 20
 TASK_COMPLETED_PATTERN = re.compile(r"TASK_COMPLETED: (TASK-\d{3})")
@@ -464,14 +467,14 @@ def run(
     repo = repo.resolve()
     prompt_path = prompt_path.resolve()
     if max_loops < 1:
-        print("error: --max-loops must be at least 1", file=sys.stderr)
+        logger.error("--max-loops must be at least 1")
         return ExitCode.PREFLIGHT_ERROR
     if not prompt_path.is_file():
-        print(f"error: prompt file does not exist: {prompt_path}", file=sys.stderr)
+        logger.error("Prompt file does not exist: {}", prompt_path)
         return ExitCode.PREFLIGHT_ERROR
     resolved_codex_executable = _resolve_codex_executable(codex_executable)
     if resolved_codex_executable is None:
-        print(f"error: Codex executable not found: {codex_executable}", file=sys.stderr)
+        logger.error("Codex executable not found: {}", codex_executable)
         return ExitCode.PREFLIGHT_ERROR
 
     try:
@@ -480,7 +483,7 @@ def run(
             raise RuntimeError(f"--repo must be the Git root: {top_level}")
         _require_clean_worktree(repo)
     except RuntimeError as error:
-        print(f"error: {error}", file=sys.stderr)
+        logger.error("{}", error)
         return ExitCode.PREFLIGHT_ERROR
 
     prompt = prompt_path.read_text(encoding="utf-8")
@@ -522,9 +525,9 @@ def run(
         except (OSError, UnicodeError, ValueError) as error:
             output_path.unlink(missing_ok=True)
             temporary_log_path.unlink(missing_ok=True)
-            print(f"error: {error}", file=sys.stderr)
+            logger.error("{}", error)
             return ExitCode.PREFLIGHT_ERROR
-        print(f"Ralph tasks {remaining_tasks}/{total_tasks} started")
+        logger.info("Ralph tasks {}/{} started", remaining_tasks, total_tasks)
         if dry_run:
             print(subprocess.list2cmdline(command))
             output_path.unlink(missing_ok=True)
@@ -546,10 +549,10 @@ def run(
                     None,
                     "codex-failure",
                 )
-                print(
-                    f"error: Codex exited with code {completed.returncode}; "
-                    f"see {log_path.relative_to(repo)}",
-                    file=sys.stderr,
+                logger.error(
+                    "Codex exited with code {}; see {}",
+                    completed.returncode,
+                    log_path.relative_to(repo),
                 )
                 return ExitCode.CODEX_FAILURE
             message = output_path.read_text(encoding="utf-8")
@@ -562,8 +565,7 @@ def run(
                 None,
                 "protocol-error",
             )
-            print(f"see {log_path.relative_to(repo)}", file=sys.stderr)
-            print(f"error: {error}", file=sys.stderr)
+            logger.error("{}; see {}", error, log_path.relative_to(repo))
             return ExitCode.PROTOCOL_ERROR
         finally:
             output_path.unlink(missing_ok=True)
@@ -590,8 +592,7 @@ def run(
                 task_id,
                 "git-error",
             )
-            print(f"see {log_path.relative_to(repo)}", file=sys.stderr)
-            print(f"error: {error}", file=sys.stderr)
+            logger.error("{}; see {}", error, log_path.relative_to(repo))
             return ExitCode.GIT_STATE_ERROR
 
         if status == "completed":
@@ -603,12 +604,12 @@ def run(
                     task_id,
                     "git-error",
                 )
-                print(
-                    f"error: {task_id} reported completion but created "
-                    f"{new_commits} commits",
-                    file=sys.stderr,
+                logger.error(
+                    "{} reported completion but created {} commits; see {}",
+                    task_id,
+                    new_commits,
+                    log_path.relative_to(repo),
                 )
-                print(f"see {log_path.relative_to(repo)}", file=sys.stderr)
                 return ExitCode.GIT_STATE_ERROR
             log_path = _finalize_log(
                 temporary_log_path,
@@ -617,7 +618,11 @@ def run(
                 task_id,
                 status,
             )
-            print(f"Completed {task_id}; starting the next loop ({log_path.relative_to(repo)}).")
+            logger.success(
+                "Completed {}; starting the next loop ({})",
+                task_id,
+                log_path.relative_to(repo),
+            )
             continue
 
         if new_commits != 1 and status != "all-completed":
@@ -628,11 +633,11 @@ def run(
                 task_id,
                 "git-error",
             )
-            print(
-                f"error: terminal loop created {new_commits} commits",
-                file=sys.stderr,
+            logger.error(
+                "Terminal loop created {} commits; see {}",
+                new_commits,
+                log_path.relative_to(repo),
             )
-            print(f"see {log_path.relative_to(repo)}", file=sys.stderr)
             return ExitCode.GIT_STATE_ERROR
         if new_commits > 1:
             log_path = _finalize_log(
@@ -642,11 +647,11 @@ def run(
                 task_id,
                 "git-error",
             )
-            print(
-                f"error: terminal loop created {new_commits} commits",
-                file=sys.stderr,
+            logger.error(
+                "Terminal loop created {} commits; see {}",
+                new_commits,
+                log_path.relative_to(repo),
             )
-            print(f"see {log_path.relative_to(repo)}", file=sys.stderr)
             return ExitCode.GIT_STATE_ERROR
         if status == "all-completed":
             if new_commits != 0:
@@ -657,8 +662,10 @@ def run(
                     task_id,
                     "git-error",
                 )
-                print("error: all-completed loop created a commit", file=sys.stderr)
-                print(f"see {log_path.relative_to(repo)}", file=sys.stderr)
+                logger.error(
+                    "All-completed loop created a commit; see {}",
+                    log_path.relative_to(repo),
+                )
                 return ExitCode.GIT_STATE_ERROR
             _finalize_log(
                 temporary_log_path,
@@ -667,7 +674,7 @@ def run(
                 task_id,
                 status,
             )
-            print("All Ralph tasks are complete.")
+            logger.success("All Ralph tasks are complete")
             return ExitCode.SUCCESS
         if status == "incompleted":
             _finalize_log(
@@ -677,7 +684,7 @@ def run(
                 task_id,
                 status,
             )
-            print(f"Stopped because {task_id} is incomplete.", file=sys.stderr)
+            logger.warning("Stopped because {} is incomplete", task_id)
             return ExitCode.TASK_INCOMPLETE
 
         _finalize_log(
@@ -687,10 +694,10 @@ def run(
             task_id,
             status,
         )
-        print(f"Stopped because {task_id} is blocked.", file=sys.stderr)
+        logger.warning("Stopped because {} is blocked", task_id)
         return ExitCode.TASK_BLOCKED
 
-    print(f"Stopped after reaching the {max_loops}-loop limit.", file=sys.stderr)
+    logger.warning("Stopped after reaching the {}-loop limit", max_loops)
     return ExitCode.MAX_LOOPS_REACHED
 
 
@@ -752,6 +759,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         Process exit code.
     """
     args = _parse_args(argv)
+    configure_console_logging()
     return int(
         run(
             repo=args.repo,
