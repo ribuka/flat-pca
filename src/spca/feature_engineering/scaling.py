@@ -10,6 +10,18 @@ ScalingStrategy = Literal["none", "z-score", "minmax", "robust"]
 
 @dataclass(frozen=True)
 class ScalingModel:
+    """Store fitted column scaling parameters.
+
+    Attributes
+    ----------
+    strategy : ScalingStrategy
+        Scaling transformation represented by the model.
+    centers : dict[str, float]
+        Per-column values subtracted before scaling.
+    scales : dict[str, float]
+        Per-column nonzero divisors used for scaling.
+    """
+
     strategy: ScalingStrategy
     centers: dict[str, float]
     scales: dict[str, float]
@@ -25,7 +37,22 @@ def fit_scaler(
     columns: list[str],
     strategy: ScalingStrategy,
 ) -> ScalingModel:
-    """Fit scaling parameters for selected columns."""
+    """Fit scaling parameters for selected columns.
+
+    Parameters
+    ----------
+    df : pl.LazyFrame
+        Input data containing the selected columns.
+    columns : list[str]
+        Numeric columns used to fit the scaler.
+    strategy : ScalingStrategy
+        Scaling strategy to fit.
+
+    Returns
+    -------
+    ScalingModel
+        Fitted centers, scales, and strategy.
+    """
     if not columns:
         return ScalingModel(strategy=strategy, centers={}, scales={})
 
@@ -83,7 +110,22 @@ def apply_scaler(
     columns: list[str],
     scaling_model: ScalingModel,
 ) -> pl.LazyFrame:
-    """Apply fitted scaling parameters to selected columns."""
+    """Apply fitted scaling parameters to selected columns.
+
+    Parameters
+    ----------
+    df : pl.LazyFrame
+        Input data containing the selected columns.
+    columns : list[str]
+        Numeric columns to transform.
+    scaling_model : ScalingModel
+        Previously fitted scaling parameters.
+
+    Returns
+    -------
+    pl.LazyFrame
+        Input data with the selected columns transformed.
+    """
     if not columns or scaling_model.strategy == "none":
         return df
 
@@ -101,7 +143,20 @@ def zscore_standardize(
     df: pl.LazyFrame,
     columns: list[str],
 ) -> pl.LazyFrame:
-    """Apply z-score standardization to selected columns."""
+    """Apply z-score standardization to selected columns.
+
+    Parameters
+    ----------
+    df : pl.LazyFrame
+        Input data containing the selected columns.
+    columns : list[str]
+        Numeric columns to standardize.
+
+    Returns
+    -------
+    pl.LazyFrame
+        Input data with standardized selected columns.
+    """
     return apply_scaler(df, columns, fit_scaler(df, columns, "z-score"))
 
 
@@ -109,7 +164,20 @@ def minmax_scale(
     df: pl.LazyFrame,
     columns: list[str],
 ) -> pl.LazyFrame:
-    """Apply min-max scaling to selected columns."""
+    """Apply min-max scaling to selected columns.
+
+    Parameters
+    ----------
+    df : pl.LazyFrame
+        Input data containing the selected columns.
+    columns : list[str]
+        Numeric columns to scale.
+
+    Returns
+    -------
+    pl.LazyFrame
+        Input data with min-max-scaled selected columns.
+    """
     return apply_scaler(df, columns, fit_scaler(df, columns, "minmax"))
 
 
@@ -117,5 +185,18 @@ def robust_scale(
     df: pl.LazyFrame,
     columns: list[str],
 ) -> pl.LazyFrame:
-    """Apply robust scaling using median and IQR to selected columns."""
+    """Apply robust scaling using median and IQR to selected columns.
+
+    Parameters
+    ----------
+    df : pl.LazyFrame
+        Input data containing the selected columns.
+    columns : list[str]
+        Numeric columns to scale.
+
+    Returns
+    -------
+    pl.LazyFrame
+        Input data with robust-scaled selected columns.
+    """
     return apply_scaler(df, columns, fit_scaler(df, columns, "robust"))

@@ -188,7 +188,7 @@
 
 ## TASK-008: 仕様全体の回帰確認と利用情報
 
-- Status: pending
+- Status: completed
 - Priority: 8
 - Depends on: TASK-007
 
