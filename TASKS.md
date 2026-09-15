@@ -132,7 +132,7 @@
 
 ## TASK-006: 決定的なflatten処理
 
-- Status: pending
+- Status: completed
 - Priority: 6
 - Depends on: TASK-001
 
