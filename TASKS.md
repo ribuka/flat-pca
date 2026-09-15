@@ -209,3 +209,46 @@
 
 - `uv run -m pytest`
 - `uv run -m ruff check .`
+
+## TASK-009: Flatten-PCA実装の責務分割
+
+- Status: pending
+- Priority: 9
+- Depends on: TASK-008
+
+### Requirements
+
+- `flatten_pca`の公開シグネチャ、戻り値、例外、処理順および
+  `from spca.feature_engineering import flatten_pca`という公開importを変更しない。
+- 現在の`flatten_pca.py`が持つ以下の責務を、凝集度の高いモジュールへ分割する。
+  - 公開APIと処理のオーケストレーション
+  - Parquet入力の読み込みと検証
+  - t/w方向smoothing
+  - t/w方向normalization
+  - deterministic flatten処理
+- 必要に応じて`spca.feature_engineering.flatten_pca`をパッケージ化する。
+- パッケージの`__init__.py`は公開APIのre-exportだけを行う薄いfacadeとする。
+- 下位モジュールから公開API・オーケストレーション層への逆依存を作らない。
+- 循環importおよび責務の曖昧な`utils.py`を作らない。
+- 既存のprivate helperは、それを所有する責務別モジュールへ移動する。
+  private helperの旧importパス互換性は要求しない。
+- テストも責務単位に分割し、共通する実フィクスチャ設定は
+  `conftest.py`などへ集約する。
+- 既存テストの検証内容を削除または弱体化しない。
+- すべての関数とクラスに型ヒントとNumPy形式docstringを付ける。
+- 未使用コード、不要な互換レイヤー、一時ファイルを残さない。
+
+### Tests
+
+- `tests/fixtures/real_subset`を直接読み込むend-to-endテストを追加または更新する。
+- 公開importと公開APIのシグネチャが維持されることを検証する。
+- 前処理なし、各前処理単独、全前処理併用の既存結果が維持されることを検証する。
+- 入力検証、smoothing、normalization、flatten、PCA統合を、それぞれの
+  責務に対応するテストモジュールで検証する。
+- 入力順に依存しない行順・列順と、PCA結果の既存契約を維持する。
+
+### Acceptance commands
+
+- `uv run -m pytest tests/feature_engineering`
+- `uv run -m pytest`
+- `uv run -m ruff check .`
