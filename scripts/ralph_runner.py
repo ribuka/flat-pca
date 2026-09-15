@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from enum import IntEnum
 from pathlib import Path
 
@@ -138,8 +139,8 @@ def _commit_loop_changes(repo: Path, task_id: str, status: str) -> None:
     task_id : str
         Ralph task identifier reported by Codex.
     status : str
-        Terminal Ralph status, either ``task_completed``, ``task_incomplete``,
-        or ``task_blocked``.
+        Terminal Ralph status, either ``completed``, ``incompleted``, or
+        ``blocked``.
 
     Raises
     ------
@@ -150,9 +151,9 @@ def _commit_loop_changes(repo: Path, task_id: str, status: str) -> None:
         If ``status`` is not a task terminal status.
     """
     subjects = {
-        "task_completed": f"feat({task_id}): Ralph loop changes",
-        "task_incomplete": f"wip({task_id}): Ralph loop changes",
-        "task_blocked": f"wip({task_id}): Ralph loop changes",
+        "completed": f"feat({task_id}): Ralph loop changes",
+        "incompleted": f"wip({task_id}): Ralph loop changes",
+        "blocked": f"wip({task_id}): Ralph loop changes",
     }
     try:
         subject = subjects[status]
@@ -207,12 +208,12 @@ def _classify_output(message: str) -> tuple[str, str | None]:
     """
     token = _last_non_empty_line(message)
     if token == "ALL_TASKS_COMPLETED":
-        return "all_completed", None
+        return "all-completed", None
 
     for status, pattern in (
-        ("task_completed", TASK_COMPLETED_PATTERN),
-        ("task_incomplete", TASK_INCOMPLETE_PATTERN),
-        ("task_blocked", TASK_BLOCKED_PATTERN),
+        ("completed", TASK_COMPLETED_PATTERN),
+        ("incompleted", TASK_INCOMPLETE_PATTERN),
+        ("blocked", TASK_BLOCKED_PATTERN),
     ):
         match = pattern.fullmatch(token)
         if match:
@@ -321,6 +322,45 @@ def _run_codex(command: Sequence[str], repo: Path, log_path: Path) -> subprocess
         )
 
 
+def _finalize_log(
+    temporary_path: Path,
+    logs_directory: Path,
+    started_at: datetime,
+    task_id: str | None,
+    status: str,
+) -> Path:
+    """Move a loop log to its final, descriptive filename.
+
+    Parameters
+    ----------
+    temporary_path : Path
+        Path of the log written while the loop was running.
+    logs_directory : Path
+        Directory that stores finalized logs.
+    started_at : datetime
+        Time at which the loop started.
+    task_id : str | None
+        Ralph task identifier, if a valid task result was reported.
+    status : str
+        Final loop status.
+
+    Returns
+    -------
+    Path
+        Final log path in the form
+        ``ralph_YYYYMMDDTHHMMSS_NNN_status.log``.
+    """
+    task_number = int(task_id.removeprefix("TASK-")) if task_id is not None else 0
+    timestamp = started_at
+    while True:
+        filename = f"ralph_{timestamp:%Y%m%dT%H%M%S}_{task_number:03d}_{status}.log"
+        final_path = logs_directory / filename
+        if not final_path.exists():
+            temporary_path.replace(final_path)
+            return final_path
+        timestamp += timedelta(seconds=1)
+
+
 def run(
     repo: Path,
     prompt_path: Path,
@@ -384,6 +424,7 @@ def run(
 
     for loop_number in range(1, max_loops + 1):
         before = _require_git_output(repo, "rev-parse", "HEAD")
+        started_at = datetime.now(tz=UTC).astimezone()
         with tempfile.NamedTemporaryFile(
             dir=temp_directory,
             prefix="ralph-last-message-",
@@ -400,16 +441,30 @@ def run(
             model,
             auto_approve,
         )
-        log_path = logs_directory / f"loop_{loop_number:03d}.log"
-        print(f"Ralph loop {loop_number}/{max_loops} started ({log_path.relative_to(repo)})")
+        with tempfile.NamedTemporaryFile(
+            dir=logs_directory,
+            prefix=".ralph-running-",
+            suffix=".log",
+            delete=False,
+        ) as log_file:
+            temporary_log_path = Path(log_file.name)
+        print(f"Ralph loop {loop_number}/{max_loops} started")
         if dry_run:
             print(subprocess.list2cmdline(command))
             output_path.unlink(missing_ok=True)
+            temporary_log_path.unlink(missing_ok=True)
             return ExitCode.SUCCESS
 
         try:
-            completed = _run_codex(command, repo, log_path)
+            completed = _run_codex(command, repo, temporary_log_path)
             if completed.returncode != 0:
+                log_path = _finalize_log(
+                    temporary_log_path,
+                    logs_directory,
+                    started_at,
+                    None,
+                    "codex-failure",
+                )
                 print(
                     f"error: Codex exited with code {completed.returncode}; "
                     f"see {log_path.relative_to(repo)}",
@@ -419,6 +474,14 @@ def run(
             message = output_path.read_text(encoding="utf-8")
             status, task_id = _classify_output(message)
         except (OSError, UnicodeError, ValueError) as error:
+            log_path = _finalize_log(
+                temporary_log_path,
+                logs_directory,
+                started_at,
+                None,
+                "protocol-error",
+            )
+            print(f"see {log_path.relative_to(repo)}", file=sys.stderr)
             print(f"error: {error}", file=sys.stderr)
             return ExitCode.PROTOCOL_ERROR
         finally:
@@ -431,7 +494,7 @@ def run(
                 raise RuntimeError(
                     f"Codex created {agent_commits} commits; the runner owns loop commits"
                 )
-            if status != "all_completed":
+            if status != "all-completed":
                 if task_id is None:
                     raise RuntimeError("task status did not include a task ID")
                 _commit_loop_changes(repo, task_id, status)
@@ -439,42 +502,110 @@ def run(
             after = _require_git_output(repo, "rev-parse", "HEAD")
             new_commits = _commit_count(repo, before, after)
         except RuntimeError as error:
+            log_path = _finalize_log(
+                temporary_log_path,
+                logs_directory,
+                started_at,
+                task_id,
+                "git-error",
+            )
+            print(f"see {log_path.relative_to(repo)}", file=sys.stderr)
             print(f"error: {error}", file=sys.stderr)
             return ExitCode.GIT_STATE_ERROR
 
-        if status == "task_completed":
+        if status == "completed":
             if new_commits != 1:
+                log_path = _finalize_log(
+                    temporary_log_path,
+                    logs_directory,
+                    started_at,
+                    task_id,
+                    "git-error",
+                )
                 print(
                     f"error: {task_id} reported completion but created "
                     f"{new_commits} commits",
                     file=sys.stderr,
                 )
+                print(f"see {log_path.relative_to(repo)}", file=sys.stderr)
                 return ExitCode.GIT_STATE_ERROR
-            print(f"Completed {task_id}; starting the next loop.")
+            log_path = _finalize_log(
+                temporary_log_path,
+                logs_directory,
+                started_at,
+                task_id,
+                status,
+            )
+            print(f"Completed {task_id}; starting the next loop ({log_path.relative_to(repo)}).")
             continue
 
-        if new_commits != 1 and status != "all_completed":
+        if new_commits != 1 and status != "all-completed":
+            log_path = _finalize_log(
+                temporary_log_path,
+                logs_directory,
+                started_at,
+                task_id,
+                "git-error",
+            )
             print(
                 f"error: terminal loop created {new_commits} commits",
                 file=sys.stderr,
             )
+            print(f"see {log_path.relative_to(repo)}", file=sys.stderr)
             return ExitCode.GIT_STATE_ERROR
         if new_commits > 1:
+            log_path = _finalize_log(
+                temporary_log_path,
+                logs_directory,
+                started_at,
+                task_id,
+                "git-error",
+            )
             print(
                 f"error: terminal loop created {new_commits} commits",
                 file=sys.stderr,
             )
+            print(f"see {log_path.relative_to(repo)}", file=sys.stderr)
             return ExitCode.GIT_STATE_ERROR
-        if status == "all_completed":
+        if status == "all-completed":
             if new_commits != 0:
+                log_path = _finalize_log(
+                    temporary_log_path,
+                    logs_directory,
+                    started_at,
+                    task_id,
+                    "git-error",
+                )
                 print("error: all-completed loop created a commit", file=sys.stderr)
+                print(f"see {log_path.relative_to(repo)}", file=sys.stderr)
                 return ExitCode.GIT_STATE_ERROR
+            _finalize_log(
+                temporary_log_path,
+                logs_directory,
+                started_at,
+                task_id,
+                status,
+            )
             print("All Ralph tasks are complete.")
             return ExitCode.SUCCESS
-        if status == "task_incomplete":
+        if status == "incompleted":
+            _finalize_log(
+                temporary_log_path,
+                logs_directory,
+                started_at,
+                task_id,
+                status,
+            )
             print(f"Stopped because {task_id} is incomplete.", file=sys.stderr)
             return ExitCode.TASK_INCOMPLETE
 
+        _finalize_log(
+            temporary_log_path,
+            logs_directory,
+            started_at,
+            task_id,
+            status,
+        )
         print(f"Stopped because {task_id} is blocked.", file=sys.stderr)
         return ExitCode.TASK_BLOCKED
 

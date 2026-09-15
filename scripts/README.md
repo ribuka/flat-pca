@@ -80,6 +80,22 @@ push、pull、publish、deployを行いません。
 `wip(TASK-XXX): Ralph loop changes`としてコミットします。`PROGRESS.md`を読み、
 人間による判断または仕様の補完後に改めて実行してください。
 
+## ログ
+
+各Codex実行の標準出力と標準エラーは、終了後に`logs/`へ次の名前で保存します。
+
+```
+ralph_YYYYMMDDTHHMMSS_NNN_status.log
+```
+
+- `YYYYMMDDTHHMMSS`: 実行開始時刻（ローカル時刻）
+- `NNN`: `TASK-XXX`の数値部分を3桁で表したもの。taskを特定できない失敗では`000`
+- `status`: `completed`、`incompleted`、`blocked`、`all-completed`、
+  `codex-failure`、`protocol-error`、`git-error`
+
+同一秒に同じtask・statusのログが既にある場合は、既存ログを上書きしないよう時刻を
+1秒ずつ進めた名前を使います。
+
 ## 関連ファイル
 
 - `ralph_runner.py`: Codex起動、終了トークン、Git状態を検証するrunner本体
