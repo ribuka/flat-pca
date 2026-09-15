@@ -685,20 +685,20 @@ def test_flatten_pca_runs_all_real_fixtures_end_to_end() -> None:
 
 
 def test_readme_minimal_public_api_example_runs_on_all_real_fixtures() -> None:
-    """Keep the documented public import and minimal real-data example executable."""
+    """Keep the documented optional-component real-data example executable."""
     readme = Path("README.md").read_text(encoding="utf-8")
     paths = _fixture_paths()
     fixture_frames = [pl.read_parquet(path) for path in paths]
 
     from spca.feature_engineering import flatten_pca as public_flatten_pca
 
-    result = public_flatten_pca(paths, n_component=2)
+    result = public_flatten_pca(paths)
 
     assert "from spca.feature_engineering import flatten_pca" in readme
-    assert "flatten_pca(paths, n_component=2)" in readme
+    assert "flatten_pca(paths)" in readme
     assert len(paths) == len(fixture_frames) == 6
     assert result.height == len(paths)
-    assert result.columns[-2:] == ["pca-1", "pca-2"]
+    assert result.columns[-6:] == [f"pca-{index}" for index in range(1, 7)]
 
 
 @pytest.mark.parametrize(

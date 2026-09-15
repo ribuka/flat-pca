@@ -16,7 +16,7 @@
 def flatten_pca(
     paths: Sequence[str | Path],
     *,
-    n_component: int,
+    n_component: int | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
@@ -26,7 +26,7 @@ def flatten_pca(
 ```
 
 - `paths`は1個以上のParquetファイルへのパスとする。
-- `n_component`は1以上かつ`min(n_samples, n_features)`以下の整数とする。
+- `n_component`は1以上かつ`min(n_samples, n_features)`以下の整数、または`None`とする。`None`の場合はこの上限を使用する。
 - `t_smoothing_window`はt方向smoothingの片側窓幅をTimeと同じ単位で指定し、`None`の場合は適用しない。
 - `w_smoothing_window`はw方向smoothingの片側窓幅を波長と同じ単位で指定し、`None`の場合は適用しない。
 - `t_normalization_range`はt方向規格化に用いる閉区間`(t1, t2)`を指定し、`None`の場合は適用しない。

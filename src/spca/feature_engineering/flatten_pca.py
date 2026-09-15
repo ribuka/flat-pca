@@ -18,7 +18,7 @@ _METADATA_COLUMNS = ("Time", "Step", "Sequence")
 def flatten_pca(
     paths: Sequence[str | Path],
     *,
-    n_component: int,
+    n_component: int | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
@@ -30,8 +30,10 @@ def flatten_pca(
     ----------
     paths : Sequence[str | Path]
         One or more Parquet input paths.
-    n_component : int
-        Number of PCA score columns to append.
+    n_component : int | None, default None
+        Number of PCA score columns to append. If ``None``, use the maximum
+        available count: the smaller of the input-file count and flattened
+        spectral-feature count.
     t_smoothing_window : float | None, default None
         Positive time-direction smoothing half-window, or ``None``.
     w_smoothing_window : float | None, default None
@@ -45,8 +47,8 @@ def flatten_pca(
     -------
     pl.DataFrame
         One row per input file containing ``filename``, deterministic flattened
-        features, and PCA score columns named ``pca-1`` through
-        ``pca-{n_component}``.
+        features, and PCA score columns named ``pca-1`` through the requested
+        or automatically selected component count.
 
     Raises
     ------
@@ -67,7 +69,9 @@ def flatten_pca(
     flattened = _flatten_inputs(prepared_inputs)
     feature_columns = flattened.columns[1:]
     max_component = min(flattened.height, len(feature_columns))
-    if (
+    if n_component is None:
+        resolved_n_component = max_component
+    elif (
         isinstance(n_component, bool)
         or not isinstance(n_component, Integral)
         or not 1 <= n_component <= max_component
@@ -76,11 +80,13 @@ def flatten_pca(
             "n_component must be an integer between 1 and "
             f"{max_component}"
         )
+    else:
+        resolved_n_component = int(n_component)
 
     return fit_and_transform_pca(
         df=flattened.lazy(),
         columns=feature_columns,
-        n_component=int(n_component),
+        n_component=resolved_n_component,
         max_n_component=None,
         impute_strategy="drop",
         outlier_strategy=None,
