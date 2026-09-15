@@ -25,3 +25,11 @@ Append Ralph loop results in English using the format defined in `RALPH.md`.
 - Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py -k w_smoothing` (7 passed); `uv run -m pytest` with repository-local pytest and uv temporary paths (48 passed); `uv run -m ruff check .` with a repository-local uv cache (passed).
 - Requirements: Verified that `None` preserves the input; only positive finite half-window widths are accepted; spectral values use arithmetic means over centered closed intervals based on parsed real wavelengths; metadata rows remain independent; metadata, row count, wavelength count, and column order are preserved.
 - Notes: TASK-004 is the next eligible task. Repository-local temporary test and cache directories were removed after verification; no fixture Parquet files were modified.
+
+## 2026-09-15 20:45 - TASK-004
+
+- Result: completed
+- Changes: Added t-direction normalization using inclusive real-Time reference intervals and independent `(Step, Sequence, wavelength)` means while preserving metadata, row order, shape, and column order. Added real-fixture tests for reference means, group isolation, disabled normalization, invalid ranges, empty intervals, and zero or nonfinite reference means.
+- Tests: Initial targeted test failed at collection because `_apply_t_normalization` was not implemented; `uv run -m pytest tests/feature_engineering/test_flatten_pca.py -k t_normalization` (9 passed); unadjusted `uv run -m pytest` was blocked during collection by three pre-existing access-restricted directories under `tmp`; `uv run -m pytest` with repository `tmp` ignored and a repository-local uv cache (57 passed); `uv run -m ruff check .` with a repository-local uv cache (passed).
+- Requirements: Verified that `None` preserves the input; ordered finite inclusive bounds are required; each spectrum is divided by its reference-interval arithmetic mean per `(Step, Sequence, wavelength)`; groups remain independent; and malformed or reversed ranges, empty references, and zero or nonfinite means raise `ValueError`.
+- Notes: TASK-005 is the next eligible task. The full-suite collection workaround matches the repository environment used by prior loops; no fixture Parquet files were modified.

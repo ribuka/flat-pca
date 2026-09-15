@@ -12,6 +12,92 @@ import polars as pl
 _METADATA_COLUMNS = ("Time", "Step", "Sequence")
 
 
+def _apply_t_normalization(
+    frame: pl.DataFrame,
+    t_normalization_range: tuple[float, float] | None,
+) -> pl.DataFrame:
+    """Normalize spectra by a mean from an inclusive real-Time interval.
+
+    Parameters
+    ----------
+    frame : pl.DataFrame
+        Validated Flatten-PCA input containing metadata and wavelength columns.
+    t_normalization_range : tuple[float, float] | None
+        Inclusive reference interval in the same units as ``Time``. If
+        ``None``, normalization is disabled.
+
+    Returns
+    -------
+    pl.DataFrame
+        Input rows and metadata with intensities divided by the reference mean
+        for each Step, Sequence, and wavelength.
+
+    Raises
+    ------
+    ValueError
+        If the range is malformed, reversed, or nonfinite; a metadata group has
+        no reference observations; or a reference mean is zero or nonfinite.
+    """
+    if t_normalization_range is None:
+        return frame
+    if (
+        not isinstance(t_normalization_range, tuple)
+        or len(t_normalization_range) != 2
+        or any(isinstance(bound, bool) for bound in t_normalization_range)
+    ):
+        raise ValueError("t_normalization_range must contain two finite bounds")
+    try:
+        lower, upper = (float(bound) for bound in t_normalization_range)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "t_normalization_range must contain two finite bounds"
+        ) from error
+    if not isfinite(lower) or not isfinite(upper) or lower > upper:
+        raise ValueError(
+            "t_normalization_range must contain ordered finite bounds"
+        )
+
+    wavelength_columns = [
+        column for column in frame.columns if column not in _METADATA_COLUMNS
+    ]
+    source_values = frame.select(wavelength_columns).to_numpy().astype(
+        float,
+        copy=False,
+    )
+    normalized_values = source_values.copy()
+    times = frame["Time"].cast(pl.Float64).to_numpy()
+    groups: dict[tuple[object, object], list[int]] = {}
+    for row_index, group in enumerate(frame.select("Step", "Sequence").iter_rows()):
+        groups.setdefault(group, []).append(row_index)
+    if not groups:
+        raise ValueError(
+            "t_normalization_range reference interval is empty for a group"
+        )
+
+    for indices in groups.values():
+        group_indices = np.asarray(indices)
+        in_reference = (times[group_indices] >= lower) & (
+            times[group_indices] <= upper
+        )
+        if not in_reference.any():
+            raise ValueError(
+                "t_normalization_range reference interval is empty for a group"
+            )
+        reference_mean = source_values[group_indices[in_reference]].mean(axis=0)
+        if not np.isfinite(reference_mean).all() or (reference_mean == 0).any():
+            raise ValueError(
+                "t_normalization_range reference mean must be finite and nonzero"
+            )
+        normalized_values[group_indices] = (
+            source_values[group_indices] / reference_mean
+        )
+
+    return frame.with_columns(
+        pl.Series(column, normalized_values[:, column_index])
+        for column_index, column in enumerate(wavelength_columns)
+    )
+
+
 def _apply_t_smoothing(
     frame: pl.DataFrame,
     t_smoothing_window: float | None,

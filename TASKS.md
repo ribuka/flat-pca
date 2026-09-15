@@ -84,7 +84,7 @@
 
 ## TASK-004: t方向規格化
 
-- Status: pending
+- Status: completed
 - Priority: 4
 - Depends on: TASK-001
 
