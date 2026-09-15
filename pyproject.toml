@@ -30,3 +30,6 @@ pattern = '^(?P<version>\S+)\s*$'
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/spca"]
+
+[tool.pytest.ini_options]
+norecursedirs = [".*", "tmp"]

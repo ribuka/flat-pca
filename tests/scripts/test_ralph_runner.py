@@ -8,6 +8,7 @@ import pytest
 
 from scripts.ralph_runner import (
     _build_codex_command,
+    _build_codex_environment,
     _classify_output,
     _commit_loop_changes,
     _finalize_log,
@@ -136,6 +137,28 @@ def test_build_codex_command_auto_approves_only_when_requested() -> None:
     ]
 
 
+def test_build_codex_environment_uses_repository_temporary_directories(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Direct child-process caches and temporary files into the repository."""
+    monkeypatch.setenv("UV_CACHE_DIR", "outside-uv-cache")
+    monkeypatch.setenv("TMP", "outside-tmp")
+    monkeypatch.setenv("TEMP", "outside-temp")
+
+    environment = _build_codex_environment(tmp_path)
+    next_environment = _build_codex_environment(tmp_path)
+
+    assert environment["UV_CACHE_DIR"] == str((tmp_path / "tmp" / "uv-cache").resolve())
+    runtime_directory = Path(environment["TMP"])
+    assert runtime_directory.parent == (tmp_path / "tmp" / "runtime").resolve()
+    assert runtime_directory.name.startswith("ralph-")
+    assert environment["TEMP"] == environment["TMP"]
+    assert next_environment["TMP"] != environment["TMP"]
+    assert (tmp_path / "tmp" / "uv-cache").is_dir()
+    assert runtime_directory.is_dir()
+
+
 def test_run_codex_writes_combined_output_to_loop_log(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -154,12 +177,14 @@ def test_run_codex_writes_combined_output_to_loop_log(
         assert kwargs["cwd"] == tmp_path
         assert kwargs["check"] is False
         assert kwargs["text"] is True
+        assert kwargs["env"] is environment
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr("scripts.ralph_runner.subprocess.run", fake_run)
     log_path = tmp_path / "loop_001.log"
+    environment = {"UV_CACHE_DIR": "repo-cache"}
 
-    completed = _run_codex(["codex", "exec"], tmp_path, log_path)
+    completed = _run_codex(["codex", "exec"], tmp_path, log_path, environment)
 
     assert completed.returncode == 0
     assert log_path.read_text(encoding="utf-8") == "standard output\nstandard error\n"

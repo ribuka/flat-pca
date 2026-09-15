@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -324,7 +325,40 @@ def _build_codex_command(
     return command
 
 
-def _run_codex(command: Sequence[str], repo: Path, log_path: Path) -> subprocess.CompletedProcess[str]:
+def _build_codex_environment(repo: Path) -> dict[str, str]:
+    """Build a child-process environment with repository-local temporary paths.
+
+    Parameters
+    ----------
+    repo : Path
+        Repository root containing the Ralph ``tmp`` directory.
+
+    Returns
+    -------
+    dict[str, str]
+        Copy of the current environment with uv and runtime temporary paths
+        directed into the repository.
+    """
+    temporary_directory = (repo / "tmp").resolve()
+    uv_cache_directory = temporary_directory / "uv-cache"
+    runtime_root = temporary_directory / "runtime"
+    uv_cache_directory.mkdir(parents=True, exist_ok=True)
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    runtime_directory = Path(tempfile.mkdtemp(prefix="ralph-", dir=runtime_root))
+
+    environment = os.environ.copy()
+    environment["UV_CACHE_DIR"] = str(uv_cache_directory)
+    environment["TMP"] = str(runtime_directory)
+    environment["TEMP"] = str(runtime_directory)
+    return environment
+
+
+def _run_codex(
+    command: Sequence[str],
+    repo: Path,
+    log_path: Path,
+    environment: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
     """Run Codex and write its combined output to a loop log.
 
     Parameters
@@ -335,6 +369,8 @@ def _run_codex(command: Sequence[str], repo: Path, log_path: Path) -> subprocess
         Repository working directory.
     log_path : Path
         File receiving Codex standard output and standard error.
+    environment : dict[str, str]
+        Environment passed to the Codex child process.
 
     Returns
     -------
@@ -349,6 +385,7 @@ def _run_codex(command: Sequence[str], repo: Path, log_path: Path) -> subprocess
             stdout=log_file,
             stderr=subprocess.STDOUT,
             text=True,
+            env=environment,
         )
 
 
@@ -456,6 +493,7 @@ def run(
     for loop_number in range(1, max_loops + 1):
         before = _require_git_output(repo, "rev-parse", "HEAD")
         started_at = datetime.now(tz=UTC).astimezone()
+        codex_environment = _build_codex_environment(repo)
         with tempfile.NamedTemporaryFile(
             dir=temp_directory,
             prefix="ralph-last-message-",
@@ -494,7 +532,12 @@ def run(
             return ExitCode.SUCCESS
 
         try:
-            completed = _run_codex(command, repo, temporary_log_path)
+            completed = _run_codex(
+                command,
+                repo,
+                temporary_log_path,
+                codex_environment,
+            )
             if completed.returncode != 0:
                 log_path = _finalize_log(
                     temporary_log_path,

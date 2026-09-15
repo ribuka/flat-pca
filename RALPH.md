@@ -4,13 +4,23 @@ This document defines the rules for processing exactly one task from `TASKS.md` 
 
 ## Files to read
 
-At the start of each loop, read files in this order:
+At the start of each loop, read the following files one at a time in this order:
 
 1. `AGENTS.md`
 2. `SPEC.md`
 3. `TASKS.md`
 4. `PROGRESS.md` if it exists
 5. Existing code and tests related to the selected task
+
+On Windows PowerShell, always read Markdown and text files with an explicit
+UTF-8 encoding, such as `Get-Content -Encoding UTF8`. Never rely on the default
+text encoding.
+
+Do not search the repository for Ralph instructions before reading these files.
+After selecting a task, begin with implementation and test files directly
+required by that task. Expand to imported or dependent files only when needed
+to understand an active contract or failure. Do not preload files for later
+tasks, and do not read a guessed path that was absent from file-search results.
 
 Do not invent requirements that are not documented. If specifications conflict, do not implement the task. Report it as blocked.
 
