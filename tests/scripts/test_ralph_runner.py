@@ -13,6 +13,7 @@ from scripts.ralph_runner import (
     _finalize_log,
     _resolve_codex_executable,
     _run_codex,
+    _task_progress,
 )
 
 
@@ -48,6 +49,28 @@ def test_classify_output_rejects_invalid_terminal_status(message: str) -> None:
     """Reject missing, malformed, or non-terminal Ralph status tokens."""
     with pytest.raises(ValueError, match="invalid Ralph status line"):
         _classify_output(message)
+
+
+def test_task_progress_counts_uncompleted_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Count every task while treating only completed status as resolved."""
+    task_file = Path("TASKS.md")
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda path, *, encoding: """## TASK-001: first
+
+- Status: completed
+
+## TASK-002: second
+
+- Status: pending
+
+## TASK-003: third
+
+- Status: blocked""",
+    )
+
+    assert _task_progress(task_file) == (2, 3)
 
 
 def test_resolve_codex_executable_uses_which_absolute_path(

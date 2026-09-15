@@ -17,6 +17,10 @@ DEFAULT_MAX_LOOPS = 20
 TASK_COMPLETED_PATTERN = re.compile(r"TASK_COMPLETED: (TASK-\d{3})")
 TASK_INCOMPLETE_PATTERN = re.compile(r"TASK_INCOMPLETE: (TASK-\d{3})")
 TASK_BLOCKED_PATTERN = re.compile(r"TASK_BLOCKED: (TASK-\d{3})")
+TASK_STATUS_PATTERN = re.compile(
+    r"^## TASK-\d{3}:.*?\r?\n\r?\n- Status: (?P<status>\w+)$",
+    re.MULTILINE,
+)
 
 
 class ExitCode(IntEnum):
@@ -222,6 +226,32 @@ def _classify_output(message: str) -> tuple[str, str | None]:
     raise ValueError(f"invalid Ralph status line: {token!r}")
 
 
+def _task_progress(tasks_path: Path) -> tuple[int, int]:
+    """Return remaining and total task counts from a Ralph task file.
+
+    Parameters
+    ----------
+    tasks_path : Path
+        UTF-8 task definition file containing task headings and status fields.
+
+    Returns
+    -------
+    tuple[int, int]
+        Number of tasks not yet completed and total task count.
+
+    Raises
+    ------
+    ValueError
+        If the file does not contain any task status fields.
+    """
+    statuses = [match.group("status") for match in TASK_STATUS_PATTERN.finditer(
+        tasks_path.read_text(encoding="utf-8")
+    )]
+    if not statuses:
+        raise ValueError(f"no task statuses found: {tasks_path}")
+    return sum(status != "completed" for status in statuses), len(statuses)
+
+
 def _resolve_codex_executable(executable: str) -> str | None:
     """Resolve a Codex executable name to an absolute executable path.
 
@@ -417,6 +447,7 @@ def run(
         return ExitCode.PREFLIGHT_ERROR
 
     prompt = prompt_path.read_text(encoding="utf-8")
+    tasks_path = repo / "TASKS.md"
     temp_directory = repo / "tmp"
     temp_directory.mkdir(exist_ok=True)
     logs_directory = repo / "logs"
@@ -448,7 +479,14 @@ def run(
             delete=False,
         ) as log_file:
             temporary_log_path = Path(log_file.name)
-        print(f"Ralph loop {loop_number}/{max_loops} started")
+        try:
+            remaining_tasks, total_tasks = _task_progress(tasks_path)
+        except (OSError, UnicodeError, ValueError) as error:
+            output_path.unlink(missing_ok=True)
+            temporary_log_path.unlink(missing_ok=True)
+            print(f"error: {error}", file=sys.stderr)
+            return ExitCode.PREFLIGHT_ERROR
+        print(f"Ralph tasks {remaining_tasks}/{total_tasks} started")
         if dry_run:
             print(subprocess.list2cmdline(command))
             output_path.unlink(missing_ok=True)
