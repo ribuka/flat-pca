@@ -3,7 +3,8 @@ Run exactly one Ralph loop in this repository.
 Treat `RALPH.md` as the authoritative loop procedure. Read and follow every
 file and rule it references. Select exactly one eligible pending task, add or
 update the required tests, implement only that task, run all required checks,
-update task and progress state, and create the required single commit.
+update task and progress state. Do not stage or commit: the runner creates the
+required single commit after it validates your terminal status.
 
 Do not start another task in this run. Do not weaken tests or requirements. If
 the specification is missing, ambiguous, or contradictory, stop and report the

@@ -128,6 +128,49 @@ def _commit_count(repo: Path, before: str, after: str) -> int:
     return int(_require_git_output(repo, "rev-list", "--count", f"{before}..{after}"))
 
 
+def _commit_loop_changes(repo: Path, task_id: str, status: str) -> None:
+    """Commit all changes produced by one clean-start Ralph loop.
+
+    Parameters
+    ----------
+    repo : Path
+        Repository working directory, verified clean before the loop started.
+    task_id : str
+        Ralph task identifier reported by Codex.
+    status : str
+        Terminal Ralph status, either ``task_completed``, ``task_incomplete``,
+        or ``task_blocked``.
+
+    Raises
+    ------
+    RuntimeError
+        If the working tree contains no changes or Git cannot stage or commit
+        the loop changes.
+    ValueError
+        If ``status`` is not a task terminal status.
+    """
+    subjects = {
+        "task_completed": f"feat({task_id}): Ralph loop changes",
+        "task_incomplete": f"wip({task_id}): Ralph loop changes",
+        "task_blocked": f"wip({task_id}): Ralph loop changes",
+    }
+    try:
+        subject = subjects[status]
+    except KeyError as error:
+        raise ValueError(f"cannot commit loop status: {status}") from error
+
+    _require_git_output(repo, "diff", "--check")
+    _require_git_output(repo, "add", "--all")
+    staged = _run_git(repo, "diff", "--cached", "--quiet")
+    if staged.returncode == 0:
+        raise RuntimeError("task loop produced no changes to commit")
+    if staged.returncode != 1:
+        detail = staged.stderr.strip() or staged.stdout.strip()
+        raise RuntimeError(detail or "could not inspect staged changes")
+    _require_git_output(repo, "diff", "--cached", "--check")
+    _require_git_output(repo, "commit", "-m", subject)
+
+
 def _last_non_empty_line(message: str) -> str:
     """Return the last non-empty line from an agent message.
 
@@ -207,6 +250,7 @@ def _build_codex_command(
     output_path: Path,
     prompt: str,
     model: str | None,
+    auto_approve: bool = False,
 ) -> list[str]:
     """Build the non-interactive Codex command for one loop.
 
@@ -222,6 +266,8 @@ def _build_codex_command(
         Prompt for one Ralph loop.
     model : str | None
         Optional model override.
+    auto_approve : bool, default False
+        Automatically approve Codex requests in the workspace-write sandbox.
 
     Returns
     -------
@@ -232,18 +278,47 @@ def _build_codex_command(
         executable,
         "exec",
         "--ephemeral",
-        "--sandbox",
-        "workspace-write",
-        "--approve-for-me",
         "--cd",
         str(repo),
         "--output-last-message",
         str(output_path),
     ]
+    if auto_approve:
+        command.append("--approve-for-me")
+    else:
+        command.extend(["--sandbox", "workspace-write"])
     if model is not None:
         command.extend(["--model", model])
     command.append(prompt)
     return command
+
+
+def _run_codex(command: Sequence[str], repo: Path, log_path: Path) -> subprocess.CompletedProcess[str]:
+    """Run Codex and write its combined output to a loop log.
+
+    Parameters
+    ----------
+    command : Sequence[str]
+        Codex subprocess argument vector.
+    repo : Path
+        Repository working directory.
+    log_path : Path
+        File receiving Codex standard output and standard error.
+
+    Returns
+    -------
+    subprocess.CompletedProcess[str]
+        Completed Codex process.
+    """
+    with log_path.open("w", encoding="utf-8") as log_file:
+        return subprocess.run(
+            command,
+            cwd=repo,
+            check=False,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
 
 
 def run(
@@ -252,6 +327,7 @@ def run(
     max_loops: int,
     codex_executable: str,
     model: str | None = None,
+    auto_approve: bool = False,
     dry_run: bool = False,
 ) -> ExitCode:
     """Run Ralph loops until a terminal status or safety limit is reached.
@@ -268,6 +344,8 @@ def run(
         Codex executable name or path.
     model : str | None, default None
         Optional model override.
+    auto_approve : bool, default False
+        Automatically approve Codex requests in the workspace-write sandbox.
     dry_run : bool, default False
         Validate inputs and print the command without invoking Codex.
 
@@ -301,6 +379,8 @@ def run(
     prompt = prompt_path.read_text(encoding="utf-8")
     temp_directory = repo / "tmp"
     temp_directory.mkdir(exist_ok=True)
+    logs_directory = repo / "logs"
+    logs_directory.mkdir(exist_ok=True)
 
     for loop_number in range(1, max_loops + 1):
         before = _require_git_output(repo, "rev-parse", "HEAD")
@@ -318,18 +398,21 @@ def run(
             output_path,
             prompt,
             model,
+            auto_approve,
         )
-        print(f"Ralph loop {loop_number}/{max_loops}")
+        log_path = logs_directory / f"loop_{loop_number:03d}.log"
+        print(f"Ralph loop {loop_number}/{max_loops} started ({log_path.relative_to(repo)})")
         if dry_run:
             print(subprocess.list2cmdline(command))
             output_path.unlink(missing_ok=True)
             return ExitCode.SUCCESS
 
         try:
-            completed = subprocess.run(command, cwd=repo, check=False)
+            completed = _run_codex(command, repo, log_path)
             if completed.returncode != 0:
                 print(
-                    f"error: Codex exited with code {completed.returncode}",
+                    f"error: Codex exited with code {completed.returncode}; "
+                    f"see {log_path.relative_to(repo)}",
                     file=sys.stderr,
                 )
                 return ExitCode.CODEX_FAILURE
@@ -341,9 +424,19 @@ def run(
         finally:
             output_path.unlink(missing_ok=True)
 
-        after = _require_git_output(repo, "rev-parse", "HEAD")
         try:
+            after_agent = _require_git_output(repo, "rev-parse", "HEAD")
+            agent_commits = _commit_count(repo, before, after_agent)
+            if agent_commits != 0:
+                raise RuntimeError(
+                    f"Codex created {agent_commits} commits; the runner owns loop commits"
+                )
+            if status != "all_completed":
+                if task_id is None:
+                    raise RuntimeError("task status did not include a task ID")
+                _commit_loop_changes(repo, task_id, status)
             _require_clean_worktree(repo)
+            after = _require_git_output(repo, "rev-parse", "HEAD")
             new_commits = _commit_count(repo, before, after)
         except RuntimeError as error:
             print(f"error: {error}", file=sys.stderr)
@@ -360,6 +453,12 @@ def run(
             print(f"Completed {task_id}; starting the next loop.")
             continue
 
+        if new_commits != 1 and status != "all_completed":
+            print(
+                f"error: terminal loop created {new_commits} commits",
+                file=sys.stderr,
+            )
+            return ExitCode.GIT_STATE_ERROR
         if new_commits > 1:
             print(
                 f"error: terminal loop created {new_commits} commits",
@@ -415,6 +514,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--codex", default="codex", help="Codex executable name or path")
     parser.add_argument("--model", help="optional Codex model override")
     parser.add_argument(
+        "--auto-approve",
+        action="store_true",
+        help="automatically approve Codex requests in the workspace-write sandbox",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="validate inputs and print one Codex command without running it",
@@ -443,6 +547,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_loops=args.max_loops,
             codex_executable=args.codex,
             model=args.model,
+            auto_approve=args.auto_approve,
             dry_run=args.dry_run,
         )
     )

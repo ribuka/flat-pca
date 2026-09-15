@@ -36,10 +36,11 @@ uv run -m scripts.ralph_runner --max-loops 8
 uv run -m scripts.ralph_runner --model <model>
 uv run -m scripts.ralph_runner --codex <codex-executable>
 uv run -m scripts.ralph_runner --prompt-file <prompt-file>
+uv run -m scripts.ralph_runner --auto-approve
 ```
 
 ```powershell
-uv run -m scripts.ralph_runner --model "gpt-5.6-sol"
+uv run -m scripts.ralph_runner --model "gpt-5.6-sol" --max-loops 1
 ```
 
 すべてのオプションと終了コードは以下で確認できます。
@@ -53,17 +54,19 @@ uv run -m scripts.ralph_runner --help
 1. Git rootとclean working treeを確認する。
 2. `scripts/ralph_prompt.md`を渡して`codex exec`を1回実行する。
 3. 最終メッセージの最後の非空行を`RALPH.md`の終了トークンとして検証する。
-4. Gitがcleanであることと、新しいコミット数を検証する。
+4. Codexがcommitしていないことを確認し、runnerが当該loopの変更をステージして1コミットする。続けてGitがcleanであることと、新しいコミット数を検証する。
 5. `TASK_COMPLETED: TASK-XXX`なら次loopを開始し、それ以外では停止する。
 
-Codexには`workspace-write` sandboxと自動承認を指定します。runner自身はpush、
-pull、publish、deployを行いません。
+デフォルトでは`workspace-write` sandboxを使い、Codexからの確認を受けます。
+無人実行が必要な場合だけ`--auto-approve`を指定してください。この場合は
+`--approve-for-me`を渡しますが、競合する`--sandbox`は渡しません。runner自身は
+push、pull、publish、deployを行いません。
 
 ## 停止条件と終了コード
 
 | 最終トークンまたは状態 | runnerの動作 | 終了コード |
 | --- | --- | --- |
-| `TASK_COMPLETED: TASK-XXX` | 1コミットを確認して次loopへ進む | 継続 |
+| `TASK_COMPLETED: TASK-XXX` | runnerが1コミットして次loopへ進む | 継続 |
 | `ALL_TASKS_COMPLETED` | 正常終了 | 0 |
 | `TASK_INCOMPLETE: TASK-XXX` | 停止 | 20 |
 | `TASK_BLOCKED: TASK-XXX` | 停止 | 21 |
@@ -73,7 +76,8 @@ pull、publish、deployを行いません。
 | 上限loop数に到達 | 停止 | 22 |
 | 前提条件不足 | 停止 | 23 |
 
-`TASK_INCOMPLETE`または`TASK_BLOCKED`で停止した場合は、`PROGRESS.md`を読み、
+`TASK_INCOMPLETE`または`TASK_BLOCKED`で停止した場合も、loopで生じた変更はrunnerが
+`wip(TASK-XXX): Ralph loop changes`としてコミットします。`PROGRESS.md`を読み、
 人間による判断または仕様の補完後に改めて実行してください。
 
 ## 関連ファイル
