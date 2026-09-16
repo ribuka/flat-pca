@@ -841,28 +841,15 @@ def _run(
                 output_path.unlink(missing_ok=True)
                 return exit_code
 
-            log_path = _finalize_log(
-                temporary_log_path,
-                logs_directory,
-                started_at,
-                selected_task_id,
-                f"api-retry-{api_attempt:03d}",
-            )
             logger.warning(
-                "Codex API attempt {}/{} failed ({}); retrying in {} seconds; see {}",
+                "Codex API attempt {}/{} failed ({}); retrying in {} seconds",
                 api_attempt,
                 api_retry_count + 1,
                 failure,
                 api_retry_interval_sec,
-                log_path.relative_to(repo),
             )
             output_path.unlink(missing_ok=True)
             time.sleep(api_retry_interval_sec)
-            temporary_log_path = _create_running_log(
-                logs_directory,
-                started_at,
-                selected_task_id,
-            )
         else:
             raise AssertionError("Codex retry loop must return or succeed")
 

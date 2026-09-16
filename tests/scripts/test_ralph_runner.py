@@ -383,11 +383,11 @@ def test_run_stops_after_completing_the_last_task(
     assert log_names[0].endswith("_009_completed.log")
 
 
-def test_run_retries_codex_timeout_and_preserves_attempt_log(
+def test_run_retries_codex_timeout_without_creating_attempt_logs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Retry a timed-out Codex process without consuming another Ralph loop."""
+    """Retry a timeout without creating a separate log for the failed attempt."""
     prompt_path = tmp_path / "prompt.md"
     prompt_path.write_text("one loop", encoding="utf-8")
     tasks_path = tmp_path / "TASKS.md"
@@ -473,8 +473,76 @@ def test_run_retries_codex_timeout_and_preserves_attempt_log(
     assert codex_calls == 2
     assert delays == [7]
     log_names = sorted(path.name for path in (tmp_path / "logs").iterdir())
-    assert any(name.endswith("_010_api-retry-001.log") for name in log_names)
-    assert any(name.endswith("_010_completed.log") for name in log_names)
+    assert len(log_names) == 1
+    assert log_names[0].endswith("_010_completed.log")
+
+
+def test_run_keeps_only_final_log_when_all_codex_retries_fail(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Save only the final failed attempt after exhausting Codex retries."""
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("one loop", encoding="utf-8")
+    (tmp_path / "TASKS.md").write_text(
+        """## TASK-010: retryable task
+
+- Status: pending
+- Priority: 1
+- Depends on: none
+""",
+        encoding="utf-8",
+    )
+    codex_calls = 0
+    delays: list[int] = []
+
+    def fake_git_output(repo: Path, *args: str) -> str:
+        """Return the repository root and a stable commit identifier."""
+        if args == ("rev-parse", "--show-toplevel"):
+            return str(repo)
+        if args == ("rev-parse", "HEAD"):
+            return "before"
+        raise AssertionError(args)
+
+    def fake_run_codex(
+        command: list[str],
+        repo: Path,
+        log_path: Path,
+        environment: dict[str, str],
+        timeout_sec: int,
+    ) -> subprocess.CompletedProcess[str]:
+        """Write each failed output to the reusable running log."""
+        nonlocal codex_calls
+        del environment
+        codex_calls += 1
+        assert repo == tmp_path
+        log_path.write_text(f"attempt {codex_calls}\n", encoding="utf-8")
+        raise subprocess.TimeoutExpired(command, timeout_sec)
+
+    monkeypatch.setattr("scripts.ralph_runner._resolve_codex_executable", lambda value: value)
+    monkeypatch.setattr("scripts.ralph_runner._require_git_output", fake_git_output)
+    monkeypatch.setattr("scripts.ralph_runner._require_clean_worktree", lambda repo: None)
+    monkeypatch.setattr("scripts.ralph_runner._build_codex_environment", lambda repo: {})
+    monkeypatch.setattr("scripts.ralph_runner._run_codex", fake_run_codex)
+    monkeypatch.setattr("scripts.ralph_runner.time.sleep", delays.append)
+
+    result = run(
+        repo=tmp_path,
+        prompt_path=prompt_path,
+        max_loops=1,
+        codex_executable="codex",
+        api_retry_count=1,
+        api_retry_interval_sec=7,
+        codex_timeout_sec=42,
+    )
+
+    assert result == ExitCode.CODEX_FAILURE
+    assert codex_calls == 2
+    assert delays == [7]
+    log_paths = list((tmp_path / "logs").iterdir())
+    assert len(log_paths) == 1
+    assert log_paths[0].name.endswith("_010_codex-failure.log")
+    assert log_paths[0].read_text(encoding="utf-8") == "attempt 2\n"
 
 
 def test_parse_args_uses_api_retry_defaults_and_overrides() -> None:

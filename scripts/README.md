@@ -133,6 +133,10 @@ ralph_YYYYMMDDTHHMMSS_NNN_status.log
 同一秒に同じtask・statusのログが既にある場合は、既存ログを上書きしないよう時刻を
 1秒ずつ進めた名前を使います。
 
+API再試行中は同じ実行中ログを上書きして使うため、試行ごとの個別ログは残りません。
+すべての試行が失敗した場合は、最後の試行の出力だけを`NNN_codex-failure.log`（または
+`NNN_protocol-error.log`）として保存します。
+
 最終taskの完了によって全taskが完了した場合、そのCodex実行のログは個別taskの結果を
 表す`NNN_completed.log`として保存します。完了確認だけを行う追加loopは生成しません。
 起動時点ですでに全taskが完了している場合も、Codexを起動せず正常終了します。
