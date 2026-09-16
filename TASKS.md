@@ -252,3 +252,28 @@
 - `uv run -m pytest tests/feature_engineering`
 - `uv run -m pytest`
 - `uv run -m ruff check .`
+
+## TASK-010: 空の入力パスの明示的な検証
+
+- Status: pending
+- Priority: 10
+- Depends on: TASK-009
+
+### Requirements
+
+- `flatten_pca`へ空の入力パス列を渡した場合、処理途中の内部例外ではなく、入力が1件以上必要であることを示す明確な`ValueError`を送出する。
+- リスト、タプルおよびジェネレータなど、既存の反復可能な入力に対する挙動を維持する。
+- 公開APIのシグネチャ、戻り値、前処理順および公開importパスを変更しない。
+- すべての関数とクラスの型ヒントおよびNumPy形式docstringを維持する。
+
+### Tests
+
+- 空のリスト、空のタプルおよび空のジェネレータが`ValueError`になることを検証する。
+- `tests/fixtures/real_subset`のParquetファイルを直接読み込み、1件のリストおよびジェネレータ入力が従来どおり処理できることを検証する。
+- 既存の入力検証テストを弱体化しない。
+
+### Acceptance commands
+
+- `uv run -m pytest tests/feature_engineering/test_flatten_pca_input.py`
+- `uv run -m pytest`
+- `uv run -m ruff check .`

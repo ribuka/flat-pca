@@ -20,9 +20,9 @@ end the loop without selecting or starting another task.
 3. Apply the project's documented priority and tie-breaking rules.
 4. Select exactly one task using that deterministic order.
 
-If no incomplete task is eligible because of its dependencies, make no changes
-and end the loop as blocked. If no incomplete task remains, end the loop with
-the all-tasks-completed result.
+The caller must confirm that an incomplete task is eligible before starting a
+loop. If no incomplete task is eligible, the caller handles the completed or
+blocked state without starting an agent loop.
 
 ## One loop
 
@@ -80,6 +80,5 @@ forms and must match the actual repository state:
 * Task completed: `TASK_COMPLETED: TASK-XXX`
 * Task incomplete: `TASK_INCOMPLETE: TASK-XXX`
 * Task blocked: `TASK_BLOCKED: TASK-XXX`
-* All tasks completed: `ALL_TASKS_COMPLETED`
 
 After emitting the terminal result, do not start another task.
