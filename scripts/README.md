@@ -81,9 +81,11 @@ Ralph runner end
 これらのstatusログはLoguruを介してterminalへ出力されます。`--dry-run`で表示する
 Codexコマンド文字列だけは、実行対象そのものを確認する出力として`print()`を使います。
 
-デフォルトでは`workspace-write` sandboxを使い、Codexからの確認を受けます。
-無人実行が必要な場合だけ`--auto-approve`を指定してください。この場合は
-`--approve-for-me`を渡しますが、競合する`--sandbox`は渡しません。runner自身は
+デフォルトでは`workspace-write` sandboxと`on-request`承認を使います。通常の
+リポジトリ操作はsandbox内で行い、pytestだけはOSの一時ディレクトリを使うため
+sandbox外実行の承認を要求します。個人用のCodex rulesでpytestを`allow`している場合は、
+この承認を省略できます。無人実行が必要な場合だけ`--auto-approve`を指定してください。
+この場合は`--approve-for-me`を渡しますが、競合する`--sandbox`は渡しません。runner自身は
 push、pull、publish、deployを行いません。
 
 各 Codex 子プロセスでは、無制限のネットワーク再接続を既定で無効化します。接続に

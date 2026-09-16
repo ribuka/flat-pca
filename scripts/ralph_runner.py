@@ -504,7 +504,14 @@ def _build_codex_command(
     if auto_approve:
         command.append("--approve-for-me")
     else:
-        command.extend(["--sandbox", "workspace-write"])
+        command.extend(
+            [
+                "--sandbox",
+                "workspace-write",
+                "--ask-for-approval",
+                "on-request",
+            ]
+        )
     if model is not None:
         command.extend(["--model", model])
     command.append(prompt)

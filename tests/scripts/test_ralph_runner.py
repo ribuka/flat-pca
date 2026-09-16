@@ -513,7 +513,7 @@ def test_resolve_codex_executable_uses_which_absolute_path(
 
 
 def test_build_codex_command_requires_confirmation_by_default() -> None:
-    """Use the workspace-write sandbox without automatic approval by default."""
+    """Use the workspace-write sandbox with on-request approval by default."""
     command = _build_codex_command(
         executable="codex",
         repo=Path("repo"),
@@ -534,6 +534,8 @@ def test_build_codex_command_requires_confirmation_by_default() -> None:
         str(Path("tmp/last-message.txt")),
         "--sandbox",
         "workspace-write",
+        "--ask-for-approval",
+        "on-request",
         "--model",
         "test-model",
         "one loop",
