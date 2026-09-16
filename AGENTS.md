@@ -13,11 +13,8 @@
 
 #### Test execution
 
-- Use `uv run -m pytest` for full test suite.
-- Use `uv run -m pytest <test-path>` for targeted test.
-- ALWAYS run pytest outside the Codex sandbox from the first attempt.
-- NEVER first attempt pytest inside the sandbox.
-  - This is required because pytest temporary directories under the Windows user Temp directory may be inaccessible from the Codex sandbox.
+- Before running any pytest command, read `.agents/pytest.md` in full.
+- Follow `.agents/pytest.md` exactly. Its pytest execution rules are mandatory.
 
 #### Lint
 
