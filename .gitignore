@@ -27,3 +27,6 @@ wheels/
 /logs/
 /log/
 *.log
+
+# lnk
+*.lnk
