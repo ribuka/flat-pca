@@ -8,12 +8,20 @@
 
 ### Verification commands
 
-- Full test suite: `uv run -m pytest`
-- Targeted test: `uv run -m pytest <test-path>`
-- Lint: `uv run -m ruff check .`
+- Run targeted tests while implementing a task.
+- Run the full test suite and lint before marking the task as completed.
 
-Run targeted tests while implementing a task. Run the full test suite and lint
-before marking the task as completed.
+#### Test execution
+
+- Use `uv run -m pytest` for full test suite.
+- Use `uv run -m pytest <test-path>` for targeted test.
+- ALWAYS run pytest outside the Codex sandbox from the first attempt.
+- NEVER first attempt pytest inside the sandbox.
+  - This is required because pytest temporary directories under the Windows user Temp directory may be inaccessible from the Codex sandbox.
+
+#### Lint
+
+- Lint: `uv run -m ruff check .`
 
 ### Test fixtures
 
