@@ -12,6 +12,7 @@ from scripts.ralph_runner import (
     _build_codex_environment,
     _classify_output,
     _commit_loop_changes,
+    _create_running_log,
     _finalize_log,
     _parse_args,
     _resolve_codex_executable,
@@ -330,10 +331,12 @@ def test_run_stops_after_completing_the_last_task(
         repo: Path,
         log_path: Path,
         environment: dict[str, str],
+        timeout_sec: int,
     ) -> subprocess.CompletedProcess[str]:
         """Complete the ledger task and emit its valid terminal token."""
         nonlocal codex_calls
         del environment
+        assert timeout_sec == 1_800
         codex_calls += 1
         assert repo == tmp_path
         output_path = Path(command[command.index("--output-last-message") + 1])
@@ -380,11 +383,11 @@ def test_run_stops_after_completing_the_last_task(
     assert log_names[0].endswith("_009_completed.log")
 
 
-def test_run_retries_protocol_failure_and_preserves_attempt_log(
+def test_run_retries_codex_timeout_and_preserves_attempt_log(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Retry an invalid Codex response without consuming another Ralph loop."""
+    """Retry a timed-out Codex process without consuming another Ralph loop."""
     prompt_path = tmp_path / "prompt.md"
     prompt_path.write_text("one loop", encoding="utf-8")
     tasks_path = tmp_path / "TASKS.md"
@@ -414,8 +417,9 @@ def test_run_retries_protocol_failure_and_preserves_attempt_log(
         repo: Path,
         log_path: Path,
         environment: dict[str, str],
+        timeout_sec: int,
     ) -> subprocess.CompletedProcess[str]:
-        """Emit an invalid response once, then complete the selected task."""
+        """Time out once, then complete the selected task."""
         nonlocal codex_calls
         del environment
         codex_calls += 1
@@ -423,7 +427,7 @@ def test_run_retries_protocol_failure_and_preserves_attempt_log(
         output_path = Path(command[command.index("--output-last-message") + 1])
         log_path.write_text(f"attempt {codex_calls}\n", encoding="utf-8")
         if codex_calls == 1:
-            output_path.write_text("connection interrupted\n", encoding="utf-8")
+            raise subprocess.TimeoutExpired(command, timeout_sec)
         else:
             output_path.write_text("TASK_COMPLETED: TASK-010\n", encoding="utf-8")
             tasks_path.write_text(
@@ -462,27 +466,37 @@ def test_run_retries_protocol_failure_and_preserves_attempt_log(
         codex_executable="codex",
         api_retry_count=1,
         api_retry_interval_sec=7,
+        codex_timeout_sec=42,
     )
 
     assert result == ExitCode.SUCCESS
     assert codex_calls == 2
     assert delays == [7]
     log_names = sorted(path.name for path in (tmp_path / "logs").iterdir())
-    assert any(name.endswith("_000_api-retry-001.log") for name in log_names)
+    assert any(name.endswith("_010_api-retry-001.log") for name in log_names)
     assert any(name.endswith("_010_completed.log") for name in log_names)
 
 
 def test_parse_args_uses_api_retry_defaults_and_overrides() -> None:
-    """Expose API retry configuration with the documented defaults."""
+    """Expose retry and child-process timeout configuration."""
     defaults = _parse_args([])
     overrides = _parse_args(
-        ["--api-retry-count", "3", "--api-retry-interval-sec", "9"]
+        [
+            "--api-retry-count",
+            "3",
+            "--api-retry-interval-sec",
+            "9",
+            "--codex-timeout-sec",
+            "42",
+        ]
     )
 
     assert defaults.api_retry_count == 10
     assert defaults.api_retry_interval_sec == 5
+    assert defaults.codex_timeout_sec == 1_800
     assert overrides.api_retry_count == 3
     assert overrides.api_retry_interval_sec == 9
+    assert overrides.codex_timeout_sec == 42
 
 
 def test_resolve_codex_executable_uses_which_absolute_path(
@@ -589,13 +603,20 @@ def test_run_codex_writes_combined_output_to_loop_log(
         assert kwargs["check"] is False
         assert kwargs["text"] is True
         assert kwargs["env"] is environment
+        assert kwargs["timeout"] == 42
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr("scripts.ralph_runner.subprocess.run", fake_run)
     log_path = tmp_path / "loop_001.log"
     environment = {"UV_CACHE_DIR": "repo-cache"}
 
-    completed = _run_codex(["codex", "exec"], tmp_path, log_path, environment)
+    completed = _run_codex(
+        ["codex", "exec"],
+        tmp_path,
+        log_path,
+        environment,
+        timeout_sec=42,
+    )
 
     assert completed.returncode == 0
     assert log_path.read_text(encoding="utf-8") == "standard output\nstandard error\n"
@@ -617,6 +638,16 @@ def test_finalize_log_uses_timestamp_task_number_and_status(tmp_path: Path) -> N
     assert final_path.name == "ralph_20260915T201119_002_completed.log"
     assert final_path.read_text(encoding="utf-8") == "loop output"
     assert not temporary_path.exists()
+
+
+def test_create_running_log_uses_known_timestamp_and_task_number(tmp_path: Path) -> None:
+    """Create a descriptive name before the Codex process starts."""
+    started_at = datetime(2026, 9, 15, 20, 11, 19, tzinfo=UTC)
+
+    running_path = _create_running_log(tmp_path, started_at, "TASK-002")
+
+    assert running_path.name == "ralph_20260915T201119_002_running.log"
+    assert running_path.read_text(encoding="utf-8") == ""
 
 
 def test_finalize_log_keeps_logs_when_a_name_already_exists(tmp_path: Path) -> None:

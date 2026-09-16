@@ -37,6 +37,7 @@ uv run -m scripts.ralph_runner --model <model>
 uv run -m scripts.ralph_runner --codex <codex-executable>
 uv run -m scripts.ralph_runner --prompt-file <prompt-file>
 uv run -m scripts.ralph_runner --auto-approve
+uv run -m scripts.ralph_runner --codex-timeout-sec 1800
 ```
 
 ```powershell
@@ -85,6 +86,11 @@ Codexコマンド文字列だけは、実行対象そのものを確認する出
 `--approve-for-me`を渡しますが、競合する`--sandbox`は渡しません。runner自身は
 push、pull、publish、deployを行いません。
 
+各 Codex 子プロセスには、既定で30分（1,800秒）の実行上限があります。接続待ち
+などでこの上限を超えた場合は子プロセスを終了して失敗として扱い、
+`--api-retry-count` の設定に従って再試行します。長時間の実装・検証を行う場合は
+`--codex-timeout-sec` に秒数を指定して上限を延長できます。
+
 ## 停止条件と終了コード
 
 | 最終トークンまたは状態 | runnerの動作 | 終了コード |
@@ -106,7 +112,7 @@ push、pull、publish、deployを行いません。
 
 ## ログ
 
-各Codex実行の標準出力と標準エラーは、終了後に`logs/`へ次の名前で保存します。
+各Codex実行の標準出力と標準エラーは、開始時から`logs/`へ次の名前で書き込みます。
 
 ```
 ralph_YYYYMMDDTHHMMSS_NNN_status.log
@@ -116,6 +122,10 @@ ralph_YYYYMMDDTHHMMSS_NNN_status.log
 - `NNN`: `TASK-XXX`の数値部分を3桁で表したもの。taskを特定できない失敗では`000`
 - `status`: `completed`、`incompleted`、`blocked`、`codex-failure`、
   `protocol-error`、`git-error`
+
+実行中は、開始時点で確定している時刻と選択taskを使った
+`ralph_YYYYMMDDTHHMMSS_NNN_running.log`として生成します。終了時に同じファイルを
+最終status名へ変更します。そのため、実行中のログもどのtaskのものか判別できます。
 
 同一秒に同じtask・statusのログが既にある場合は、既存ログを上書きしないよう時刻を
 1秒ずつ進めた名前を使います。

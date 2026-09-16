@@ -22,6 +22,7 @@ from scripts.console_logging import configure_console_logging
 DEFAULT_MAX_LOOPS = 20
 DEFAULT_API_RETRY_COUNT = 10
 DEFAULT_API_RETRY_INTERVAL_SEC = 5
+DEFAULT_CODEX_TIMEOUT_SEC = 1_800
 TASK_COMPLETED_PATTERN = re.compile(r"TASK_COMPLETED: (TASK-\d{3})")
 TASK_INCOMPLETE_PATTERN = re.compile(r"TASK_INCOMPLETE: (TASK-\d{3})")
 TASK_BLOCKED_PATTERN = re.compile(r"TASK_BLOCKED: (TASK-\d{3})")
@@ -541,6 +542,7 @@ def _run_codex(
     repo: Path,
     log_path: Path,
     environment: dict[str, str],
+    timeout_sec: int = DEFAULT_CODEX_TIMEOUT_SEC,
 ) -> subprocess.CompletedProcess[str]:
     """Run Codex and write its combined output to a loop log.
 
@@ -554,6 +556,8 @@ def _run_codex(
         File receiving Codex standard output and standard error.
     environment : dict[str, str]
         Environment passed to the Codex child process.
+    timeout_sec : int, default 1800
+        Maximum time to wait for the Codex child process.
 
     Returns
     -------
@@ -569,7 +573,44 @@ def _run_codex(
             stderr=subprocess.STDOUT,
             text=True,
             env=environment,
+            timeout=timeout_sec,
         )
+
+
+def _create_running_log(
+    logs_directory: Path,
+    started_at: datetime,
+    task_id: str | None,
+) -> Path:
+    """Create an empty log using the known start-time and task identifier.
+
+    Parameters
+    ----------
+    logs_directory : Path
+        Directory that stores loop logs.
+    started_at : datetime
+        Time at which the loop started.
+    task_id : str | None
+        Ralph task identifier selected before the loop starts.
+
+    Returns
+    -------
+    Path
+        Newly created running log path in the form
+        ``ralph_YYYYMMDDTHHMMSS_NNN_running.log``.
+    """
+    task_number = int(task_id.removeprefix("TASK-")) if task_id is not None else 0
+    timestamp = started_at
+    while True:
+        filename = f"ralph_{timestamp:%Y%m%dT%H%M%S}_{task_number:03d}_running.log"
+        running_path = logs_directory / filename
+        try:
+            with running_path.open("x", encoding="utf-8"):
+                pass
+        except FileExistsError:
+            timestamp += timedelta(seconds=1)
+        else:
+            return running_path
 
 
 def _finalize_log(
@@ -621,6 +662,7 @@ def _run(
     dry_run: bool = False,
     api_retry_count: int = DEFAULT_API_RETRY_COUNT,
     api_retry_interval_sec: int = DEFAULT_API_RETRY_INTERVAL_SEC,
+    codex_timeout_sec: int = DEFAULT_CODEX_TIMEOUT_SEC,
 ) -> ExitCode:
     """Run Ralph loops until a terminal status or safety limit is reached.
 
@@ -644,6 +686,8 @@ def _run(
         Number of additional attempts after a Codex API or protocol failure.
     api_retry_interval_sec : int, default 5
         Seconds to wait between Codex API retry attempts.
+    codex_timeout_sec : int, default 1800
+        Maximum time to wait for each Codex child process.
 
     Returns
     -------
@@ -660,6 +704,9 @@ def _run(
         return ExitCode.PREFLIGHT_ERROR
     if api_retry_interval_sec < 0:
         logger.error("--api-retry-interval-sec must be at least 0")
+        return ExitCode.PREFLIGHT_ERROR
+    if codex_timeout_sec < 1:
+        logger.error("--codex-timeout-sec must be at least 1")
         return ExitCode.PREFLIGHT_ERROR
     if not prompt_path.is_file():
         logger.error("Prompt file does not exist: {}", prompt_path)
@@ -736,13 +783,11 @@ def _run(
             model,
             auto_approve,
         )
-        with tempfile.NamedTemporaryFile(
-            dir=logs_directory,
-            prefix=".ralph-running-",
-            suffix=".log",
-            delete=False,
-        ) as log_file:
-            temporary_log_path = Path(log_file.name)
+        temporary_log_path = _create_running_log(
+            logs_directory,
+            started_at,
+            selected_task_id,
+        )
         if selected_task_id is not None:
             logger.info("Ralph task {} started", selected_task_id)
         if dry_run:
@@ -758,6 +803,7 @@ def _run(
                     repo,
                     temporary_log_path,
                     codex_environment,
+                    codex_timeout_sec,
                 )
                 if completed.returncode != 0:
                     failure = f"Codex exited with code {completed.returncode}"
@@ -767,6 +813,9 @@ def _run(
                     status, task_id = _classify_output(message)
                     _validate_selected_task(status, task_id, selected_task_id)
                     break
+            except subprocess.TimeoutExpired:
+                failure = f"Codex timed out after {codex_timeout_sec} seconds"
+                exit_code = ExitCode.CODEX_FAILURE
             except (OSError, UnicodeError, ValueError) as error:
                 failure = str(error)
                 exit_code = ExitCode.PROTOCOL_ERROR
@@ -776,7 +825,7 @@ def _run(
                     temporary_log_path,
                     logs_directory,
                     started_at,
-                    None,
+                    selected_task_id,
                     "codex-failure" if exit_code == ExitCode.CODEX_FAILURE else "protocol-error",
                 )
                 logger.error("{}; see {}", failure, log_path.relative_to(repo))
@@ -787,7 +836,7 @@ def _run(
                 temporary_log_path,
                 logs_directory,
                 started_at,
-                None,
+                selected_task_id,
                 f"api-retry-{api_attempt:03d}",
             )
             logger.warning(
@@ -800,13 +849,11 @@ def _run(
             )
             output_path.unlink(missing_ok=True)
             time.sleep(api_retry_interval_sec)
-            with tempfile.NamedTemporaryFile(
-                dir=logs_directory,
-                prefix=".ralph-running-",
-                suffix=".log",
-                delete=False,
-            ) as log_file:
-                temporary_log_path = Path(log_file.name)
+            temporary_log_path = _create_running_log(
+                logs_directory,
+                started_at,
+                selected_task_id,
+            )
         else:
             raise AssertionError("Codex retry loop must return or succeed")
 
@@ -934,6 +981,7 @@ def run(
     dry_run: bool = False,
     api_retry_count: int = DEFAULT_API_RETRY_COUNT,
     api_retry_interval_sec: int = DEFAULT_API_RETRY_INTERVAL_SEC,
+    codex_timeout_sec: int = DEFAULT_CODEX_TIMEOUT_SEC,
 ) -> ExitCode:
     """Run Ralph with one pair of runner lifecycle log messages.
 
@@ -957,6 +1005,8 @@ def run(
         Number of additional attempts after a Codex API or protocol failure.
     api_retry_interval_sec : int, default 5
         Seconds to wait between Codex API retry attempts.
+    codex_timeout_sec : int, default 1800
+        Maximum time to wait for each Codex child process.
 
     Returns
     -------
@@ -975,6 +1025,7 @@ def run(
             dry_run=dry_run,
             api_retry_count=api_retry_count,
             api_retry_interval_sec=api_retry_interval_sec,
+            codex_timeout_sec=codex_timeout_sec,
         )
     finally:
         logger.info("Ralph runner end")
@@ -1014,6 +1065,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--api-retry-interval-sec",
         type=int,
         default=DEFAULT_API_RETRY_INTERVAL_SEC,
+    )
+    parser.add_argument(
+        "--codex-timeout-sec",
+        type=int,
+        default=DEFAULT_CODEX_TIMEOUT_SEC,
+        help="maximum seconds to wait for each Codex child process",
     )
     parser.add_argument("--codex", default="codex", help="Codex executable name or path")
     parser.add_argument("--model", help="optional Codex model override")
@@ -1056,6 +1113,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             dry_run=args.dry_run,
             api_retry_count=args.api_retry_count,
             api_retry_interval_sec=args.api_retry_interval_sec,
+            codex_timeout_sec=args.codex_timeout_sec,
         )
     )
 
