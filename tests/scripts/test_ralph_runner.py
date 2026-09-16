@@ -180,7 +180,7 @@ def test_run_logs_runner_progress_loop_and_selected_task_once(
         "Ralph runner start",
         "Incompleted tasks: 1 / All tasks: 2",
         "Total loops: 3",
-        "Ralph loop start (1/3)",
+        "Ralph loop start (1)",
         "Ralph task TASK-002 started",
         "Ralph runner end",
     ]

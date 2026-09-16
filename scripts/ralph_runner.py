@@ -716,7 +716,7 @@ def _run(
             if selected_task_id is None:
                 logger.warning("Stopped because no incomplete Ralph task is eligible")
                 return ExitCode.TASK_BLOCKED
-        logger.info("Ralph loop start ({}/{})", loop_number, max_loops)
+        logger.info("Ralph loop start ({})", loop_number)
         before = _require_git_output(repo, "rev-parse", "HEAD")
         started_at = datetime.now(tz=UTC).astimezone()
         codex_environment = _build_codex_environment(repo)

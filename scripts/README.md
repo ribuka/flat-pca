@@ -72,7 +72,7 @@ runner全体の開始時に未完了task数、全task数、loop上限を表示�
 Ralph runner start
 Incompleted tasks: 3 / All tasks: 9
 Total loops: 20
-Ralph loop start (1/20)
+Ralph loop start (1)
 Ralph task TASK-007 started
 Ralph runner end
 ```
