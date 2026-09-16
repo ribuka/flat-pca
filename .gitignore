@@ -8,6 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+.uv-cache/
+.pytest-tmp/
 
 # data
 /data/

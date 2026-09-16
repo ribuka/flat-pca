@@ -32,5 +32,9 @@ pattern = '^(?P<version>\S+)\s*$'
 [tool.hatch.build.targets.wheel]
 packages = ["src/spca"]
 
+[tool.uv]
+cache-dir = ".uv-cache"
+
 [tool.pytest.ini_options]
+addopts = "--basetemp=.pytest-tmp"
 norecursedirs = [".*", "tmp"]

@@ -510,21 +510,21 @@ def _build_codex_command(
 
 
 def _build_codex_environment(repo: Path) -> dict[str, str]:
-    """Build a child-process environment with repository-local temporary paths.
+    """Build a child-process environment with repository-local cache and temporary paths.
 
     Parameters
     ----------
     repo : Path
-        Repository root containing the Ralph ``tmp`` directory.
+        Repository root containing the Ralph ``tmp`` directory and uv cache.
 
     Returns
     -------
     dict[str, str]
-        Copy of the current environment with uv and runtime temporary paths
-        directed into the repository.
+        Copy of the current environment with the uv cache and runtime temporary
+        paths directed into the repository.
     """
     temporary_directory = (repo / "tmp").resolve()
-    uv_cache_directory = temporary_directory / "uv-cache"
+    uv_cache_directory = (repo / ".uv-cache").resolve()
     runtime_root = temporary_directory / "runtime"
     uv_cache_directory.mkdir(parents=True, exist_ok=True)
     runtime_root.mkdir(parents=True, exist_ok=True)

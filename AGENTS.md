@@ -42,6 +42,8 @@ before marking the task as completed.
 
 - Create all temporary scripts and investigation files under `tmp/` at the repository root.
 - NEVER create temporary files elsewhere; delete them when the task is complete.
+- Store the persistent uv dependency cache in the ignored repository-root `.uv-cache/` directory.
+- Store pytest's base temporary directory in the ignored repository-root `.pytest-tmp/` directory.
 
 ## Rules
 - Respond in Japanese

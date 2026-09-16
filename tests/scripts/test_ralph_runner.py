@@ -562,11 +562,11 @@ def test_build_codex_command_auto_approves_only_when_requested() -> None:
     ]
 
 
-def test_build_codex_environment_uses_repository_temporary_directories(
+def test_build_codex_environment_uses_repository_cache_and_temporary_directories(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Direct child-process caches and temporary files into the repository."""
+    """Direct child-process cache and temporary files into the repository."""
     monkeypatch.setenv("UV_CACHE_DIR", "outside-uv-cache")
     monkeypatch.setenv("TMP", "outside-tmp")
     monkeypatch.setenv("TEMP", "outside-temp")
@@ -574,13 +574,13 @@ def test_build_codex_environment_uses_repository_temporary_directories(
     environment = _build_codex_environment(tmp_path)
     next_environment = _build_codex_environment(tmp_path)
 
-    assert environment["UV_CACHE_DIR"] == str((tmp_path / "tmp" / "uv-cache").resolve())
+    assert environment["UV_CACHE_DIR"] == str((tmp_path / ".uv-cache").resolve())
     runtime_directory = Path(environment["TMP"])
     assert runtime_directory.parent == (tmp_path / "tmp" / "runtime").resolve()
     assert runtime_directory.name.startswith("ralph-")
     assert environment["TEMP"] == environment["TMP"]
     assert next_environment["TMP"] != environment["TMP"]
-    assert (tmp_path / "tmp" / "uv-cache").is_dir()
+    assert (tmp_path / ".uv-cache").is_dir()
     assert runtime_directory.is_dir()
 
 
