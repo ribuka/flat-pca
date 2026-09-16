@@ -494,6 +494,8 @@ def _build_codex_command(
         executable,
         "exec",
         "--ephemeral",
+        "--disable",
+        "unbounded_connection_retries",
         "--cd",
         str(repo),
         "--output-last-message",
