@@ -20,7 +20,7 @@ from loguru import logger
 from scripts.console_logging import configure_console_logging
 
 DEFAULT_MAX_LOOPS = 20
-DEFAULT_API_RETRY_COUNT = 10
+DEFAULT_API_RETRY_COUNT = 1
 DEFAULT_API_RETRY_INTERVAL_SEC = 5
 DEFAULT_CODEX_TIMEOUT_SEC = 1_800
 TASK_COMPLETED_PATTERN = re.compile(r"TASK_COMPLETED: (TASK-\d{3})")
@@ -684,7 +684,7 @@ def _run(
         Automatically approve Codex requests in the workspace-write sandbox.
     dry_run : bool, default False
         Validate inputs and print the command without invoking Codex.
-    api_retry_count : int, default 10
+    api_retry_count : int, default 1
         Number of additional attempts after a Codex API or protocol failure.
     api_retry_interval_sec : int, default 5
         Seconds to wait between Codex API retry attempts.
@@ -990,7 +990,7 @@ def run(
         Automatically approve Codex requests in the workspace-write sandbox.
     dry_run : bool, default False
         Validate inputs and print the command without invoking Codex.
-    api_retry_count : int, default 10
+    api_retry_count : int, default 1
         Number of additional attempts after a Codex API or protocol failure.
     api_retry_interval_sec : int, default 5
         Seconds to wait between Codex API retry attempts.

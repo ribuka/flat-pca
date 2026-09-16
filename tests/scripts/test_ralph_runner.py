@@ -559,7 +559,7 @@ def test_parse_args_uses_api_retry_defaults_and_overrides() -> None:
         ]
     )
 
-    assert defaults.api_retry_count == 10
+    assert defaults.api_retry_count == 1
     assert defaults.api_retry_interval_sec == 5
     assert defaults.codex_timeout_sec == 1_800
     assert overrides.api_retry_count == 3
