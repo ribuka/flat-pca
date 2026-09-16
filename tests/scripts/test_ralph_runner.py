@@ -13,6 +13,7 @@ from scripts.ralph_runner import (
     _classify_output,
     _commit_loop_changes,
     _finalize_log,
+    _parse_args,
     _resolve_codex_executable,
     _run_codex,
     _task_progress,
@@ -377,6 +378,111 @@ def test_run_stops_after_completing_the_last_task(
     log_names = [path.name for path in (tmp_path / "logs").iterdir()]
     assert len(log_names) == 1
     assert log_names[0].endswith("_009_completed.log")
+
+
+def test_run_retries_protocol_failure_and_preserves_attempt_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Retry an invalid Codex response without consuming another Ralph loop."""
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("one loop", encoding="utf-8")
+    tasks_path = tmp_path / "TASKS.md"
+    tasks_path.write_text(
+        """## TASK-010: retryable task
+
+- Status: pending
+- Priority: 1
+- Depends on: none
+""",
+        encoding="utf-8",
+    )
+    codex_calls = 0
+    commit_created = False
+    delays: list[int] = []
+
+    def fake_git_output(repo: Path, *args: str) -> str:
+        """Return deterministic repository states around the runner commit."""
+        if args == ("rev-parse", "--show-toplevel"):
+            return str(repo)
+        if args == ("rev-parse", "HEAD"):
+            return "after" if commit_created else "before"
+        raise AssertionError(args)
+
+    def fake_run_codex(
+        command: list[str],
+        repo: Path,
+        log_path: Path,
+        environment: dict[str, str],
+    ) -> subprocess.CompletedProcess[str]:
+        """Emit an invalid response once, then complete the selected task."""
+        nonlocal codex_calls
+        del environment
+        codex_calls += 1
+        assert repo == tmp_path
+        output_path = Path(command[command.index("--output-last-message") + 1])
+        log_path.write_text(f"attempt {codex_calls}\n", encoding="utf-8")
+        if codex_calls == 1:
+            output_path.write_text("connection interrupted\n", encoding="utf-8")
+        else:
+            output_path.write_text("TASK_COMPLETED: TASK-010\n", encoding="utf-8")
+            tasks_path.write_text(
+                tasks_path.read_text(encoding="utf-8").replace(
+                    "- Status: pending",
+                    "- Status: completed",
+                ),
+                encoding="utf-8",
+            )
+        return subprocess.CompletedProcess(command, 0)
+
+    def fake_commit_loop_changes(repo: Path, task_id: str, status: str) -> None:
+        """Record the runner-owned task completion commit."""
+        nonlocal commit_created
+        assert repo == tmp_path
+        assert task_id == "TASK-010"
+        assert status == "completed"
+        commit_created = True
+
+    monkeypatch.setattr("scripts.ralph_runner._resolve_codex_executable", lambda value: value)
+    monkeypatch.setattr("scripts.ralph_runner._require_git_output", fake_git_output)
+    monkeypatch.setattr("scripts.ralph_runner._require_clean_worktree", lambda repo: None)
+    monkeypatch.setattr("scripts.ralph_runner._build_codex_environment", lambda repo: {})
+    monkeypatch.setattr("scripts.ralph_runner._run_codex", fake_run_codex)
+    monkeypatch.setattr("scripts.ralph_runner._commit_loop_changes", fake_commit_loop_changes)
+    monkeypatch.setattr(
+        "scripts.ralph_runner._commit_count",
+        lambda repo, before, after: int(before != after),
+    )
+    monkeypatch.setattr("scripts.ralph_runner.time.sleep", delays.append)
+
+    result = run(
+        repo=tmp_path,
+        prompt_path=prompt_path,
+        max_loops=1,
+        codex_executable="codex",
+        api_retry_count=1,
+        api_retry_interval_sec=7,
+    )
+
+    assert result == ExitCode.SUCCESS
+    assert codex_calls == 2
+    assert delays == [7]
+    log_names = sorted(path.name for path in (tmp_path / "logs").iterdir())
+    assert any(name.endswith("_000_api-retry-001.log") for name in log_names)
+    assert any(name.endswith("_010_completed.log") for name in log_names)
+
+
+def test_parse_args_uses_api_retry_defaults_and_overrides() -> None:
+    """Expose API retry configuration with the documented defaults."""
+    defaults = _parse_args([])
+    overrides = _parse_args(
+        ["--api-retry-count", "3", "--api-retry-interval-sec", "9"]
+    )
+
+    assert defaults.api_retry_count == 10
+    assert defaults.api_retry_interval_sec == 5
+    assert overrides.api_retry_count == 3
+    assert overrides.api_retry_interval_sec == 9
 
 
 def test_resolve_codex_executable_uses_which_absolute_path(

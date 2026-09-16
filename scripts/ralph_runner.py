@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -19,6 +20,8 @@ from loguru import logger
 from scripts.console_logging import configure_console_logging
 
 DEFAULT_MAX_LOOPS = 20
+DEFAULT_API_RETRY_COUNT = 10
+DEFAULT_API_RETRY_INTERVAL_SEC = 5
 TASK_COMPLETED_PATTERN = re.compile(r"TASK_COMPLETED: (TASK-\d{3})")
 TASK_INCOMPLETE_PATTERN = re.compile(r"TASK_INCOMPLETE: (TASK-\d{3})")
 TASK_BLOCKED_PATTERN = re.compile(r"TASK_BLOCKED: (TASK-\d{3})")
@@ -616,6 +619,8 @@ def _run(
     model: str | None = None,
     auto_approve: bool = False,
     dry_run: bool = False,
+    api_retry_count: int = DEFAULT_API_RETRY_COUNT,
+    api_retry_interval_sec: int = DEFAULT_API_RETRY_INTERVAL_SEC,
 ) -> ExitCode:
     """Run Ralph loops until a terminal status or safety limit is reached.
 
@@ -635,6 +640,10 @@ def _run(
         Automatically approve Codex requests in the workspace-write sandbox.
     dry_run : bool, default False
         Validate inputs and print the command without invoking Codex.
+    api_retry_count : int, default 10
+        Number of additional attempts after a Codex API or protocol failure.
+    api_retry_interval_sec : int, default 5
+        Seconds to wait between Codex API retry attempts.
 
     Returns
     -------
@@ -645,6 +654,12 @@ def _run(
     prompt_path = prompt_path.resolve()
     if max_loops < 1:
         logger.error("--max-loops must be at least 1")
+        return ExitCode.PREFLIGHT_ERROR
+    if api_retry_count < 0:
+        logger.error("--api-retry-count must be at least 0")
+        return ExitCode.PREFLIGHT_ERROR
+    if api_retry_interval_sec < 0:
+        logger.error("--api-retry-interval-sec must be at least 0")
         return ExitCode.PREFLIGHT_ERROR
     if not prompt_path.is_file():
         logger.error("Prompt file does not exist: {}", prompt_path)
@@ -736,42 +751,66 @@ def _run(
             temporary_log_path.unlink(missing_ok=True)
             return ExitCode.SUCCESS
 
-        try:
-            completed = _run_codex(
-                command,
-                repo,
-                temporary_log_path,
-                codex_environment,
-            )
-            if completed.returncode != 0:
+        for api_attempt in range(1, api_retry_count + 2):
+            try:
+                completed = _run_codex(
+                    command,
+                    repo,
+                    temporary_log_path,
+                    codex_environment,
+                )
+                if completed.returncode != 0:
+                    failure = f"Codex exited with code {completed.returncode}"
+                    exit_code = ExitCode.CODEX_FAILURE
+                else:
+                    message = output_path.read_text(encoding="utf-8")
+                    status, task_id = _classify_output(message)
+                    _validate_selected_task(status, task_id, selected_task_id)
+                    break
+            except (OSError, UnicodeError, ValueError) as error:
+                failure = str(error)
+                exit_code = ExitCode.PROTOCOL_ERROR
+
+            if api_attempt > api_retry_count:
                 log_path = _finalize_log(
                     temporary_log_path,
                     logs_directory,
                     started_at,
                     None,
-                    "codex-failure",
+                    "codex-failure" if exit_code == ExitCode.CODEX_FAILURE else "protocol-error",
                 )
-                logger.error(
-                    "Codex exited with code {}; see {}",
-                    completed.returncode,
-                    log_path.relative_to(repo),
-                )
-                return ExitCode.CODEX_FAILURE
-            message = output_path.read_text(encoding="utf-8")
-            status, task_id = _classify_output(message)
-            _validate_selected_task(status, task_id, selected_task_id)
-        except (OSError, UnicodeError, ValueError) as error:
+                logger.error("{}; see {}", failure, log_path.relative_to(repo))
+                output_path.unlink(missing_ok=True)
+                return exit_code
+
             log_path = _finalize_log(
                 temporary_log_path,
                 logs_directory,
                 started_at,
                 None,
-                "protocol-error",
+                f"api-retry-{api_attempt:03d}",
             )
-            logger.error("{}; see {}", error, log_path.relative_to(repo))
-            return ExitCode.PROTOCOL_ERROR
-        finally:
+            logger.warning(
+                "Codex API attempt {}/{} failed ({}); retrying in {} seconds; see {}",
+                api_attempt,
+                api_retry_count + 1,
+                failure,
+                api_retry_interval_sec,
+                log_path.relative_to(repo),
+            )
             output_path.unlink(missing_ok=True)
+            time.sleep(api_retry_interval_sec)
+            with tempfile.NamedTemporaryFile(
+                dir=logs_directory,
+                prefix=".ralph-running-",
+                suffix=".log",
+                delete=False,
+            ) as log_file:
+                temporary_log_path = Path(log_file.name)
+        else:
+            raise AssertionError("Codex retry loop must return or succeed")
+
+        output_path.unlink(missing_ok=True)
 
         try:
             after_agent = _require_git_output(repo, "rev-parse", "HEAD")
@@ -893,6 +932,8 @@ def run(
     model: str | None = None,
     auto_approve: bool = False,
     dry_run: bool = False,
+    api_retry_count: int = DEFAULT_API_RETRY_COUNT,
+    api_retry_interval_sec: int = DEFAULT_API_RETRY_INTERVAL_SEC,
 ) -> ExitCode:
     """Run Ralph with one pair of runner lifecycle log messages.
 
@@ -912,6 +953,10 @@ def run(
         Automatically approve Codex requests in the workspace-write sandbox.
     dry_run : bool, default False
         Validate inputs and print the command without invoking Codex.
+    api_retry_count : int, default 10
+        Number of additional attempts after a Codex API or protocol failure.
+    api_retry_interval_sec : int, default 5
+        Seconds to wait between Codex API retry attempts.
 
     Returns
     -------
@@ -928,6 +973,8 @@ def run(
             model=model,
             auto_approve=auto_approve,
             dry_run=dry_run,
+            api_retry_count=api_retry_count,
+            api_retry_interval_sec=api_retry_interval_sec,
         )
     finally:
         logger.info("Ralph runner end")
@@ -962,6 +1009,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=repository_root / "scripts" / "ralph_prompt.md",
     )
     parser.add_argument("--max-loops", type=int, default=DEFAULT_MAX_LOOPS)
+    parser.add_argument("--api-retry-count", type=int, default=DEFAULT_API_RETRY_COUNT)
+    parser.add_argument(
+        "--api-retry-interval-sec",
+        type=int,
+        default=DEFAULT_API_RETRY_INTERVAL_SEC,
+    )
     parser.add_argument("--codex", default="codex", help="Codex executable name or path")
     parser.add_argument("--model", help="optional Codex model override")
     parser.add_argument(
@@ -1001,6 +1054,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             model=args.model,
             auto_approve=args.auto_approve,
             dry_run=args.dry_run,
+            api_retry_count=args.api_retry_count,
+            api_retry_interval_sec=args.api_retry_interval_sec,
         )
     )
 
