@@ -14,6 +14,7 @@ dependencies = [
     "plotly==7.0.0",
     "polars==1.44.2",
     "scikit-learn==1.9.1",
+    "wiggum",
 ]
 
 [dependency-groups]
@@ -34,6 +35,9 @@ packages = ["src/spca"]
 
 [tool.uv]
 cache-dir = ".uv-cache"
+
+[tool.uv.sources]
+wiggum = { git = "https://github.com/ribuka/wiggum.git" }
 
 [tool.pytest.ini_options]
 norecursedirs = [".*", "tmp"]
