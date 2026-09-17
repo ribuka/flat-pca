@@ -2,6 +2,14 @@
 
 Append Ralph loop results in English using the format defined in `RALPH_PROJECT.md`.
 
+## 2026-09-18 03:30 - TASK-016
+
+- Result: completed
+- Changes: Added the public `reshape_pca_components` API in a focused PCA-component reshaping module, with strict canonical feature-name decoding, coordinate Cartesian-product validation, sorted coordinate axes, and thin package re-exports. Added real-Parquet integration and invalid-layout coverage.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` (23 passed); `uv run -m pytest` (115 passed); `uv run -m ruff check .` (passed); `git diff --check` (passed).
+- Requirements: Verified fitted PCA components are assigned to `(component, wavelength, Step, Sequence, Time)` with numerically ascending coordinate axes; flatten-order reconstruction equals `pca.components_`; malformed names, missing Cartesian-product coordinates, and PCA feature-count mismatches raise `ValueError`; and the public import is available from `spca.feature_engineering`.
+- Notes: No fixture Parquet files were modified. Architecture review confirmed a focused module and facade-only public re-exports without circular dependencies.
+
 ## 2026-09-15 18:18 - TASK-001
 
 - Result: completed

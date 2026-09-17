@@ -428,7 +428,7 @@
     {
       "id": "TASK-016",
       "title": "PCA成分のflatten前shapeへのreshape",
-      "status": "pending",
+      "status": "completed",
       "priority": 16,
       "depends_on": [
         "TASK-014",

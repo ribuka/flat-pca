@@ -12,6 +12,7 @@ from spca.feature_engineering import (
     append_pca_scores,
     flatten_pca,
     preprocess_and_flatten,
+    reshape_pca_components,
 )
 from spca.feature_engineering.flatten_pca import flatten_pca as package_flatten_pca
 from spca.feature_engineering.flatten_pca.flatten import (
@@ -304,6 +305,68 @@ def test_append_pca_scores_rejects_feature_count_mismatch(
 
     with pytest.raises(ValueError, match="feature count"):
         append_pca_scores(pca, flattened.drop(final_feature))
+
+
+def test_reshape_pca_components_places_real_flattened_features_on_sorted_axes(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Reshape real-Parquet PCA coefficients using sorted spectral coordinates."""
+    flattened = preprocess_and_flatten(real_fixture_paths[:3])
+    materialized = flattened.collect()
+    pca = flatten_pca(real_fixture_paths[:3], n_component=2)
+
+    reshaped = reshape_pca_components(pca, flattened)
+    feature_columns = materialized.columns[1:]
+    coordinates = [
+        (
+            float(parts[0].removesuffix("nm")),
+            int(parts[1]),
+            int(parts[2]),
+            float(parts[3]),
+        )
+        for column in feature_columns
+        for parts in [column.split("_")]
+    ]
+    wavelengths = sorted({coordinate[0] for coordinate in coordinates})
+    steps = sorted({coordinate[1] for coordinate in coordinates})
+    sequences = sorted({coordinate[2] for coordinate in coordinates})
+    times = sorted({coordinate[3] for coordinate in coordinates})
+
+    assert reshaped.shape == (2, len(wavelengths), len(steps), len(sequences), len(times))
+    assert reshaped.reshape(2, -1) == pytest.approx(pca.components_)
+    coordinate = coordinates[0]
+    assert reshaped[
+        :,
+        wavelengths.index(coordinate[0]),
+        steps.index(coordinate[1]),
+        sequences.index(coordinate[2]),
+        times.index(coordinate[3]),
+    ] == pytest.approx(pca.components_[:, 0])
+
+
+def test_reshape_pca_components_rejects_invalid_real_flattened_layouts(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Reject product gaps, ambiguous names, and PCA mismatches from real data."""
+    flattened = preprocess_and_flatten(real_fixture_paths[:3])
+    feature_columns = flattened.collect_schema().names()[1:]
+    pca = flatten_pca(real_fixture_paths[:3], n_component=2)
+
+    with pytest.raises(ValueError, match="feature count"):
+        reshape_pca_components(pca, flattened.drop(feature_columns[-1]))
+    with pytest.raises(ValueError, match="uniquely decode"):
+        reshape_pca_components(
+            pca,
+            flattened.rename({feature_columns[0]: "ambiguous_feature"}),
+        )
+
+    incomplete = flattened.drop(feature_columns[-1])
+    incomplete_features = incomplete.collect_schema().names()[1:]
+    incomplete_pca = PCA(n_components=1).fit(
+        incomplete.collect().select(incomplete_features).to_numpy()
+    )
+    with pytest.raises(ValueError, match="Cartesian product"):
+        reshape_pca_components(incomplete_pca, incomplete)
 
 
 def test_preprocess_and_flatten_returns_lazy_real_fixture_query(
