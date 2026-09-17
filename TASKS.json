@@ -367,6 +367,114 @@
         "`uv run -m pytest`",
         "`uv run -m ruff check .`"
       ]
+    },
+    {
+      "id": "TASK-014",
+      "title": "LazyFrameによる前処理・flatten公開APIの分離",
+      "status": "pending",
+      "priority": 14,
+      "depends_on": [
+        "TASK-013"
+      ],
+      "requirements": [
+        "既存の前処理→flatten処理を、公開関数`preprocess_and_flatten`として切り出す。",
+        "`preprocess_and_flatten`は既存の入力パスおよび前処理・間引き引数を受け取り、`filename`とflatten特徴量列を持つ`pl.LazyFrame`を返す。",
+        "Parquetの読み込みに`pl.scan_parquet`を使用し、入力検証、共通Unique配列の確定および値が必要な境界以外ではcollectしない。",
+        "smoothing、規格化、間引きおよびflattenの列演算を可能な限りLazyFrameのクエリ計画として構成し、前処理済み全入力を一括materializeしない。",
+        "既存の処理順、入力検証、特徴量名・列順・行順、および入力パス順に依存しない決定性を維持する。",
+        "下位の前処理・間引きヘルパーをLazyFrameで動作できるよう更新し、型ヒントとNumPy形式docstringを維持する。",
+        "`preprocess_and_flatten`を`spca.feature_engineering`からimportできるようにする。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`の複数Parquetを直接入力し、戻り値がcollect前の`pl.LazyFrame`であることを検証する。",
+        "collect後のflatten結果が、前処理なし・各前処理単独・全前処理併用およびt/w間引きで既存契約と一致することを検証する。",
+        "入力順を反転してもcollect後の行順・列順・値が同じであることを検証する。",
+        "実フィクスチャ由来の入力不正ケースで、従来どおりの例外種別を検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py tests/feature_engineering/test_flatten_pca_downsampling.py`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-015",
+      "title": "fit済みPCAを返すAPIとスコア結合API",
+      "status": "pending",
+      "priority": 15,
+      "depends_on": [
+        "TASK-014"
+      ],
+      "requirements": [
+        "`flatten_pca`は既存の入力パスおよび前処理・間引き引数を維持し、内部で`preprocess_and_flatten`を利用してfit済みの`sklearn.decomposition.PCA`を返す。",
+        "PCAのfitには`filename`以外のflatten特徴量だけを使用し、尺度変換、欠損値補完・行削除および外れ値処理を行わない。",
+        "`n_component`を1以上かつ`min(n_samples, n_features)`以下、または`None`として検証し、追加上限を設けない。",
+        "公開関数`append_pca_scores(pca, flattened)`を実装し、fit済みPCAとflatten済みLazyFrameから`filename`、flatten特徴量および`pca-1`以降のスコア列を持つ`pl.LazyFrame`を返す。",
+        "`append_pca_scores`は入力行順を保持し、PCAの特徴量数とflatten特徴量数が一致しない場合は`ValueError`を送出する。",
+        "`flatten_pca`および`append_pca_scores`を`spca.feature_engineering`からimportできるようにする。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`の複数Parquetを直接入力し、`flatten_pca`がfit済み`PCA`と期待する`n_components_`を返すことを検証する。",
+        "同じflatten結果に`append_pca_scores`を適用し、LazyFrame、列順、行順、スコア列数および有限値を検証する。",
+        "符号反転を許容し、スコアとPCAの分散、部分空間または再構成結果を検証する。",
+        "不正な`n_component`および特徴量数不一致を`ValueError`として検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-016",
+      "title": "PCA成分のflatten前shapeへのreshape",
+      "status": "pending",
+      "priority": 16,
+      "depends_on": [
+        "TASK-014",
+        "TASK-015"
+      ],
+      "requirements": [
+        "公開関数`reshape_pca_components(pca, flattened)`を実装する。",
+        "`pca.components_`をflatten特徴量の座標順に対応付け、`(n_component, n_wavelengths, n_steps, n_sequences, n_times)`の`np.ndarray`として返す。",
+        "波長、Step、Sequence、Timeの各軸は数値昇順とし、戻り値のcomponent軸は0始まりのPCA component順とする。",
+        "flatten特徴量が4軸の直積を成さない場合、特徴量列名から座標を一意に復元できない場合、または特徴量数が`pca.n_features_in_`と不一致の場合は`ValueError`を送出する。",
+        "関数を`spca.feature_engineering`からimportできるようにし、型ヒントとNumPy形式docstringを付ける。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`のParquetを直接入力してfitしたPCAについて、戻り値shapeと各軸の座標配置を検証する。",
+        "reshape結果をflatten順に戻すと`pca.components_`と一致することを検証する。",
+        "実フィクスチャ由来のflatten結果を加工し、直積不成立、曖昧な特徴量名および特徴量数不一致が`ValueError`となることを検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-017",
+      "title": "新しいFlatten-PCA APIの利用情報と回帰確認",
+      "status": "pending",
+      "priority": 17,
+      "depends_on": [
+        "TASK-016"
+      ],
+      "requirements": [
+        "READMEの利用例と出力説明を、`preprocess_and_flatten`、`flatten_pca`、`append_pca_scores`および`reshape_pca_components`の責務に合わせて更新する。",
+        "公開import、型ヒントおよびNumPy形式docstringを確認する。",
+        "SPEC.mdのLazyFrame、PCA出力、スコア結合およびreshape要件と実装・テストの対応を確認する。",
+        "既存の可視化およびPCA関連機能を壊さない。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`全6件を直接使うend-to-endテストで、前処理、flatten、PCA fit、スコア結合および成分reshapeを検証する。",
+        "公開importとREADMEの最小利用例が実行可能であることを検証する。",
+        "全テストおよびlintが成功することを確認する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
     }
   ]
 }
