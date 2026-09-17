@@ -400,7 +400,7 @@
     {
       "id": "TASK-015",
       "title": "fit済みPCAを返すAPIとスコア結合API",
-      "status": "pending",
+      "status": "completed",
       "priority": 15,
       "depends_on": [
         "TASK-014"

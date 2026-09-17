@@ -6,8 +6,13 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import pytest
+from sklearn.decomposition import PCA
 
-from spca.feature_engineering import flatten_pca, preprocess_and_flatten
+from spca.feature_engineering import (
+    append_pca_scores,
+    flatten_pca,
+    preprocess_and_flatten,
+)
 from spca.feature_engineering.flatten_pca import flatten_pca as package_flatten_pca
 from spca.feature_engineering.flatten_pca.flatten import (
     flatten_inputs as _flatten_inputs,
@@ -58,8 +63,8 @@ def test_public_import_and_signature_are_stable(
     assert parameters["w_downsampling_stride"].default == 1
 
     result = flatten_pca(real_fixture_paths, n_component=1)
-    assert result.height == len(real_fixture_paths)
-    assert result.columns[-1] == "pca-1"
+    assert isinstance(result, PCA)
+    assert result.n_components_ == 1
 
 
 def _expected_flatten_pca(
@@ -101,7 +106,7 @@ def _expected_flatten_pca(
         prepared = _apply_w_normalization(prepared, w_normalization_range)
         prepared_inputs.append((path, prepared))
     flattened = _flatten_inputs(prepared_inputs)
-    feature_columns = flattened.columns[1:]
+    feature_columns = flattened.collect_schema().names()[1:]
     return fit_and_transform_pca(
         df=flattened.lazy(),
         columns=feature_columns,
@@ -152,9 +157,12 @@ def test_flatten_pca_runs_all_real_fixtures_end_to_end(
     paths = real_fixture_paths
     expected = _expected_flatten_pca(paths, n_component=3)
 
-    result = flatten_pca(paths, n_component=3)
+    pca = flatten_pca(paths, n_component=3)
+    result = append_pca_scores(pca, preprocess_and_flatten(paths)).collect()
 
     assert len(paths) == 6
+    assert isinstance(pca, PCA)
+    assert pca.n_components_ == 3
     assert result.columns == [*expected.columns[:-3], "pca-1", "pca-2", "pca-3"]
     assert result.height == len(paths)
     _assert_flatten_pca_matches(result, expected, 3)
@@ -185,8 +193,8 @@ def test_readme_minimal_public_api_example_runs_on_all_real_fixtures(
     assert "from spca.feature_engineering import flatten_pca" in readme
     assert "flatten_pca(paths)" in readme
     assert len(paths) == len(fixture_frames) == 6
-    assert result.height == len(paths)
-    assert result.columns[-6:] == [f"pca-{index}" for index in range(1, 7)]
+    assert isinstance(result, PCA)
+    assert result.n_components_ == len(paths)
 
 
 @pytest.mark.parametrize(
@@ -206,7 +214,10 @@ def test_flatten_pca_applies_each_preprocessing_stage(
     paths = real_fixture_paths
     expected = _expected_flatten_pca(paths, n_component=2, **preprocessing)  # type: ignore[arg-type]
 
-    result = flatten_pca(paths, n_component=2, **preprocessing)  # type: ignore[arg-type]
+    result = append_pca_scores(
+        flatten_pca(paths, n_component=2, **preprocessing),  # type: ignore[arg-type]
+        preprocess_and_flatten(paths, **preprocessing),  # type: ignore[arg-type]
+    ).collect()
 
     _assert_flatten_pca_matches(result, expected, 2)
 
@@ -233,18 +244,66 @@ def test_flatten_pca_applies_all_preprocessing_in_specified_order(
     }
     expected = _expected_flatten_pca(paths, n_component=2, **preprocessing)
 
-    result = flatten_pca(paths, n_component=2, **preprocessing)
+    result = append_pca_scores(
+        flatten_pca(paths, n_component=2, **preprocessing),
+        preprocess_and_flatten(paths, **preprocessing),
+    ).collect()
 
     _assert_flatten_pca_matches(result, expected, 2)
 
 
-@pytest.mark.parametrize("n_component", [0, 7])
+@pytest.mark.parametrize("n_component", [0, 7, True, 1.5])
 def test_flatten_pca_rejects_invalid_component_counts(
-    n_component: int, real_fixture_paths: list[Path]
+    n_component: object, real_fixture_paths: list[Path]
 ) -> None:
     """Reject component counts outside one through the PCA matrix rank bound."""
     with pytest.raises(ValueError, match="n_component"):
         flatten_pca(real_fixture_paths, n_component=n_component)
+
+
+def test_append_pca_scores_preserves_real_flattened_rows_and_columns(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Append finite PCA scores to real-fixture flattened rows in their input order."""
+    flattened = preprocess_and_flatten(real_fixture_paths[:3])
+    pca = flatten_pca(real_fixture_paths[:3], n_component=2)
+
+    result = append_pca_scores(pca, flattened)
+    materialized_flattened = flattened.collect()
+    materialized_result = result.collect()
+    feature_columns = materialized_flattened.columns[1:]
+
+    assert isinstance(result, pl.LazyFrame)
+    assert materialized_result.columns == [
+        "filename",
+        *feature_columns,
+        "pca-1",
+        "pca-2",
+    ]
+    assert materialized_result["filename"].to_list() == materialized_flattened[
+        "filename"
+    ].to_list()
+    scores = materialized_result.select(["pca-1", "pca-2"]).to_numpy()
+    assert np.isfinite(scores).all()
+    assert scores == pytest.approx(
+        pca.transform(materialized_flattened.select(feature_columns).to_numpy())
+    )
+    reconstructed = scores @ pca.components_ + pca.mean_
+    assert reconstructed == pytest.approx(
+        materialized_flattened.select(feature_columns).to_numpy()
+    )
+
+
+def test_append_pca_scores_rejects_feature_count_mismatch(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Reject flattened real-fixture features that do not match the fitted PCA."""
+    flattened = preprocess_and_flatten(real_fixture_paths[:3])
+    pca = flatten_pca(real_fixture_paths[:3], n_component=2)
+    final_feature = flattened.collect_schema().names()[-1]
+
+    with pytest.raises(ValueError, match="feature count"):
+        append_pca_scores(pca, flattened.drop(final_feature))
 
 
 def test_preprocess_and_flatten_returns_lazy_real_fixture_query(
