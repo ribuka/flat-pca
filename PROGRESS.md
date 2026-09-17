@@ -73,3 +73,11 @@ Append Ralph loop results in English using the format defined in `RALPH_PROJECT.
 - Tests: Baseline `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` (58 passed); intermediate `uv run -m pytest tests/feature_engineering` exposed 13 missing test aliases and then passed after correction (61 passed); final `uv run -m pytest tests/feature_engineering` (61 passed); `uv run -m pytest` (81 passed); `uv run -m ruff check .` (passed).
 - Requirements: Verified that the public signature, import path, return type, exceptions, deterministic ordering, preprocessing order, flattened values, and PCA contract remain covered; each implementation module and test module now has one focused responsibility; package facades only re-export the public API; dependencies flow from orchestration to processing stages and shared schema without cycles; every function retains type hints and NumPy-style documentation; all existing behavioral checks remain present, including direct reads of all six real Parquet fixtures.
 - Notes: All tasks are complete. No fixture Parquet files were modified, no private-helper compatibility layer was retained, and the temporary split script was removed.
+
+## 2026-09-18 00:37 - TASK-011
+
+- Result: completed
+- Changes: Added a focused downsampling module that collects one sorted `list[float]` of unique Time values across validated frames and retains every row at Time indices selected by a positive integer stride. Added focused real-Parquet tests for all-input Time collection, strides 1 and 2, unselected trailing values, and invalid strides.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py -k t_downsampling` (11 passed); `uv run -m pytest` (73 passed); `uv run -m ruff check .` (passed).
+- Requirements: Verified numeric ascending de-duplication across all real inputs; index selection at `0, stride, 2 * stride, ...`; preservation of every matching row regardless of Step or Sequence; no forced trailing Time; stride 1 preservation; and `ValueError` for zero, negative, boolean, and non-integer strides. All added functions have type hints and NumPy-style docstrings.
+- Notes: TASK-012 is now unblocked. Public API integration remains intentionally reserved for TASK-013; no fixture Parquet files were modified.

@@ -280,7 +280,7 @@
 
 ## TASK-011: t方向の間引き
 
-- Status: pending
+- Status: completed
 - Priority: 11
 - Depends on: TASK-010
 
