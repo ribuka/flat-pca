@@ -89,3 +89,11 @@ Append Ralph loop results in English using the format defined in `RALPH_PROJECT.
 - Tests: Initial targeted collection failed because the w-direction functions were not implemented; `uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py -k w_downsampling` (11 passed); `uv run -m pytest` (84 passed); `uv run -m ruff check .` (passed).
 - Requirements: Verified numeric ascending wavelength de-duplication across all real inputs; index selection at `0, stride, 2 * stride, ...`; preservation of `Time`, `Step`, and `Sequence`; no forced trailing wavelength; stride 1 preservation; and `ValueError` for zero, negative, boolean, and non-integer strides. All added functions have type hints and NumPy-style docstrings.
 - Notes: TASK-013 is now unblocked. Public API integration remains intentionally reserved for TASK-013; no fixture Parquet files were modified.
+
+## 2026-09-18 00:44 - TASK-013
+
+- Result: completed
+- Changes: Added public Time and wavelength downsampling stride arguments with defaults of one; generated shared Unique arrays from all validated inputs; integrated t and w downsampling after smoothing and normalization and before flattening; based PCA inputs and component limits on the downsampled features; updated the README API example, argument guidance, processing order, and output description; and added focused real-Parquet end-to-end and regression tests.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py` (40 passed); `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` (10 passed); `uv run -m pytest` (102 passed); `uv run -m ruff check .` (passed).
+- Requirements: Verified public stride defaults and validation; internal post-validation Unique-array generation across all inputs; the required t smoothing, w smoothing, t normalization, w normalization, t downsampling, w downsampling, and flatten order; shared feature sets and deterministic input-order-independent output; post-downsampling PCA feature and component bounds; stride-one flattened/PCA compatibility; unchanged public imports, return type, and existing preprocessing arguments; and updated README documentation.
+- Notes: TASK-013 is complete. All required checks passed, no fixture Parquet files were modified, and no temporary or generated artifacts were left behind.

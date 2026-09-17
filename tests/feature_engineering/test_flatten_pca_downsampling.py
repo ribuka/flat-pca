@@ -2,9 +2,11 @@
 
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 import pytest
 
+from spca.feature_engineering import flatten_pca
 from spca.feature_engineering.flatten_pca.downsampling import (
     apply_t_downsampling as _apply_t_downsampling,
 )
@@ -16,6 +18,16 @@ from spca.feature_engineering.flatten_pca.downsampling import (
 )
 from spca.feature_engineering.flatten_pca.downsampling import (
     collect_unique_wavelengths as _collect_unique_wavelengths,
+)
+from spca.feature_engineering.flatten_pca.flatten import flatten_inputs
+from spca.feature_engineering.flatten_pca.input import load_and_validate_inputs
+from spca.feature_engineering.flatten_pca.normalization import (
+    apply_t_normalization,
+    apply_w_normalization,
+)
+from spca.feature_engineering.flatten_pca.smoothing import (
+    apply_t_smoothing,
+    apply_w_smoothing,
 )
 
 _METADATA_COLUMNS = ["Time", "Step", "Sequence"]
@@ -163,4 +175,200 @@ def test_w_downsampling_rejects_invalid_stride(
             frame,
             unique_wavelengths,
             stride,
+        )
+
+
+def _expected_downsampled_flatten(
+    paths: list[Path],
+    *,
+    t_stride: int,
+    w_stride: int,
+    t_smoothing_window: float | None = None,
+    w_smoothing_window: float | None = None,
+    t_normalization_range: tuple[float, float] | None = None,
+    w_normalization_range: tuple[float, float] | None = None,
+) -> pl.DataFrame:
+    """Build expected flattened features in the required stage order.
+
+    Parameters
+    ----------
+    paths : list[Path]
+        Real Parquet fixture paths.
+    t_stride : int
+        Time downsampling interval.
+    w_stride : int
+        Wavelength downsampling interval.
+    t_smoothing_window : float | None, default None
+        Time smoothing half-window.
+    w_smoothing_window : float | None, default None
+        Wavelength smoothing half-window.
+    t_normalization_range : tuple[float, float] | None, default None
+        Inclusive Time normalization interval.
+    w_normalization_range : tuple[float, float] | None, default None
+        Inclusive wavelength normalization interval.
+
+    Returns
+    -------
+    pl.DataFrame
+        Flattened features after all preprocessing and downsampling stages.
+    """
+    loaded = load_and_validate_inputs(paths)
+    frames = [frame for _, frame in loaded]
+    unique_times = _collect_unique_times(frames)
+    unique_wavelengths = _collect_unique_wavelengths(frames)
+    prepared = []
+    for path, frame in loaded:
+        transformed = apply_t_smoothing(frame, t_smoothing_window)
+        transformed = apply_w_smoothing(transformed, w_smoothing_window)
+        transformed = apply_t_normalization(
+            transformed,
+            t_normalization_range,
+        )
+        transformed = apply_w_normalization(
+            transformed,
+            w_normalization_range,
+        )
+        transformed = _apply_t_downsampling(
+            transformed,
+            unique_times,
+            t_stride,
+        )
+        transformed = _apply_w_downsampling(
+            transformed,
+            unique_wavelengths,
+            w_stride,
+        )
+        prepared.append((path, transformed))
+    return flatten_inputs(prepared)
+
+
+@pytest.mark.parametrize(
+    ("t_stride", "w_stride"),
+    [(2, 1), (1, 2), (2, 2)],
+)
+def test_flatten_pca_downsamples_real_inputs_end_to_end(
+    t_stride: int,
+    w_stride: int,
+    real_fixture_paths: list[Path],
+) -> None:
+    """Keep the shared downsampled feature set for every real input."""
+    expected = _expected_downsampled_flatten(
+        real_fixture_paths,
+        t_stride=t_stride,
+        w_stride=w_stride,
+    )
+
+    result = flatten_pca(
+        list(reversed(real_fixture_paths)),
+        n_component=2,
+        t_downsampling_stride=t_stride,
+        w_downsampling_stride=w_stride,
+    )
+
+    feature_columns = result.columns[1:-2]
+    assert feature_columns == expected.columns[1:]
+    assert len(feature_columns) == expected.width - 1
+    assert result.get_column("filename").to_list() == expected["filename"].to_list()
+    assert result.select(feature_columns).equals(expected.select(feature_columns))
+    assert result.columns[-2:] == ["pca-1", "pca-2"]
+    assert result.select(pl.exclude("filename")).to_numpy().shape == (
+        len(real_fixture_paths),
+        len(feature_columns) + 2,
+    )
+    assert result.select(pl.exclude("filename")).to_numpy().dtype.kind == "f"
+    assert np.isfinite(result.select(pl.exclude("filename")).to_numpy()).all()
+
+
+def test_flatten_pca_preprocesses_all_observations_before_downsampling(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Apply smoothing and normalization before either downsampling stage."""
+    frames = [pl.read_parquet(path) for path in real_fixture_paths]
+    times = _collect_unique_times(frames)
+    wavelengths = _collect_unique_wavelengths(frames)
+    preprocessing = {
+        "t_smoothing_window": times[1] - times[0],
+        "w_smoothing_window": wavelengths[1] - wavelengths[0],
+        "t_normalization_range": (times[1], times[1]),
+        "w_normalization_range": (wavelengths[1], wavelengths[1]),
+    }
+    expected = _expected_downsampled_flatten(
+        real_fixture_paths,
+        t_stride=2,
+        w_stride=2,
+        **preprocessing,
+    )
+
+    result = flatten_pca(
+        real_fixture_paths,
+        n_component=2,
+        t_downsampling_stride=2,
+        w_downsampling_stride=2,
+        **preprocessing,
+    )
+
+    assert result.columns[1:-2] == expected.columns[1:]
+    assert result.select(result.columns[1:-2]).to_numpy() == pytest.approx(
+        expected.select(expected.columns[1:]).to_numpy()
+    )
+
+
+def test_flatten_pca_stride_one_preserves_existing_end_to_end_result(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Preserve legacy flattened and PCA results for default stride one."""
+    default = flatten_pca(real_fixture_paths, n_component=3)
+    explicit = flatten_pca(
+        real_fixture_paths,
+        n_component=3,
+        t_downsampling_stride=1,
+        w_downsampling_stride=1,
+    )
+
+    assert explicit.equals(default)
+
+
+def test_flatten_pca_uses_downsampled_feature_count_for_pca_limit(
+    real_fixture_paths: list[Path],
+    tmp_path: Path,
+) -> None:
+    """Bound PCA components by features remaining after downsampling."""
+    derived_paths = []
+    for path in real_fixture_paths:
+        derived_path = tmp_path / path.name
+        pl.read_parquet(path).head(1).write_parquet(derived_path)
+        derived_paths.append(derived_path)
+
+    result = flatten_pca(
+        derived_paths,
+        t_downsampling_stride=99,
+        w_downsampling_stride=99,
+    )
+
+    assert result.columns[-1] == "pca-1"
+    with pytest.raises(ValueError, match="n_component"):
+        flatten_pca(
+            derived_paths,
+            n_component=2,
+            t_downsampling_stride=99,
+            w_downsampling_stride=99,
+        )
+
+
+@pytest.mark.parametrize("stride", [0, -1, True, 1.5, "2", None])
+@pytest.mark.parametrize(
+    "argument_name",
+    ["t_downsampling_stride", "w_downsampling_stride"],
+)
+def test_flatten_pca_rejects_invalid_downsampling_stride(
+    argument_name: str,
+    stride: object,
+    real_fixture_paths: list[Path],
+) -> None:
+    """Reject invalid downsampling intervals through the public API."""
+    with pytest.raises(ValueError, match=argument_name):
+        flatten_pca(  # type: ignore[arg-type]
+            real_fixture_paths,
+            n_component=1,
+            **{argument_name: stride},
         )

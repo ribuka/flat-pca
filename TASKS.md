@@ -341,7 +341,7 @@
 
 ## TASK-013: 間引きとFlatten-PCA公開APIの統合
 
-- Status: pending
+- Status: completed
 - Priority: 13
 - Depends on: TASK-011, TASK-012
 
