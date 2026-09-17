@@ -255,7 +255,7 @@
 
 ## TASK-010: 空の入力パスの明示的な検証
 
-- Status: pending
+- Status: completed
 - Priority: 10
 - Depends on: TASK-009
 
@@ -275,5 +275,98 @@
 ### Acceptance commands
 
 - `uv run -m pytest tests/feature_engineering/test_flatten_pca_input.py`
+- `uv run -m pytest`
+- `uv run -m ruff check .`
+
+## TASK-011: t方向の間引き
+
+- Status: pending
+- Priority: 11
+- Depends on: TASK-010
+
+### Requirements
+
+- 間引き専用の責務を持つモジュールに、`apply_t_downsampling`を実装する。
+- 検証済みの全入力ファイルの`Time`列から、重複を除いて数値昇順に並べた`list[float]`を一度だけ生成する。
+- `apply_t_downsampling`は、対象フレーム、t方向のUnique配列および間引き間隔を引数として受け取る。
+- Unique配列のindex `0, stride, 2 * stride, ...`にある`Time`値と一致する行を、`Step`および`Sequence`にかかわらずすべて残す。
+- 選択indexに該当しない末尾の値を追加で残さない。
+- 間引き間隔`1`ではすべての行を残す。
+- boolではない1以上の整数だけを間引き間隔として受け付け、それ以外は`ValueError`で拒否する。
+- すべての関数に型ヒントとNumPy形式のdocstringを付ける。
+
+### Tests
+
+- `tests/fixtures/real_subset`のParquetを直接読み込み、全入力から昇順のUnique配列を生成できることを検証する。
+- 実フィクスチャに間引き間隔`1`および`2`を適用し、期待する`Time`と全`Step`・`Sequence`の行だけが残ることを検証する。
+- 実フィクスチャから`pl.DataFrame`を導出し、末尾が選択indexに該当しない場合に末尾が残らないことを検証する。
+- 0、負数、boolおよび非整数の間引き間隔を拒否することを検証する。
+
+### Acceptance commands
+
+- `uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py -k t_downsampling`
+- `uv run -m pytest`
+- `uv run -m ruff check .`
+
+## TASK-012: w方向の間引き
+
+- Status: pending
+- Priority: 12
+- Depends on: TASK-011
+
+### Requirements
+
+- 間引き専用モジュールに、`apply_w_downsampling`を実装する。
+- 検証済みの全入力ファイルに共通する波長列名を数値へ変換し、重複を除いて昇順に並べた`list[float]`を一度だけ生成する。
+- `apply_w_downsampling`は、対象フレーム、w方向のUnique配列および間引き間隔を引数として受け取る。
+- Unique配列のindex `0, stride, 2 * stride, ...`にある波長値に対応する波長列だけを残す。
+- 選択indexに該当しない末尾の波長列を追加で残さない。
+- `Time`、`Step`および`Sequence`列を常に保持する。
+- 間引き間隔`1`ではすべての波長列を残す。
+- boolではない1以上の整数だけを間引き間隔として受け付け、それ以外は`ValueError`で拒否する。
+- すべての関数に型ヒントとNumPy形式のdocstringを付ける。
+
+### Tests
+
+- `tests/fixtures/real_subset`のParquetを直接読み込み、全入力から数値昇順の波長Unique配列を生成できることを検証する。
+- 実フィクスチャに間引き間隔`1`および`2`を適用し、期待する波長列と全メタデータ列だけが残ることを検証する。
+- 実フィクスチャから`pl.DataFrame`を導出し、末尾が選択indexに該当しない場合に末尾の波長列が残らないことを検証する。
+- 0、負数、boolおよび非整数の間引き間隔を拒否することを検証する。
+
+### Acceptance commands
+
+- `uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py -k w_downsampling`
+- `uv run -m pytest`
+- `uv run -m ruff check .`
+
+## TASK-013: 間引きとFlatten-PCA公開APIの統合
+
+- Status: pending
+- Priority: 13
+- Depends on: TASK-011, TASK-012
+
+### Requirements
+
+- `flatten_pca`の公開APIに、デフォルト値`1`の`t_downsampling_stride`および`w_downsampling_stride`を追加する。
+- Unique配列は公開APIの引数にせず、入力検証後に全入力から内部生成する。
+- t smoothing、w smoothing、t規格化、w規格化、t間引き、w間引き、flattenの順に処理する。
+- 全入力ファイルへ同じt/w方向のUnique配列と間引き間隔を適用し、入力間で同じflatten特徴量集合を維持する。
+- PCAへ渡す特徴量と`n_component`の上限を、間引き後のflatten特徴量に基づいて決定する。
+- 間引き間隔`1`の既定動作で、従来のflatten結果およびPCA結果を維持する。
+- READMEの公開API例、引数説明および処理順を新しい間引き機能に合わせて更新する。
+- 公開importパス、戻り値、既存の前処理引数および入力順に依存しない出力順を維持する。
+
+### Tests
+
+- `tests/fixtures/real_subset`の複数Parquetを直接使用し、t方向のみ、w方向のみ、および両方向を間引いたend-to-end結果を検証する。
+- smoothingと規格化が間引き前の全観測値を使用すること、および仕様どおりの処理順を検証する。
+- 間引き後のflatten列名、列順、特徴量数、PCA列数、有限値および入力順非依存性を検証する。
+- 間引き間隔`1`で既存のend-to-end結果が変わらないことを検証する。
+- 公開APIから不正な間引き間隔を渡した場合の`ValueError`を検証する。
+
+### Acceptance commands
+
+- `uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py`
+- `uv run -m pytest tests/feature_engineering/test_flatten_pca.py`
 - `uv run -m pytest`
 - `uv run -m ruff check .`
