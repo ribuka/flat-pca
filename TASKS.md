@@ -310,7 +310,7 @@
 
 ## TASK-012: w方向の間引き
 
-- Status: pending
+- Status: completed
 - Priority: 12
 - Depends on: TASK-011
 

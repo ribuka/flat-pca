@@ -81,3 +81,11 @@ Append Ralph loop results in English using the format defined in `RALPH_PROJECT.
 - Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py -k t_downsampling` (11 passed); `uv run -m pytest` (73 passed); `uv run -m ruff check .` (passed).
 - Requirements: Verified numeric ascending de-duplication across all real inputs; index selection at `0, stride, 2 * stride, ...`; preservation of every matching row regardless of Step or Sequence; no forced trailing Time; stride 1 preservation; and `ValueError` for zero, negative, boolean, and non-integer strides. All added functions have type hints and NumPy-style docstrings.
 - Notes: TASK-012 is now unblocked. Public API integration remains intentionally reserved for TASK-013; no fixture Parquet files were modified.
+
+## 2026-09-18 00:40 - TASK-012
+
+- Result: completed
+- Changes: Added wavelength Unique-array collection and w-direction downsampling to the focused downsampling module. Added focused real-Parquet tests for all-input wavelength collection, strides 1 and 2, metadata preservation, an unselected trailing wavelength, and invalid strides.
+- Tests: Initial targeted collection failed because the w-direction functions were not implemented; `uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py -k w_downsampling` (11 passed); `uv run -m pytest` (84 passed); `uv run -m ruff check .` (passed).
+- Requirements: Verified numeric ascending wavelength de-duplication across all real inputs; index selection at `0, stride, 2 * stride, ...`; preservation of `Time`, `Step`, and `Sequence`; no forced trailing wavelength; stride 1 preservation; and `ValueError` for zero, negative, boolean, and non-integer strides. All added functions have type hints and NumPy-style docstrings.
+- Notes: TASK-013 is now unblocked. Public API integration remains intentionally reserved for TASK-013; no fixture Parquet files were modified.
