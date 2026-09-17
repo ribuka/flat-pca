@@ -182,20 +182,39 @@ def test_flatten_pca_runs_all_real_fixtures_end_to_end(
 def test_readme_minimal_public_api_example_runs_on_all_real_fixtures(
     real_fixture_paths: list[Path],
 ) -> None:
-    """Keep the documented optional-component real-data example executable."""
+    """Keep the documented four-stage API example executable on real Parquet."""
     readme = Path("README.md").read_text(encoding="utf-8")
     paths = real_fixture_paths
     fixture_frames = [pl.read_parquet(path) for path in paths]
 
+    from spca.feature_engineering import (
+        append_pca_scores as public_append_pca_scores,
+    )
     from spca.feature_engineering import flatten_pca as public_flatten_pca
+    from spca.feature_engineering import (
+        preprocess_and_flatten as public_preprocess_and_flatten,
+    )
+    from spca.feature_engineering import (
+        reshape_pca_components as public_reshape_pca_components,
+    )
 
-    result = public_flatten_pca(paths)
+    flattened = public_preprocess_and_flatten(paths)
+    pca = public_flatten_pca(paths, n_component=2)
+    result = public_append_pca_scores(pca, flattened).collect()
+    components = public_reshape_pca_components(pca, flattened)
 
-    assert "from spca.feature_engineering import flatten_pca" in readme
-    assert "flatten_pca(paths)" in readme
+    for public_name in (
+        "preprocess_and_flatten",
+        "flatten_pca",
+        "append_pca_scores",
+        "reshape_pca_components",
+    ):
+        assert public_name in readme
     assert len(paths) == len(fixture_frames) == 6
-    assert isinstance(result, PCA)
-    assert result.n_components_ == len(paths)
+    assert isinstance(flattened, pl.LazyFrame)
+    assert isinstance(pca, PCA)
+    assert result.columns[-2:] == ["pca-1", "pca-2"]
+    assert components.shape[0] == pca.n_components_ == 2
 
 
 @pytest.mark.parametrize(

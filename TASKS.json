@@ -455,7 +455,7 @@
     {
       "id": "TASK-017",
       "title": "新しいFlatten-PCA APIの利用情報と回帰確認",
-      "status": "pending",
+      "status": "completed",
       "priority": 17,
       "depends_on": [
         "TASK-016"

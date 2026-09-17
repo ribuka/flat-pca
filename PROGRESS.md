@@ -2,6 +2,14 @@
 
 Append Ralph loop results in English using the format defined in `RALPH_PROJECT.md`.
 
+## 2026-09-18 03:33 - TASK-017
+
+- Result: completed
+- Changes: Updated the README for the separate lazy preprocessing/flattening, PCA fitting, score-appending, and component-reshaping APIs. Strengthened the real-fixture README regression to import and execute all four public APIs over all six Parquet fixtures.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` (23 passed); `uv run -m pytest` (115 passed); `uv run -m ruff check .` (passed); `git diff --check` (passed).
+- Requirements: Confirmed thin public re-exports, type hints, and NumPy-style docstrings for all four APIs; verified the SPEC LazyFrame, fitted-PCA, appended-score, and reshaped-component behaviors through the existing and updated all-real-fixture integration coverage; visualization and pre-existing PCA tests passed.
+- Notes: No fixture Parquet files or generated artifacts were modified. Architecture review confirmed no new dependency or responsibility was introduced.
+
 ## 2026-09-18 03:30 - TASK-016
 
 - Result: completed

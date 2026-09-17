@@ -5,9 +5,10 @@ data stored in Parquet files.
 
 ## 使い方
 
-`flatten_pca` は、同じ測定条件（`Time`、`Step`、`Sequence`、波長列）を持つ
-複数の Parquet ファイルを、1 ファイルにつき 1 行の特徴量へ展開し、PCA スコアを
-付加します。ファイル名（拡張子を除く）がサンプル名になります。
+同じ測定条件（`Time`、`Step`、`Sequence`、波長列）を持つ複数の Parquet
+ファイルを、1 ファイルにつき 1 行の特徴量へ展開します。ファイル名（拡張子を除く）が
+サンプル名になります。公開 API は、遅延した前処理・flatten、PCA の fit、スコアの
+結合、成分の reshape をそれぞれ分離しています。
 
 まず、パッケージをインストールします。
 
@@ -21,17 +22,30 @@ uv sync
 ```python
 from pathlib import Path
 
-from spca.feature_engineering import flatten_pca
+from spca.feature_engineering import (
+    append_pca_scores,
+    flatten_pca,
+    preprocess_and_flatten,
+    reshape_pca_components,
+)
 
 input_dir = Path("data/spectra")
 paths = sorted(input_dir.glob("*.parquet"))
 
-result = flatten_pca(paths)
+# 前処理済みの 1 ファイル 1 行の特徴量を、必要な時点で collect する。
+flattened = preprocess_and_flatten(paths)
+
+# PCA を fit し、同じ flatten 結果へスコアを結合する。
+pca = flatten_pca(paths, n_component=2)
+result = append_pca_scores(pca, flattened).collect()
 
 # サンプル名と PCA スコアだけを確認する
 print(result.select("filename", "pca-1", "pca-2"))
 
-# 後続の解析用に保存する場合
+# 成分係数を (component, wavelength, Step, Sequence, Time) 軸へ戻す。
+components = reshape_pca_components(pca, flattened)
+
+# スコアを後続の解析用に保存する場合
 result.write_parquet("data/flatten_pca_result.parquet")
 ```
 
@@ -40,13 +54,31 @@ result.write_parquet("data/flatten_pca_result.parquet")
 すべての主成分を計算します。必要な主成分数だけに絞る場合は、1 以上かつこの上限以下の整数を
 指定します。入力パスの順序は結果に影響しません。
 
+### 各 API の責務
+
+- `preprocess_and_flatten` は前処理と flatten の遅延クエリ (`polars.LazyFrame`) を返します。列は `filename` と決定的に並んだ flatten 特徴量です。
+- `flatten_pca` は同じ入力と前処理設定で PCA を fit し、学習済みの `sklearn.decomposition.PCA` を返します。スコアは返しません。
+- `append_pca_scores` は fit 済み PCA と flatten 済み `LazyFrame` を受け取り、`pca-1` から `pca-{n_component}` のスコア列を追加した `LazyFrame` を返します。
+- `reshape_pca_components` は PCA 成分を `(n_component, n_wavelengths, n_steps, n_sequences, n_times)` の NumPy 配列へ並べ替えます。
+
+`preprocess_and_flatten` と `append_pca_scores` は、呼び出し側が `.collect()` する時点を選べます。`flatten_pca` は PCA fit に必要な特徴量だけを materialize します。
+
 ### 前処理を指定する例
 
 必要に応じて、時間・波長方向の平滑化と規格化を同時に指定できます。窓幅は半窓幅で、
 範囲の両端を含みます。単位はそれぞれ入力の `Time` と波長列名の数値部分に合わせます。
 
 ```python
-result = flatten_pca(
+flattened = preprocess_and_flatten(
+    paths,
+    t_smoothing_window=300.0,
+    w_smoothing_window=5.0,
+    t_normalization_range=(0.0, 9_690.0),
+    w_normalization_range=(350.0, 450.0),
+    t_downsampling_stride=2,
+    w_downsampling_stride=3,
+)
+pca = flatten_pca(
     paths,
     n_component=3,
     t_smoothing_window=300.0,
@@ -56,6 +88,7 @@ result = flatten_pca(
     t_downsampling_stride=2,
     w_downsampling_stride=3,
 )
+result = append_pca_scores(pca, flattened).collect()
 ```
 
 `t_downsampling_stride` と `w_downsampling_stride` は、全入力で共通する昇順の Time 値・
@@ -75,7 +108,9 @@ result = flatten_pca(
 
 ## 出力
 
-戻り値は Polars の `DataFrame` です。1 行が入力ファイル 1 個に対応し、列順は
-`filename`、展開したスペクトル特徴量、`pca-1` から `pca-{n_component}` です。特徴量列は
-間引き後も全入力で同じ集合となり、波長、`Step`、`Sequence`、`Time` の順で決定的に
-並びます。PCA の特徴量と主成分数の上限は、この間引き後の特徴量集合から決まります。
+`preprocess_and_flatten` の戻り値は Polars の `LazyFrame` です。collect 後は 1 行が入力
+ファイル 1 個に対応し、列順は `filename`、展開したスペクトル特徴量です。
+`append_pca_scores` の戻り値も `LazyFrame` で、collect 後はこの列順の末尾に `pca-1` から
+`pca-{n_component}` が追加されます。特徴量列は間引き後も全入力で同じ集合となり、波長、
+`Step`、`Sequence`、`Time` の順で決定的に並びます。PCA の特徴量と主成分数の上限は、
+この間引き後の特徴量集合から決まります。
