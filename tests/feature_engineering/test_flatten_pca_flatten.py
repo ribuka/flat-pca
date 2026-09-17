@@ -21,7 +21,7 @@ def test_flatten_real_fixture_has_deterministic_columns_and_values(
     """Flatten one real Parquet fixture in numeric feature-key order."""
     path = real_fixture_paths[0]
     loaded = _load_and_validate_inputs([path])
-    frame = loaded[0][1]
+    frame = loaded[0][1].collect()
     wavelength_columns = sorted(
         (column for column in frame.columns if column not in METADATA_COLUMNS),
         key=lambda column: float(column.removesuffix("nm")),
@@ -46,11 +46,13 @@ def test_flatten_real_fixture_has_deterministic_columns_and_values(
     ]
 
     flattened = _flatten_inputs(loaded)
+    assert isinstance(flattened, pl.LazyFrame)
+    collected = flattened.collect()
 
-    assert flattened.height == 1
-    assert flattened.columns == expected_columns
-    assert flattened["filename"].to_list() == [path.stem]
-    assert flattened.row(0)[1:] == pytest.approx(expected_values)
+    assert collected.height == 1
+    assert collected.columns == expected_columns
+    assert collected["filename"].to_list() == [path.stem]
+    assert collected.row(0)[1:] == pytest.approx(expected_values)
 
 
 def test_flatten_multiple_real_fixtures_ignores_input_order(
@@ -63,8 +65,11 @@ def test_flatten_multiple_real_fixtures_ignores_input_order(
     forward = _flatten_inputs(loaded)
     reverse = _flatten_inputs(list(reversed(loaded)))
 
-    assert forward.equals(reverse)
-    assert forward["filename"].to_list() == [
+    assert isinstance(forward, pl.LazyFrame)
+    assert isinstance(reverse, pl.LazyFrame)
+    collected = forward.collect()
+    assert collected.equals(reverse.collect())
+    assert collected["filename"].to_list() == [
         path.stem for path in sorted(path.resolve() for path in paths)
     ]
 
@@ -73,7 +78,8 @@ def test_flatten_sorts_step_and_sequence_and_rejects_name_collisions(
     real_fixture_paths: list[Path],
 ) -> None:
     """Sort numeric metadata keys and reject colliding formatted feature names."""
-    path, fixture = _load_and_validate_inputs([real_fixture_paths[0]])[0]
+    path, lazy_fixture = _load_and_validate_inputs([real_fixture_paths[0]])[0]
+    fixture = lazy_fixture.collect()
     frame = fixture.head(4).with_columns(
         pl.Series("Time", [1.0, 0.0, 1.0, 0.0]),
         pl.Series("Step", [1, 1, 0, 0]),

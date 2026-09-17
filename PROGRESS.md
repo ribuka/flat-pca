@@ -2,6 +2,22 @@
 
 Append Ralph loop results in English using the format defined in `RALPH_PROJECT.md`.
 
+## 2026-09-18 03:33 - TASK-017
+
+- Result: completed
+- Changes: Updated the README for the separate lazy preprocessing/flattening, PCA fitting, score-appending, and component-reshaping APIs. Strengthened the real-fixture README regression to import and execute all four public APIs over all six Parquet fixtures.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` (23 passed); `uv run -m pytest` (115 passed); `uv run -m ruff check .` (passed); `git diff --check` (passed).
+- Requirements: Confirmed thin public re-exports, type hints, and NumPy-style docstrings for all four APIs; verified the SPEC LazyFrame, fitted-PCA, appended-score, and reshaped-component behaviors through the existing and updated all-real-fixture integration coverage; visualization and pre-existing PCA tests passed.
+- Notes: No fixture Parquet files or generated artifacts were modified. Architecture review confirmed no new dependency or responsibility was introduced.
+
+## 2026-09-18 03:30 - TASK-016
+
+- Result: completed
+- Changes: Added the public `reshape_pca_components` API in a focused PCA-component reshaping module, with strict canonical feature-name decoding, coordinate Cartesian-product validation, sorted coordinate axes, and thin package re-exports. Added real-Parquet integration and invalid-layout coverage.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` (23 passed); `uv run -m pytest` (115 passed); `uv run -m ruff check .` (passed); `git diff --check` (passed).
+- Requirements: Verified fitted PCA components are assigned to `(component, wavelength, Step, Sequence, Time)` with numerically ascending coordinate axes; flatten-order reconstruction equals `pca.components_`; malformed names, missing Cartesian-product coordinates, and PCA feature-count mismatches raise `ValueError`; and the public import is available from `spca.feature_engineering`.
+- Notes: No fixture Parquet files were modified. Architecture review confirmed a focused module and facade-only public re-exports without circular dependencies.
+
 ## 2026-09-15 18:18 - TASK-001
 
 - Result: completed
@@ -97,3 +113,20 @@ Append Ralph loop results in English using the format defined in `RALPH_PROJECT.
 - Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py` (40 passed); `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` (10 passed); `uv run -m pytest` (102 passed); `uv run -m ruff check .` (passed).
 - Requirements: Verified public stride defaults and validation; internal post-validation Unique-array generation across all inputs; the required t smoothing, w smoothing, t normalization, w normalization, t downsampling, w downsampling, and flatten order; shared feature sets and deterministic input-order-independent output; post-downsampling PCA feature and component bounds; stride-one flattened/PCA compatibility; unchanged public imports, return type, and existing preprocessing arguments; and updated README documentation.
 - Notes: TASK-013 is complete. All required checks passed, no fixture Parquet files were modified, and no temporary or generated artifacts were left behind.
+
+## 2026-09-18 03:11 - TASK-014
+
+- Result: completed
+- Changes: Added the public `preprocess_and_flatten` LazyFrame API, switched Parquet acquisition to `pl.scan_parquet`, and composed preprocessing, downsampling, and deterministic flattening as deferred queries. Updated lower-stage helpers to accept LazyFrames while retaining eager helper behavior for focused tests.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py tests/feature_engineering/test_flatten_pca_downsampling.py` (57 passed); `uv run -m pytest` (109 passed); `uv run -m ruff check .` (passed); `git diff --check` (passed).
+- Requirements: Verified real-fixture LazyFrame return before collection; exact eager-contract flatten results for no preprocessing, each preprocessing stage, combined preprocessing with t/w downsampling, and reversed paths; scan-based input acquisition; validation errors from a real-fixture-derived schema variant; public package export; and deterministic columns, rows, and values.
+- Notes: Validation and common unique-array/metadata-coordinate discovery collect only values required to construct or validate the query. No preprocessed input collection or fixture modification occurred.
+
+## 2026-09-18 03:16 - TASK-015
+
+- Result: blocked -> completed
+- Changes: Added a focused PCA-score module. `flatten_pca` now returns a fitted scikit-learn PCA from `preprocess_and_flatten` features only, and `append_pca_scores` returns a LazyFrame with ordered scores. Exported the new public API and updated affected real-fixture integration tests.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` (21 passed); `uv run -m pytest tests/feature_engineering/test_flatten_pca.py tests/feature_engineering/test_flatten_pca_downsampling.py` (61 passed); `uv run -m pytest` (113 passed); `uv run -m ruff check .` (passed). A final targeted pytest rerun was blocked after 20 passes by `WinError 5` accessing the normal Windows pytest temporary directory; `uv run -m ruff check .` and `git diff --check` passed.
+- Requirements: Implementation and prior passing real-fixture tests verify fitted PCA return, feature-only fitting, component validation, ordered LazyFrame score appending, mismatch validation, public exports, and reconstruction-based score validation.
+- Notes: The final required pytest invocation cannot currently complete because `C:\\Users\\rtagu\\AppData\\Local\\Temp\\pytest-of-rtagu` is access-restricted. Preserve this work and restore access to rerun the acceptance commands before marking the task completed.
+- Additional notes: As `uv run -m pytest` all passed, status is changed from `blocked` to `completed`.

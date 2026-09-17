@@ -6,7 +6,11 @@ import numpy as np
 import polars as pl
 import pytest
 
-from spca.feature_engineering import flatten_pca
+from spca.feature_engineering import (
+    append_pca_scores,
+    flatten_pca,
+    preprocess_and_flatten,
+)
 from spca.feature_engineering.flatten_pca.downsampling import (
     apply_t_downsampling as _apply_t_downsampling,
 )
@@ -239,7 +243,9 @@ def _expected_downsampled_flatten(
             w_stride,
         )
         prepared.append((path, transformed))
-    return flatten_inputs(prepared)
+    flattened = flatten_inputs(prepared)
+    assert isinstance(flattened, pl.LazyFrame)
+    return flattened.collect()
 
 
 @pytest.mark.parametrize(
@@ -258,12 +264,20 @@ def test_flatten_pca_downsamples_real_inputs_end_to_end(
         w_stride=w_stride,
     )
 
-    result = flatten_pca(
+    flattened = preprocess_and_flatten(
         list(reversed(real_fixture_paths)),
-        n_component=2,
         t_downsampling_stride=t_stride,
         w_downsampling_stride=w_stride,
     )
+    result = append_pca_scores(
+        flatten_pca(
+            list(reversed(real_fixture_paths)),
+            n_component=2,
+            t_downsampling_stride=t_stride,
+            w_downsampling_stride=w_stride,
+        ),
+        flattened,
+    ).collect()
 
     feature_columns = result.columns[1:-2]
     assert feature_columns == expected.columns[1:]
@@ -299,13 +313,22 @@ def test_flatten_pca_preprocesses_all_observations_before_downsampling(
         **preprocessing,
     )
 
-    result = flatten_pca(
+    flattened = preprocess_and_flatten(
         real_fixture_paths,
-        n_component=2,
         t_downsampling_stride=2,
         w_downsampling_stride=2,
         **preprocessing,
     )
+    result = append_pca_scores(
+        flatten_pca(
+            real_fixture_paths,
+            n_component=2,
+            t_downsampling_stride=2,
+            w_downsampling_stride=2,
+            **preprocessing,
+        ),
+        flattened,
+    ).collect()
 
     assert result.columns[1:-2] == expected.columns[1:]
     assert result.select(result.columns[1:-2]).to_numpy() == pytest.approx(
@@ -325,7 +348,9 @@ def test_flatten_pca_stride_one_preserves_existing_end_to_end_result(
         w_downsampling_stride=1,
     )
 
-    assert explicit.equals(default)
+    assert explicit.n_components_ == default.n_components_ == 3
+    assert explicit.mean_ == pytest.approx(default.mean_)
+    assert explicit.components_ == pytest.approx(default.components_)
 
 
 def test_flatten_pca_uses_downsampled_feature_count_for_pca_limit(
@@ -345,7 +370,7 @@ def test_flatten_pca_uses_downsampled_feature_count_for_pca_limit(
         w_downsampling_stride=99,
     )
 
-    assert result.columns[-1] == "pca-1"
+    assert result.n_components_ == 1
     with pytest.raises(ValueError, match="n_component"):
         flatten_pca(
             derived_paths,

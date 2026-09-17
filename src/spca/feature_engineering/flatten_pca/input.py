@@ -10,7 +10,7 @@ import polars as pl
 from .schema import METADATA_COLUMNS, parse_wavelength, wavelength_columns
 
 
-def read_parquet(path: Path) -> pl.DataFrame:
+def read_parquet(path: Path) -> pl.LazyFrame:
     """Read one validated filesystem path as Parquet.
 
     Parameters
@@ -20,8 +20,8 @@ def read_parquet(path: Path) -> pl.DataFrame:
 
     Returns
     -------
-    pl.DataFrame
-        Eagerly loaded Parquet contents.
+    pl.LazyFrame
+        Lazily scanned Parquet contents.
 
     Raises
     ------
@@ -35,7 +35,7 @@ def read_parquet(path: Path) -> pl.DataFrame:
     if not path.is_file():
         raise ValueError(f"input path is not a file: {path}")
     try:
-        return pl.read_parquet(path)
+        return pl.scan_parquet(path)
     except (OSError, pl.exceptions.PolarsError) as error:
         raise ValueError(f"failed to read Parquet input: {path}") from error
 
@@ -100,7 +100,7 @@ def validate_frame(
 
 def load_and_validate_inputs(
     paths: Sequence[str | Path],
-) -> list[tuple[Path, pl.DataFrame]]:
+) -> list[tuple[Path, pl.LazyFrame]]:
     """Load and validate Flatten-PCA Parquet inputs deterministically.
 
     Parameters
@@ -110,8 +110,9 @@ def load_and_validate_inputs(
 
     Returns
     -------
-    list[tuple[Path, pl.DataFrame]]
-        Normalized absolute paths and their frames, sorted by path text.
+    list[tuple[Path, pl.LazyFrame]]
+        Normalized absolute paths and lazily scanned frames, sorted by path
+        text.
 
     Raises
     ------
@@ -129,12 +130,13 @@ def load_and_validate_inputs(
     if len(stems) != len(set(stems)):
         raise ValueError("input path stems must be unique")
 
-    loaded: list[tuple[Path, pl.DataFrame]] = []
+    loaded: list[tuple[Path, pl.LazyFrame]] = []
     expected_wavelengths: frozenset[str] | None = None
     expected_metadata_keys: frozenset[tuple[object, ...]] | None = None
     for path in normalized_paths:
         frame = read_parquet(path)
-        wavelengths, metadata_keys = validate_frame(path, frame)
+        # Validation requires concrete values, but processing remains lazy.
+        wavelengths, metadata_keys = validate_frame(path, frame.collect())
         if expected_wavelengths is None:
             expected_wavelengths = wavelengths
             expected_metadata_keys = metadata_keys

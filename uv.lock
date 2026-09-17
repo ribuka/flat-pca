@@ -1114,7 +1114,7 @@ wheels = [
 [[package]]
 name = "wiggum"
 version = "0.1.2"
-source = { git = "https://github.com/ribuka/wiggum.git#de1bb838d7db36490eecb7e3784a9de441fa08d7" }
+source = { git = "https://github.com/ribuka/wiggum.git#574bd7c0497227cc1ff43b27181a317d3b4059b6" }
 dependencies = [
     { name = "loguru" },
 ]

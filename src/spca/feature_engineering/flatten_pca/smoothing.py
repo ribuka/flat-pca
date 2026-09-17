@@ -9,9 +9,9 @@ from .schema import parse_wavelength, wavelength_columns
 
 
 def apply_t_smoothing(
-    frame: pl.DataFrame,
+    frame: pl.DataFrame | pl.LazyFrame,
     t_smoothing_window: float | None,
-) -> pl.DataFrame:
+) -> pl.DataFrame | pl.LazyFrame:
     """Smooth spectral intensities within centered real-Time windows.
 
     Parameters
@@ -44,6 +44,30 @@ def apply_t_smoothing(
     if isinstance(t_smoothing_window, bool) or not isfinite(window) or window <= 0:
         raise ValueError("t_smoothing_window must be finite and greater than 0")
 
+    if isinstance(frame, pl.LazyFrame):
+        return frame.map_batches(
+            lambda batch: _apply_t_smoothing_eager(batch, window),
+            schema=frame.collect_schema(),
+        )
+    return _apply_t_smoothing_eager(frame, window)
+
+
+def _apply_t_smoothing_eager(frame: pl.DataFrame, window: float) -> pl.DataFrame:
+    """Apply centered Time smoothing to one materialized execution batch.
+
+    Parameters
+    ----------
+    frame : pl.DataFrame
+        One execution batch from a validated spectral frame.
+    window : float
+        Validated positive smoothing half-window.
+
+    Returns
+    -------
+    pl.DataFrame
+        Smoothed batch with its original schema and row order.
+    """
+
     spectra = wavelength_columns(frame.columns)
     source_values = frame.select(spectra).to_numpy().astype(float, copy=False)
     smoothed_values = source_values.copy()
@@ -67,9 +91,9 @@ def apply_t_smoothing(
 
 
 def apply_w_smoothing(
-    frame: pl.DataFrame,
+    frame: pl.DataFrame | pl.LazyFrame,
     w_smoothing_window: float | None,
-) -> pl.DataFrame:
+) -> pl.DataFrame | pl.LazyFrame:
     """Smooth spectral intensities within centered real-wavelength windows.
 
     Parameters
@@ -102,8 +126,24 @@ def apply_w_smoothing(
     if isinstance(w_smoothing_window, bool) or not isfinite(window) or window <= 0:
         raise ValueError("w_smoothing_window must be finite and greater than 0")
 
-    spectra = wavelength_columns(frame.columns)
+    columns = (
+        frame.collect_schema().names()
+        if isinstance(frame, pl.LazyFrame)
+        else frame.columns
+    )
+    spectra = wavelength_columns(columns)
     wavelengths = np.asarray([parse_wavelength(column) for column in spectra])
+    if isinstance(frame, pl.LazyFrame):
+        return frame.with_columns(
+            pl.mean_horizontal(
+                *[
+                    pl.col(column)
+                    for index, column in enumerate(spectra)
+                    if abs(wavelengths[index] - wavelength) <= window
+                ]
+            ).alias(target)
+            for target, wavelength in zip(spectra, wavelengths, strict=True)
+        )
     source_values = frame.select(spectra).to_numpy().astype(float, copy=False)
     smoothed_values = source_values.copy()
 

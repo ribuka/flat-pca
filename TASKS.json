@@ -1,0 +1,480 @@
+{
+  "tasks": [
+    {
+      "id": "TASK-001",
+      "title": "Parquet入力の読み込みと検証",
+      "status": "completed",
+      "priority": 1,
+      "depends_on": [],
+      "requirements": [
+        "1件以上のパスを受け取り、`Path(path).resolve()`で正規化した絶対パスの文字列表現で昇順に処理する。",
+        "存在しないパスを`FileNotFoundError`で拒否する。",
+        "重複する`path.stem`を`ValueError`で拒否する。",
+        "`Time`、`Step`、`Sequence`を必須の数値列として検証する。",
+        "`f\"{v:.1f}nm\"`形式の波長列と数値型のスペクトル強度を検証する。",
+        "null、NaN、無限大および重複した`(Time, Step, Sequence)`を拒否する。",
+        "全ファイルの波長集合と`(Time, Step, Sequence)`集合が一致することを検証する。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`の1件および複数件を正常入力として読み込める。",
+        "実フィクスチャから作った変種で、必須列欠落、不正な波長名、不正値、重複キー、ファイル間不整合を検出できる。",
+        "入力順を反転しても処理順が変わらない。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-002",
+      "title": "t方向smoothing",
+      "status": "completed",
+      "priority": 2,
+      "depends_on": [
+        "TASK-001"
+      ],
+      "requirements": [
+        "`t_smoothing_window=None`では入力を変更しない。",
+        "有限かつ0より大きい片側窓幅だけを受け付ける。",
+        "`(Step, Sequence, w)`ごとに実Timeの閉区間を使って算術平均する。",
+        "不等間隔Time、区間端、グループ分離を`SPEC.md`どおり扱う。",
+        "メタデータ、行数および波長列数を保持する。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`に、隣接時点を含む窓と含まない窓を適用して期待値を検証する。",
+        "実フィクスチャから作った変種で、異なる`Step`と`Sequence`が混ざらないことを検証する。",
+        "`None`、0、負数、NaNおよび無限大の挙動を検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py -k t_smoothing`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-003",
+      "title": "w方向smoothing",
+      "status": "completed",
+      "priority": 3,
+      "depends_on": [
+        "TASK-001"
+      ],
+      "requirements": [
+        "`w_smoothing_window=None`では入力を変更しない。",
+        "有限かつ0より大きい片側窓幅だけを受け付ける。",
+        "`(Time, Step, Sequence)`ごとに実波長の閉区間を使って算術平均する。",
+        "不等間隔波長、波長域の端、グループ分離を`SPEC.md`どおり扱う。",
+        "メタデータ、行数および波長列数を保持する。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`に、隣接波長を含む窓と含まない窓を適用して期待値を検証する。",
+        "実フィクスチャから作った変種で、異なるメタデータ行が混ざらないことを検証する。",
+        "`None`、0、負数、NaNおよび無限大の挙動を検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py -k w_smoothing`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-004",
+      "title": "t方向規格化",
+      "status": "completed",
+      "priority": 4,
+      "depends_on": [
+        "TASK-001"
+      ],
+      "requirements": [
+        "`t_normalization_range=None`では入力を変更しない。",
+        "`(Step, Sequence, w)`ごとに指定したTime閉区間の算術平均で全Timeの値を割る。",
+        "区間端を含め、異なるグループを分離する。",
+        "不正な範囲、空区間、0または有限でない除数を`ValueError`で拒否する。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`の実Time区間を使い、基準区間の平均が1になることを検証する。",
+        "実フィクスチャから作った変種でグループ分離と各エラー条件を検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py -k t_normalization`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-005",
+      "title": "w方向規格化",
+      "status": "completed",
+      "priority": 5,
+      "depends_on": [
+        "TASK-001"
+      ],
+      "requirements": [
+        "`w_normalization_range=None`では入力を変更しない。",
+        "`(Time, Step, Sequence)`ごとに指定した波長閉区間の算術平均で全波長の値を割る。",
+        "区間端を含め、異なるメタデータ行を分離する。",
+        "不正な範囲、空区間、0または有限でない除数を`ValueError`で拒否する。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`の実波長区間を使い、基準区間の平均が1になることを検証する。",
+        "実フィクスチャから作った変種でグループ分離と各エラー条件を検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py -k w_normalization`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-006",
+      "title": "決定的なflatten処理",
+      "status": "completed",
+      "priority": 6,
+      "depends_on": [
+        "TASK-001"
+      ],
+      "requirements": [
+        "各ファイルを`filename`とflatten特徴量を持つ1行へ変換する。",
+        "特徴量を数値の`(w, s, q, t)`で昇順に並べる。",
+        "`Sequence`を`q`として`f\"{w}_{s}_{q}_{t}\"`形式の列名を生成する。",
+        "`s`および`q`を`int`型で表現する。",
+        "`t`を`f\"{t:.2f}\"`で表現する。",
+        "生成後の列名重複を`ValueError`で拒否する。",
+        "複数ファイルの結果を入力パス順に依存しない行順で結合する。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`の1件で列名、列順、値、行数を検証する。",
+        "同フィクスチャの複数件で`filename`、行順、入力順非依存性を検証する。",
+        "実フィクスチャから作った変種で複数`Step`・`Sequence`と列名衝突を検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py -k flatten`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-007",
+      "title": "前処理とPCAを統合した公開API",
+      "status": "completed",
+      "priority": 7,
+      "depends_on": [
+        "TASK-002",
+        "TASK-003",
+        "TASK-004",
+        "TASK-005",
+        "TASK-006"
+      ],
+      "requirements": [
+        "`SPEC.md`のシグネチャを持つ公開関数`flatten_pca`を実装する。",
+        "前処理をt smoothing、w smoothing、t規格化、w規格化の順に適用する。",
+        "`fit_and_transform_pca`を`scaling_strategy=\"none\"`、`max_n_component=None`、`impute_strategy=\"drop\"`、`outlier_strategy=None`で呼び出す。",
+        "flatten特徴量を保持し、`pca-1`から始まるPCAスコア列を追加する。",
+        "`n_component`を検証し、`pl.DataFrame`を返す。",
+        "公開APIを`spca.feature_engineering`からimportできるようにする。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`全6件を用いて、前処理なしのend-to-end結果を検証する。",
+        "同フィクスチャで各前処理単独および全前処理併用時の適用順を検証する。",
+        "出力の行数、列順、`filename`、PCA列数、有限値を検証する。",
+        "PCA結果は符号反転を許容し、分散、部分空間または再構成結果で検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py -k flatten_pca`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-008",
+      "title": "仕様全体の回帰確認と利用情報",
+      "status": "completed",
+      "priority": 8,
+      "depends_on": [
+        "TASK-007"
+      ],
+      "requirements": [
+        "`SPEC.md`の全要件と実装・テストの対応を確認する。",
+        "公開関数と公開クラスに型ヒントとNumPy形式のdocstringを付ける。",
+        "READMEにPython APIの最小利用例、入力スキーマ、前処理順、出力形式を記載する。",
+        "既存の可視化およびPCA関連機能を壊さない。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`全6件を使うend-to-end回帰テストを実行する。",
+        "公開importと最小利用例が実行可能であることを検証する。",
+        "全テストとlintが成功することを確認する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-009",
+      "title": "Flatten-PCA実装の責務分割",
+      "status": "completed",
+      "priority": 9,
+      "depends_on": [
+        "TASK-008"
+      ],
+      "requirements": [
+        "`flatten_pca`の公開シグネチャ、戻り値、例外、処理順および `from spca.feature_engineering import flatten_pca`という公開importを変更しない。",
+        "現在の`flatten_pca.py`が持つ以下の責務を、凝集度の高いモジュールへ分割する。",
+        "公開APIと処理のオーケストレーション",
+        "Parquet入力の読み込みと検証",
+        "t/w方向smoothing",
+        "t/w方向normalization",
+        "deterministic flatten処理",
+        "必要に応じて`spca.feature_engineering.flatten_pca`をパッケージ化する。",
+        "パッケージの`__init__.py`は公開APIのre-exportだけを行う薄いfacadeとする。",
+        "下位モジュールから公開API・オーケストレーション層への逆依存を作らない。",
+        "循環importおよび責務の曖昧な`utils.py`を作らない。",
+        "既存のprivate helperは、それを所有する責務別モジュールへ移動する。 private helperの旧importパス互換性は要求しない。",
+        "テストも責務単位に分割し、共通する実フィクスチャ設定は `conftest.py`などへ集約する。",
+        "既存テストの検証内容を削除または弱体化しない。",
+        "すべての関数とクラスに型ヒントとNumPy形式docstringを付ける。",
+        "未使用コード、不要な互換レイヤー、一時ファイルを残さない。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`を直接読み込むend-to-endテストを追加または更新する。",
+        "公開importと公開APIのシグネチャが維持されることを検証する。",
+        "前処理なし、各前処理単独、全前処理併用の既存結果が維持されることを検証する。",
+        "入力検証、smoothing、normalization、flatten、PCA統合を、それぞれの 責務に対応するテストモジュールで検証する。",
+        "入力順に依存しない行順・列順と、PCA結果の既存契約を維持する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-010",
+      "title": "空の入力パスの明示的な検証",
+      "status": "completed",
+      "priority": 10,
+      "depends_on": [
+        "TASK-009"
+      ],
+      "requirements": [
+        "`flatten_pca`へ空の入力パス列を渡した場合、処理途中の内部例外ではなく、入力が1件以上必要であることを示す明確な`ValueError`を送出する。",
+        "リスト、タプルおよびジェネレータなど、既存の反復可能な入力に対する挙動を維持する。",
+        "公開APIのシグネチャ、戻り値、前処理順および公開importパスを変更しない。",
+        "すべての関数とクラスの型ヒントおよびNumPy形式docstringを維持する。"
+      ],
+      "tests": [
+        "空のリスト、空のタプルおよび空のジェネレータが`ValueError`になることを検証する。",
+        "`tests/fixtures/real_subset`のParquetファイルを直接読み込み、1件のリストおよびジェネレータ入力が従来どおり処理できることを検証する。",
+        "既存の入力検証テストを弱体化しない。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca_input.py`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-011",
+      "title": "t方向の間引き",
+      "status": "completed",
+      "priority": 11,
+      "depends_on": [
+        "TASK-010"
+      ],
+      "requirements": [
+        "間引き専用の責務を持つモジュールに、`apply_t_downsampling`を実装する。",
+        "検証済みの全入力ファイルの`Time`列から、重複を除いて数値昇順に並べた`list[float]`を一度だけ生成する。",
+        "`apply_t_downsampling`は、対象フレーム、t方向のUnique配列および間引き間隔を引数として受け取る。",
+        "Unique配列のindex `0, stride, 2 * stride, ...`にある`Time`値と一致する行を、`Step`および`Sequence`にかかわらずすべて残す。",
+        "選択indexに該当しない末尾の値を追加で残さない。",
+        "間引き間隔`1`ではすべての行を残す。",
+        "boolではない1以上の整数だけを間引き間隔として受け付け、それ以外は`ValueError`で拒否する。",
+        "すべての関数に型ヒントとNumPy形式のdocstringを付ける。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`のParquetを直接読み込み、全入力から昇順のUnique配列を生成できることを検証する。",
+        "実フィクスチャに間引き間隔`1`および`2`を適用し、期待する`Time`と全`Step`・`Sequence`の行だけが残ることを検証する。",
+        "実フィクスチャから`pl.DataFrame`を導出し、末尾が選択indexに該当しない場合に末尾が残らないことを検証する。",
+        "0、負数、boolおよび非整数の間引き間隔を拒否することを検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py -k t_downsampling`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-012",
+      "title": "w方向の間引き",
+      "status": "completed",
+      "priority": 12,
+      "depends_on": [
+        "TASK-011"
+      ],
+      "requirements": [
+        "間引き専用モジュールに、`apply_w_downsampling`を実装する。",
+        "検証済みの全入力ファイルに共通する波長列名を数値へ変換し、重複を除いて昇順に並べた`list[float]`を一度だけ生成する。",
+        "`apply_w_downsampling`は、対象フレーム、w方向のUnique配列および間引き間隔を引数として受け取る。",
+        "Unique配列のindex `0, stride, 2 * stride, ...`にある波長値に対応する波長列だけを残す。",
+        "選択indexに該当しない末尾の波長列を追加で残さない。",
+        "`Time`、`Step`および`Sequence`列を常に保持する。",
+        "間引き間隔`1`ではすべての波長列を残す。",
+        "boolではない1以上の整数だけを間引き間隔として受け付け、それ以外は`ValueError`で拒否する。",
+        "すべての関数に型ヒントとNumPy形式のdocstringを付ける。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`のParquetを直接読み込み、全入力から数値昇順の波長Unique配列を生成できることを検証する。",
+        "実フィクスチャに間引き間隔`1`および`2`を適用し、期待する波長列と全メタデータ列だけが残ることを検証する。",
+        "実フィクスチャから`pl.DataFrame`を導出し、末尾が選択indexに該当しない場合に末尾の波長列が残らないことを検証する。",
+        "0、負数、boolおよび非整数の間引き間隔を拒否することを検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py -k w_downsampling`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-013",
+      "title": "間引きとFlatten-PCA公開APIの統合",
+      "status": "completed",
+      "priority": 13,
+      "depends_on": [
+        "TASK-011",
+        "TASK-012"
+      ],
+      "requirements": [
+        "`flatten_pca`の公開APIに、デフォルト値`1`の`t_downsampling_stride`および`w_downsampling_stride`を追加する。",
+        "Unique配列は公開APIの引数にせず、入力検証後に全入力から内部生成する。",
+        "t smoothing、w smoothing、t規格化、w規格化、t間引き、w間引き、flattenの順に処理する。",
+        "全入力ファイルへ同じt/w方向のUnique配列と間引き間隔を適用し、入力間で同じflatten特徴量集合を維持する。",
+        "PCAへ渡す特徴量と`n_component`の上限を、間引き後のflatten特徴量に基づいて決定する。",
+        "間引き間隔`1`の既定動作で、従来のflatten結果およびPCA結果を維持する。",
+        "READMEの公開API例、引数説明および処理順を新しい間引き機能に合わせて更新する。",
+        "公開importパス、戻り値、既存の前処理引数および入力順に依存しない出力順を維持する。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`の複数Parquetを直接使用し、t方向のみ、w方向のみ、および両方向を間引いたend-to-end結果を検証する。",
+        "smoothingと規格化が間引き前の全観測値を使用すること、および仕様どおりの処理順を検証する。",
+        "間引き後のflatten列名、列順、特徴量数、PCA列数、有限値および入力順非依存性を検証する。",
+        "間引き間隔`1`で既存のend-to-end結果が変わらないことを検証する。",
+        "公開APIから不正な間引き間隔を渡した場合の`ValueError`を検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py`",
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-014",
+      "title": "LazyFrameによる前処理・flatten公開APIの分離",
+      "status": "completed",
+      "priority": 14,
+      "depends_on": [
+        "TASK-013"
+      ],
+      "requirements": [
+        "既存の前処理→flatten処理を、公開関数`preprocess_and_flatten`として切り出す。",
+        "`preprocess_and_flatten`は既存の入力パスおよび前処理・間引き引数を受け取り、`filename`とflatten特徴量列を持つ`pl.LazyFrame`を返す。",
+        "Parquetの読み込みに`pl.scan_parquet`を使用し、入力検証、共通Unique配列の確定および値が必要な境界以外ではcollectしない。",
+        "smoothing、規格化、間引きおよびflattenの列演算を可能な限りLazyFrameのクエリ計画として構成し、前処理済み全入力を一括materializeしない。",
+        "既存の処理順、入力検証、特徴量名・列順・行順、および入力パス順に依存しない決定性を維持する。",
+        "下位の前処理・間引きヘルパーをLazyFrameで動作できるよう更新し、型ヒントとNumPy形式docstringを維持する。",
+        "`preprocess_and_flatten`を`spca.feature_engineering`からimportできるようにする。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`の複数Parquetを直接入力し、戻り値がcollect前の`pl.LazyFrame`であることを検証する。",
+        "collect後のflatten結果が、前処理なし・各前処理単独・全前処理併用およびt/w間引きで既存契約と一致することを検証する。",
+        "入力順を反転してもcollect後の行順・列順・値が同じであることを検証する。",
+        "実フィクスチャ由来の入力不正ケースで、従来どおりの例外種別を検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py tests/feature_engineering/test_flatten_pca_downsampling.py`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-015",
+      "title": "fit済みPCAを返すAPIとスコア結合API",
+      "status": "completed",
+      "priority": 15,
+      "depends_on": [
+        "TASK-014"
+      ],
+      "requirements": [
+        "`flatten_pca`は既存の入力パスおよび前処理・間引き引数を維持し、内部で`preprocess_and_flatten`を利用してfit済みの`sklearn.decomposition.PCA`を返す。",
+        "PCAのfitには`filename`以外のflatten特徴量だけを使用し、尺度変換、欠損値補完・行削除および外れ値処理を行わない。",
+        "`n_component`を1以上かつ`min(n_samples, n_features)`以下、または`None`として検証し、追加上限を設けない。",
+        "公開関数`append_pca_scores(pca, flattened)`を実装し、fit済みPCAとflatten済みLazyFrameから`filename`、flatten特徴量および`pca-1`以降のスコア列を持つ`pl.LazyFrame`を返す。",
+        "`append_pca_scores`は入力行順を保持し、PCAの特徴量数とflatten特徴量数が一致しない場合は`ValueError`を送出する。",
+        "`flatten_pca`および`append_pca_scores`を`spca.feature_engineering`からimportできるようにする。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`の複数Parquetを直接入力し、`flatten_pca`がfit済み`PCA`と期待する`n_components_`を返すことを検証する。",
+        "同じflatten結果に`append_pca_scores`を適用し、LazyFrame、列順、行順、スコア列数および有限値を検証する。",
+        "符号反転を許容し、スコアとPCAの分散、部分空間または再構成結果を検証する。",
+        "不正な`n_component`および特徴量数不一致を`ValueError`として検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-016",
+      "title": "PCA成分のflatten前shapeへのreshape",
+      "status": "completed",
+      "priority": 16,
+      "depends_on": [
+        "TASK-014",
+        "TASK-015"
+      ],
+      "requirements": [
+        "公開関数`reshape_pca_components(pca, flattened)`を実装する。",
+        "`pca.components_`をflatten特徴量の座標順に対応付け、`(n_component, n_wavelengths, n_steps, n_sequences, n_times)`の`np.ndarray`として返す。",
+        "波長、Step、Sequence、Timeの各軸は数値昇順とし、戻り値のcomponent軸は0始まりのPCA component順とする。",
+        "flatten特徴量が4軸の直積を成さない場合、特徴量列名から座標を一意に復元できない場合、または特徴量数が`pca.n_features_in_`と不一致の場合は`ValueError`を送出する。",
+        "関数を`spca.feature_engineering`からimportできるようにし、型ヒントとNumPy形式docstringを付ける。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`のParquetを直接入力してfitしたPCAについて、戻り値shapeと各軸の座標配置を検証する。",
+        "reshape結果をflatten順に戻すと`pca.components_`と一致することを検証する。",
+        "実フィクスチャ由来のflatten結果を加工し、直積不成立、曖昧な特徴量名および特徴量数不一致が`ValueError`となることを検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    },
+    {
+      "id": "TASK-017",
+      "title": "新しいFlatten-PCA APIの利用情報と回帰確認",
+      "status": "completed",
+      "priority": 17,
+      "depends_on": [
+        "TASK-016"
+      ],
+      "requirements": [
+        "READMEの利用例と出力説明を、`preprocess_and_flatten`、`flatten_pca`、`append_pca_scores`および`reshape_pca_components`の責務に合わせて更新する。",
+        "公開import、型ヒントおよびNumPy形式docstringを確認する。",
+        "SPEC.mdのLazyFrame、PCA出力、スコア結合およびreshape要件と実装・テストの対応を確認する。",
+        "既存の可視化およびPCA関連機能を壊さない。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`全6件を直接使うend-to-endテストで、前処理、flatten、PCA fit、スコア結合および成分reshapeを検証する。",
+        "公開importとREADMEの最小利用例が実行可能であることを検証する。",
+        "全テストおよびlintが成功することを確認する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
+    }
+  ]
+}

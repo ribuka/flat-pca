@@ -42,7 +42,8 @@ def test_loads_one_and_multiple_real_parquet_files_deterministically(
     forward = _load_and_validate_inputs(paths[:3])
     reverse = _load_and_validate_inputs(list(reversed(paths[:3])))
 
-    assert single[0][1].equals(fixture_frame)
+    assert isinstance(single[0][1], pl.LazyFrame)
+    assert single[0][1].collect().equals(fixture_frame)
     assert [path for path, _ in forward] == [path for path, _ in reverse]
     assert [path for path, _ in forward] == sorted(path.resolve() for path in paths[:3])
 

@@ -10,12 +10,14 @@ import polars as pl
 from .schema import METADATA_COLUMNS, parse_wavelength, wavelength_columns
 
 
-def collect_unique_times(frames: Sequence[pl.DataFrame]) -> list[float]:
+def collect_unique_times(
+    frames: Sequence[pl.DataFrame | pl.LazyFrame],
+) -> list[float]:
     """Collect sorted unique Time values across validated input frames.
 
     Parameters
     ----------
-    frames : Sequence[pl.DataFrame]
+    frames : Sequence[pl.DataFrame | pl.LazyFrame]
         Validated input frames containing numeric ``Time`` columns.
 
     Returns
@@ -25,7 +27,10 @@ def collect_unique_times(frames: Sequence[pl.DataFrame]) -> list[float]:
     """
     return (
         pl.concat(
-            frame.select(pl.col("Time").cast(pl.Float64)) for frame in frames
+            frame.select(pl.col("Time").cast(pl.Float64)).collect()
+            if isinstance(frame, pl.LazyFrame)
+            else frame.select(pl.col("Time").cast(pl.Float64))
+            for frame in frames
         )
         .get_column("Time")
         .unique()
@@ -34,12 +39,14 @@ def collect_unique_times(frames: Sequence[pl.DataFrame]) -> list[float]:
     )
 
 
-def collect_unique_wavelengths(frames: Sequence[pl.DataFrame]) -> list[float]:
+def collect_unique_wavelengths(
+    frames: Sequence[pl.DataFrame | pl.LazyFrame],
+) -> list[float]:
     """Collect sorted unique wavelengths across validated input frames.
 
     Parameters
     ----------
-    frames : Sequence[pl.DataFrame]
+    frames : Sequence[pl.DataFrame | pl.LazyFrame]
         Validated input frames with a shared wavelength-column set.
 
     Returns
@@ -51,16 +58,16 @@ def collect_unique_wavelengths(frames: Sequence[pl.DataFrame]) -> list[float]:
         {
             parse_wavelength(column)
             for frame in frames
-            for column in wavelength_columns(frame.columns)
+            for column in wavelength_columns(_column_names(frame))
         }
     )
 
 
 def apply_t_downsampling(
-    frame: pl.DataFrame,
+    frame: pl.DataFrame | pl.LazyFrame,
     unique_times: list[float],
     stride: int,
-) -> pl.DataFrame:
+) -> pl.DataFrame | pl.LazyFrame:
     """Keep rows at regularly spaced indices in the shared Time values.
 
     Parameters
@@ -90,10 +97,10 @@ def apply_t_downsampling(
 
 
 def apply_w_downsampling(
-    frame: pl.DataFrame,
+    frame: pl.DataFrame | pl.LazyFrame,
     unique_wavelengths: list[float],
     stride: int,
-) -> pl.DataFrame:
+) -> pl.DataFrame | pl.LazyFrame:
     """Keep wavelength columns at regularly spaced shared indices.
 
     Parameters
@@ -120,10 +127,28 @@ def apply_w_downsampling(
 
     wavelength_to_column = {
         parse_wavelength(column): column
-        for column in wavelength_columns(frame.columns)
+        for column in wavelength_columns(_column_names(frame))
     }
     selected_columns = [
         wavelength_to_column[wavelength]
         for wavelength in unique_wavelengths[:: int(stride)]
     ]
     return frame.select(*METADATA_COLUMNS, *selected_columns)
+
+
+def _column_names(frame: pl.DataFrame | pl.LazyFrame) -> list[str]:
+    """Return column names without materializing a LazyFrame.
+
+    Parameters
+    ----------
+    frame : pl.DataFrame | pl.LazyFrame
+        Spectral frame whose schema supplies the column names.
+
+    Returns
+    -------
+    list[str]
+        Frame column names in their existing order.
+    """
+    if isinstance(frame, pl.LazyFrame):
+        return frame.collect_schema().names()
+    return frame.columns
