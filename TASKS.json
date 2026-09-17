@@ -475,6 +475,33 @@
         "`uv run -m pytest`",
         "`uv run -m ruff check .`"
       ]
+    },
+    {
+      "id": "TASK-018",
+      "title": "PcaModelを用いるFlatten-PCA APIへの移行",
+      "status": "pending",
+      "priority": 18,
+      "depends_on": [
+        "TASK-017"
+      ],
+      "requirements": [
+        "`flatten_pca`は`paths`またはflatten済みの`pl.LazyFrame`を受け取り、両引数の初期値を`None`とする。両方が未指定または両方が指定された場合は`ValueError`を送出する。",
+        "`paths`が指定された場合は既存の前処理・flattenを実行し、`flattened`が指定された場合はそのLazyFrameを直接PCA fitへ使用する。",
+        "`fit_flattened_pca`は`src/spca/feature_engineering/pca.py`の`fit_pca`を、`impute_strategy=\"drop\"`、`outlier_strategy=None`、`scaling_strategy=\"none\"`、`max_n_component=None`で呼び出し、得られた`PcaModel`をそのまま返す。scikit-learnのPCAを直接生成・fitしない。",
+        "`flatten_pca`は`PcaModel`を返す。`append_pca_scores`および`reshape_pca_components`は`PcaModel`を受け取り、内部のPCAは`pca_model.pca`から使用する。",
+        "`reshape_pca_components`はndarrayではなく、`component`、`wavelength`、`Step`、`Sequence`、`Time`、`coefficient`の順のlong形式`pl.DataFrame`を返す。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`の複数Parquetを直接使用し、`paths`経由と`flattened`経由で同一の`PcaModel`契約およびPCA結果を得られることを検証する。",
+        "`paths`と`flattened`の両方が未指定、または両方が指定された場合の`ValueError`を検証する。",
+        "`PcaModel`を`append_pca_scores`および`reshape_pca_components`へ渡し、スコアとlong形式DataFrameの列順、行順、座標および係数配置を検証する。",
+        "`fit_flattened_pca`が共通の`fit_pca`を利用し、scalingなし・外れ値処理なし・追加成分数上限なしの設定を渡すことを検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
     }
   ]
 }
