@@ -21,6 +21,8 @@ def flatten_pca(
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
     w_normalization_range: tuple[float, float] | None = None,
+    t_downsampling_stride: int = 1,
+    w_downsampling_stride: int = 1,
 ) -> pl.DataFrame:
     ...
 ```
@@ -31,6 +33,8 @@ def flatten_pca(
 - `w_smoothing_window`はw方向smoothingの片側窓幅を波長と同じ単位で指定し、`None`の場合は適用しない。
 - `t_normalization_range`はt方向規格化に用いる閉区間`(t1, t2)`を指定し、`None`の場合は適用しない。
 - `w_normalization_range`はw方向規格化に用いる閉区間`(w1, w2)`を指定し、`None`の場合は適用しない。
+- `t_downsampling_stride`はt方向の間引き間隔を指定する。`1`の場合は間引かない。
+- `w_downsampling_stride`はw方向の間引き間隔を指定する。`1`の場合は間引かない。
 - 戻り値はflatten結果にPCAスコア列を追加した`pl.DataFrame`とする。
 
 ### 入力要件
@@ -50,9 +54,9 @@ def flatten_pca(
 
 ### 前処理仕様
 
-- 前処理は入力検証後、flatten前に任意で適用する。
+- smoothingおよび規格化は入力検証後、間引きおよびflatten前に任意で適用する。
 - 複数の前処理を併用する場合は、t方向smoothing、w方向smoothing、t方向規格化、w方向規格化の順に適用する。
-- 前処理はスペクトル強度だけを変更し、`Time`、`Step`および`Sequence`の値、行数、波長列数は変更しない。
+- smoothingおよび規格化はスペクトル強度だけを変更し、`Time`、`Step`および`Sequence`の値、行数、波長列数は変更しない。
 
 #### t方向smoothing
 
@@ -87,6 +91,47 @@ def flatten_pca(
   - `w1`および`w2`は波長列名として解釈される数値と同じ単位で指定し、`w1 <= w2`でなければならない。
   - `w1`および`w2`は有限値でなければならない。
   - 指定区間に該当する波長がない場合、または算出した統計値が0もしくは有限値でない場合は`ValueError`を送出する。
+
+### 間引き仕様
+
+- 間引きはすべてのsmoothingおよび規格化の後、flattenの直前に適用する。
+- t方向の間引き、w方向の間引きの順に適用する。
+- Unique配列は公開APIの引数にせず、検証済みの全入力から内部で一度だけ生成し、すべての入力ファイルに共通して使用する。
+- `t_downsampling_stride`および`w_downsampling_stride`はboolではない1以上の整数でなければならない。それ以外は`ValueError`を送出する。
+- 間引き間隔が`1`の場合は対象をすべて残す。
+
+間引き処理を担う内部関数は、対象のUnique配列と間引き間隔を引数として受け取る。
+
+```python
+def apply_t_downsampling(
+    frame: pl.DataFrame,
+    unique_times: list[float],
+    stride: int,
+) -> pl.DataFrame:
+    ...
+
+
+def apply_w_downsampling(
+    frame: pl.DataFrame,
+    unique_wavelengths: list[float],
+    stride: int,
+) -> pl.DataFrame:
+    ...
+```
+
+#### t方向の間引き
+
+- 全入力ファイルの`Time`列の値を結合し、重複を除いて数値として昇順に並べた配列をt方向のUnique配列とする。
+- t方向のUnique配列に対して、先頭をindex 0として`0, t_downsampling_stride, 2 * t_downsampling_stride, ...`のindexにある値を残す。
+- 選択した各`Time`値に一致する行を、`Step`および`Sequence`の値にかかわらずすべて残し、それ以外の行を削除する。
+- 配列の末尾が選択indexに該当しない場合、末尾を追加で残さない。
+
+#### w方向の間引き
+
+- 全入力ファイルに共通する波長列名を数値の波長へ変換し、重複を除いて昇順に並べた配列をw方向のUnique配列とする。
+- w方向のUnique配列に対して、先頭をindex 0として`0, w_downsampling_stride, 2 * w_downsampling_stride, ...`のindexにある値を残す。
+- 選択した波長値に対応する波長列を残し、それ以外の波長列を削除する。`Time`、`Step`および`Sequence`列は削除しない。
+- 配列の末尾が選択indexに該当しない場合、末尾を追加で残さない。
 
 ### flatten仕様
 
@@ -127,7 +172,8 @@ def flatten_pca(
 ### 完了条件
 
 - 公開APIと公開される関数・クラスには型ヒントとNumPy形式のdocstringがある。
-- 正常系、入力検証、`Sequence`、t/w方向smoothing、t/w方向規格化、並び順、flatten結果、PCA結果を対象とした自動テストがある。
+- 正常系、入力検証、`Sequence`、t/w方向smoothing、t/w方向規格化、t/w方向の間引き、並び順、flatten結果、PCA結果を対象とした自動テストがある。
+- t/w方向の間引きテストは、間引き間隔`1`、`2`、入力不正、および末尾が選択indexに該当しない場合を対象とする。
 - `tests/fixtures/real_subset`のParquetを使用し、複数ファイルを入力するend-to-endテストがある。
 - PCAのテストは、符号反転を許容しながら分散、部分空間または再構成結果を検証する。
 - `uv run -m pytest`が成功する。

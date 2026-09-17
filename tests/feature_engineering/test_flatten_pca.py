@@ -46,11 +46,16 @@ def test_public_import_and_signature_are_stable(
         "w_smoothing_window",
         "t_normalization_range",
         "w_normalization_range",
+        "t_downsampling_stride",
+        "w_downsampling_stride",
     ]
     assert parameters["paths"].kind is Parameter.POSITIONAL_OR_KEYWORD
     for parameter in list(parameters.values())[1:]:
         assert parameter.kind is Parameter.KEYWORD_ONLY
-        assert parameter.default is None
+    for name in list(parameters)[1:6]:
+        assert parameters[name].default is None
+    assert parameters["t_downsampling_stride"].default == 1
+    assert parameters["w_downsampling_stride"].default == 1
 
     result = flatten_pca(real_fixture_paths, n_component=1)
     assert result.height == len(real_fixture_paths)

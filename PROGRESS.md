@@ -73,3 +73,27 @@ Append Ralph loop results in English using the format defined in `RALPH_PROJECT.
 - Tests: Baseline `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` (58 passed); intermediate `uv run -m pytest tests/feature_engineering` exposed 13 missing test aliases and then passed after correction (61 passed); final `uv run -m pytest tests/feature_engineering` (61 passed); `uv run -m pytest` (81 passed); `uv run -m ruff check .` (passed).
 - Requirements: Verified that the public signature, import path, return type, exceptions, deterministic ordering, preprocessing order, flattened values, and PCA contract remain covered; each implementation module and test module now has one focused responsibility; package facades only re-export the public API; dependencies flow from orchestration to processing stages and shared schema without cycles; every function retains type hints and NumPy-style documentation; all existing behavioral checks remain present, including direct reads of all six real Parquet fixtures.
 - Notes: All tasks are complete. No fixture Parquet files were modified, no private-helper compatibility layer was retained, and the temporary split script was removed.
+
+## 2026-09-18 00:37 - TASK-011
+
+- Result: completed
+- Changes: Added a focused downsampling module that collects one sorted `list[float]` of unique Time values across validated frames and retains every row at Time indices selected by a positive integer stride. Added focused real-Parquet tests for all-input Time collection, strides 1 and 2, unselected trailing values, and invalid strides.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py -k t_downsampling` (11 passed); `uv run -m pytest` (73 passed); `uv run -m ruff check .` (passed).
+- Requirements: Verified numeric ascending de-duplication across all real inputs; index selection at `0, stride, 2 * stride, ...`; preservation of every matching row regardless of Step or Sequence; no forced trailing Time; stride 1 preservation; and `ValueError` for zero, negative, boolean, and non-integer strides. All added functions have type hints and NumPy-style docstrings.
+- Notes: TASK-012 is now unblocked. Public API integration remains intentionally reserved for TASK-013; no fixture Parquet files were modified.
+
+## 2026-09-18 00:40 - TASK-012
+
+- Result: completed
+- Changes: Added wavelength Unique-array collection and w-direction downsampling to the focused downsampling module. Added focused real-Parquet tests for all-input wavelength collection, strides 1 and 2, metadata preservation, an unselected trailing wavelength, and invalid strides.
+- Tests: Initial targeted collection failed because the w-direction functions were not implemented; `uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py -k w_downsampling` (11 passed); `uv run -m pytest` (84 passed); `uv run -m ruff check .` (passed).
+- Requirements: Verified numeric ascending wavelength de-duplication across all real inputs; index selection at `0, stride, 2 * stride, ...`; preservation of `Time`, `Step`, and `Sequence`; no forced trailing wavelength; stride 1 preservation; and `ValueError` for zero, negative, boolean, and non-integer strides. All added functions have type hints and NumPy-style docstrings.
+- Notes: TASK-013 is now unblocked. Public API integration remains intentionally reserved for TASK-013; no fixture Parquet files were modified.
+
+## 2026-09-18 00:44 - TASK-013
+
+- Result: completed
+- Changes: Added public Time and wavelength downsampling stride arguments with defaults of one; generated shared Unique arrays from all validated inputs; integrated t and w downsampling after smoothing and normalization and before flattening; based PCA inputs and component limits on the downsampled features; updated the README API example, argument guidance, processing order, and output description; and added focused real-Parquet end-to-end and regression tests.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py` (40 passed); `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` (10 passed); `uv run -m pytest` (102 passed); `uv run -m ruff check .` (passed).
+- Requirements: Verified public stride defaults and validation; internal post-validation Unique-array generation across all inputs; the required t smoothing, w smoothing, t normalization, w normalization, t downsampling, w downsampling, and flatten order; shared feature sets and deterministic input-order-independent output; post-downsampling PCA feature and component bounds; stride-one flattened/PCA compatibility; unchanged public imports, return type, and existing preprocessing arguments; and updated README documentation.
+- Notes: TASK-013 is complete. All required checks passed, no fixture Parquet files were modified, and no temporary or generated artifacts were left behind.

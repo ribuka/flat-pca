@@ -53,11 +53,18 @@ result = flatten_pca(
     w_smoothing_window=5.0,
     t_normalization_range=(0.0, 9_690.0),
     w_normalization_range=(350.0, 450.0),
+    t_downsampling_stride=2,
+    w_downsampling_stride=3,
 )
 ```
 
-前処理は常に、時間方向平滑化、波長方向平滑化、時間方向規格化、波長方向規格化の順で
-適用されます。不要な処理は引数を省略するか `None` を渡してください。
+`t_downsampling_stride` と `w_downsampling_stride` は、全入力で共通する昇順の Time 値・
+波長値について先頭から何個おきに残すかを、1 以上の整数で指定します。既定値 `1` は
+間引きを行いません。
+
+前処理は常に、時間方向平滑化、波長方向平滑化、時間方向規格化、波長方向規格化、
+時間方向間引き、波長方向間引き、flatten の順で適用されます。平滑化と規格化は間引き前の
+全観測値を使用します。不要な平滑化・規格化は引数を省略するか `None` を渡してください。
 
 ## 入力 Parquet の形式
 
@@ -70,4 +77,5 @@ result = flatten_pca(
 
 戻り値は Polars の `DataFrame` です。1 行が入力ファイル 1 個に対応し、列順は
 `filename`、展開したスペクトル特徴量、`pca-1` から `pca-{n_component}` です。特徴量列は
-波長、`Step`、`Sequence`、`Time` の順で決定的に並びます。
+間引き後も全入力で同じ集合となり、波長、`Step`、`Sequence`、`Time` の順で決定的に
+並びます。PCA の特徴量と主成分数の上限は、この間引き後の特徴量集合から決まります。

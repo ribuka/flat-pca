@@ -6,6 +6,10 @@
 
 - Always use `uv run -m`. NEVER use `python -m`, `Set-Lacation` or one-liners and here-string in pwsh.
 
+### Python coding
+
+- Before working python coding, read `docs/agents/python.md` in full and follow its instructions exactly.
+
 ### Verification commands
 
 - Run targeted tests while implementing a task.
@@ -13,8 +17,7 @@
 
 #### Test execution
 
-- Before running any pytest command, read `.agents/pytest.md` in full.
-- Follow `.agents/pytest.md` exactly. Its pytest execution rules are mandatory.
+- Before running any pytest command, read `docs/agents/pytest.md` in full and follow its instructions exactly.
 
 #### Lint
 
@@ -30,19 +33,6 @@
 - Use fully synthetic data only for a minimal test case that cannot be expressed
   from the real fixture. Document the reason in the test docstring or a comment.
 
-### Architecture and maintainability
-
-- Keep one primary responsibility per Python module.
-- NEVER append a distinct responsibility to an existing module; create a focused
-  module or package instead.
-- Split independently testable stages such as input, validation, preprocessing,
-  transformation, and orchestration into cohesive modules when appropriate.
-- Keep public API modules and `__init__.py` files thin, explicitly re-export
-  public symbols, and preserve documented import paths during refactoring.
-- NEVER introduce circular imports or generic catch-all modules such as `utils.py`.
-- Organize tests by responsibility and share setup through narrowly scoped pytest
-  fixtures. NEVER split modules based on line count alone.
-
 ## Temporary files
 
 - Create all temporary scripts and investigation files under `tmp/` at the repository root.
@@ -50,10 +40,8 @@
 - Store the persistent uv dependency cache in the ignored repository-root `.uv-cache/` directory.
 
 ## Rules
-- Respond in Japanese
-- Include probabilities when providing answers with uncertainty
-- Start tasks with Plan mode when more than 3 steps required
-- NEVER write code without reading it
-- Make changes only where necessary, minimize impact
-- Add docstrings for all functions and classes with NumPy style
-- Add type hints for all function parameters and return types
+
+- Respond in Japanese.
+- Include probabilities when providing answers with uncertainty.
+- Start tasks with Plan mode when more than 3 steps required.
+- NEVER write code without reading it.
