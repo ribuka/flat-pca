@@ -7,7 +7,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from spca.feature_engineering import flatten_pca
+from spca.feature_engineering import flatten_pca, preprocess_and_flatten
 from spca.feature_engineering.flatten_pca import flatten_pca as package_flatten_pca
 from spca.feature_engineering.flatten_pca.flatten import (
     flatten_inputs as _flatten_inputs,
@@ -245,3 +245,82 @@ def test_flatten_pca_rejects_invalid_component_counts(
     """Reject component counts outside one through the PCA matrix rank bound."""
     with pytest.raises(ValueError, match="n_component"):
         flatten_pca(real_fixture_paths, n_component=n_component)
+
+
+def test_preprocess_and_flatten_returns_lazy_real_fixture_query(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Defer real-Parquet preprocessing and match the established flatten contract."""
+    flattened = preprocess_and_flatten(real_fixture_paths[:3])
+    expected_inputs = [
+        (path, pl.read_parquet(path)) for path in sorted(real_fixture_paths[:3])
+    ]
+    expected = _flatten_inputs(expected_inputs)
+
+    assert isinstance(flattened, pl.LazyFrame)
+    assert isinstance(expected, pl.DataFrame)
+    assert flattened.collect().equals(expected)
+
+
+@pytest.mark.parametrize(
+    "preprocessing",
+    [
+        {"t_smoothing_window": 0.5},
+        {"w_smoothing_window": 0.5},
+        {"t_normalization_range": (0.0, 4.0)},
+        {"w_normalization_range": (350.0, 850.0)},
+        {
+            "t_smoothing_window": 0.5,
+            "w_smoothing_window": 0.5,
+            "t_normalization_range": (0.0, 4.0),
+            "w_normalization_range": (350.0, 850.0),
+            "t_downsampling_stride": 2,
+            "w_downsampling_stride": 2,
+        },
+    ],
+)
+def test_preprocess_and_flatten_matches_eager_stage_contract(
+    preprocessing: dict[str, object], real_fixture_paths: list[Path]
+) -> None:
+    """Match eager real-fixture stages for each preprocessing configuration."""
+    loaded = [(path, pl.read_parquet(path)) for path in real_fixture_paths[:3]]
+    frames = [frame for _, frame in loaded]
+    from spca.feature_engineering.flatten_pca.downsampling import (
+        apply_t_downsampling,
+        apply_w_downsampling,
+        collect_unique_times,
+        collect_unique_wavelengths,
+    )
+
+    prepared = []
+    for path, frame in loaded:
+        frame = _apply_t_smoothing(frame, preprocessing.get("t_smoothing_window"))
+        frame = _apply_w_smoothing(frame, preprocessing.get("w_smoothing_window"))
+        frame = _apply_t_normalization(frame, preprocessing.get("t_normalization_range"))
+        frame = _apply_w_normalization(frame, preprocessing.get("w_normalization_range"))
+        frame = apply_t_downsampling(
+            frame, collect_unique_times(frames), preprocessing.get("t_downsampling_stride", 1)
+        )
+        frame = apply_w_downsampling(
+            frame, collect_unique_wavelengths(frames), preprocessing.get("w_downsampling_stride", 1)
+        )
+        assert isinstance(frame, pl.DataFrame)
+        prepared.append((path, frame))
+    expected = _flatten_inputs(prepared)
+    actual = preprocess_and_flatten(
+        list(reversed(real_fixture_paths[:3])), **preprocessing  # type: ignore[arg-type]
+    ).collect()
+
+    assert isinstance(expected, pl.DataFrame)
+    assert actual.equals(expected)
+
+
+def test_preprocess_and_flatten_rejects_real_fixture_schema_variant(
+    real_fixture_paths: list[Path], tmp_path: Path
+) -> None:
+    """Preserve ValueError validation for a real-fixture-derived bad input."""
+    invalid_path = tmp_path / "missing-time.parquet"
+    pl.read_parquet(real_fixture_paths[0]).drop("Time").write_parquet(invalid_path)
+
+    with pytest.raises(ValueError, match="required columns"):
+        preprocess_and_flatten([invalid_path])

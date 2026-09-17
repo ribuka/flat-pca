@@ -371,7 +371,7 @@
     {
       "id": "TASK-014",
       "title": "LazyFrameによる前処理・flatten公開APIの分離",
-      "status": "pending",
+      "status": "completed",
       "priority": 14,
       "depends_on": [
         "TASK-013"

@@ -97,3 +97,11 @@ Append Ralph loop results in English using the format defined in `RALPH_PROJECT.
 - Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py` (40 passed); `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` (10 passed); `uv run -m pytest` (102 passed); `uv run -m ruff check .` (passed).
 - Requirements: Verified public stride defaults and validation; internal post-validation Unique-array generation across all inputs; the required t smoothing, w smoothing, t normalization, w normalization, t downsampling, w downsampling, and flatten order; shared feature sets and deterministic input-order-independent output; post-downsampling PCA feature and component bounds; stride-one flattened/PCA compatibility; unchanged public imports, return type, and existing preprocessing arguments; and updated README documentation.
 - Notes: TASK-013 is complete. All required checks passed, no fixture Parquet files were modified, and no temporary or generated artifacts were left behind.
+
+## 2026-09-18 03:11 - TASK-014
+
+- Result: completed
+- Changes: Added the public `preprocess_and_flatten` LazyFrame API, switched Parquet acquisition to `pl.scan_parquet`, and composed preprocessing, downsampling, and deterministic flattening as deferred queries. Updated lower-stage helpers to accept LazyFrames while retaining eager helper behavior for focused tests.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py tests/feature_engineering/test_flatten_pca_downsampling.py` (57 passed); `uv run -m pytest` (109 passed); `uv run -m ruff check .` (passed); `git diff --check` (passed).
+- Requirements: Verified real-fixture LazyFrame return before collection; exact eager-contract flatten results for no preprocessing, each preprocessing stage, combined preprocessing with t/w downsampling, and reversed paths; scan-based input acquisition; validation errors from a real-fixture-derived schema variant; public package export; and deterministic columns, rows, and values.
+- Notes: Validation and common unique-array/metadata-coordinate discovery collect only values required to construct or validate the query. No preprocessed input collection or fixture modification occurred.

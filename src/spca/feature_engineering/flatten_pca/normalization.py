@@ -47,9 +47,9 @@ def _validate_range(
 
 
 def apply_t_normalization(
-    frame: pl.DataFrame,
+    frame: pl.DataFrame | pl.LazyFrame,
     t_normalization_range: tuple[float, float] | None,
-) -> pl.DataFrame:
+) -> pl.DataFrame | pl.LazyFrame:
     """Normalize spectra by a mean from an inclusive real-Time interval.
 
     Parameters
@@ -78,6 +78,33 @@ def apply_t_normalization(
         t_normalization_range,
         "t_normalization_range",
     )
+
+    if isinstance(frame, pl.LazyFrame):
+        spectra = wavelength_columns(frame.collect_schema().names())
+        reference_means = [
+            pl.when(pl.col("Time").is_between(lower, upper))
+            .then(pl.col(column))
+            .mean()
+            .over("Step", "Sequence")
+            .alias(column)
+            for column in spectra
+        ]
+        invalid = frame.select(
+            pl.any_horizontal(
+                mean.is_null()
+                | ~mean.cast(pl.Float64).is_finite()
+                | (mean == 0)
+                for mean in reference_means
+            ).any()
+        ).collect().item()
+        if invalid:
+            raise ValueError(
+                "t_normalization_range reference mean must be finite and nonzero"
+            )
+        return frame.with_columns(
+            (pl.col(column) / mean).alias(column)
+            for column, mean in zip(spectra, reference_means, strict=True)
+        )
 
     spectra = wavelength_columns(frame.columns)
     source_values = frame.select(spectra).to_numpy().astype(float, copy=False)
@@ -112,9 +139,9 @@ def apply_t_normalization(
 
 
 def apply_w_normalization(
-    frame: pl.DataFrame,
+    frame: pl.DataFrame | pl.LazyFrame,
     w_normalization_range: tuple[float, float] | None,
-) -> pl.DataFrame:
+) -> pl.DataFrame | pl.LazyFrame:
     """Normalize spectra by a mean from an inclusive wavelength interval.
 
     Parameters
@@ -144,11 +171,37 @@ def apply_w_normalization(
         "w_normalization_range",
     )
 
-    spectra = wavelength_columns(frame.columns)
+    columns = (
+        frame.collect_schema().names()
+        if isinstance(frame, pl.LazyFrame)
+        else frame.columns
+    )
+    spectra = wavelength_columns(columns)
     wavelengths = np.asarray([parse_wavelength(column) for column in spectra])
     in_reference = (wavelengths >= lower) & (wavelengths <= upper)
     if not in_reference.any():
         raise ValueError("w_normalization_range reference interval is empty")
+
+    if isinstance(frame, pl.LazyFrame):
+        reference_mean = pl.mean_horizontal(
+            *[
+                pl.col(column)
+                for column, included in zip(spectra, in_reference, strict=True)
+                if included
+            ]
+        )
+        invalid = frame.select(
+            (reference_mean.is_null()
+            | ~reference_mean.cast(pl.Float64).is_finite()
+            | (reference_mean == 0)).any()
+        ).collect().item()
+        if invalid:
+            raise ValueError(
+                "w_normalization_range reference mean must be finite and nonzero"
+            )
+        return frame.with_columns(
+            (pl.col(column) / reference_mean).alias(column) for column in spectra
+        )
 
     source_values = frame.select(spectra).to_numpy().astype(float, copy=False)
     reference_mean = source_values[:, in_reference].mean(axis=1)

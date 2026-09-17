@@ -239,7 +239,9 @@ def _expected_downsampled_flatten(
             w_stride,
         )
         prepared.append((path, transformed))
-    return flatten_inputs(prepared)
+    flattened = flatten_inputs(prepared)
+    assert isinstance(flattened, pl.LazyFrame)
+    return flattened.collect()
 
 
 @pytest.mark.parametrize(
