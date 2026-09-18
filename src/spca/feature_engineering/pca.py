@@ -580,13 +580,18 @@ def fit_pca(
     if standardized_df.height == 0:
         raise ValueError("no rows remain after missing-value handling")
 
+    if n_component is not None and n_component > standardized_df.height:
+        raise ValueError(
+            "n_component must be less than or equal to the number of samples"
+        )
+
     upper_bound = (
         len(columns)
         if max_n_component is None
         else min(len(columns), max_n_component)
     )
     fitted_n_component = (
-        upper_bound
+        min(upper_bound, standardized_df.height)
         if n_component is None
         else min(n_component, upper_bound)
     )
