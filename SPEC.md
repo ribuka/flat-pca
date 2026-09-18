@@ -4,7 +4,7 @@
 ### スコープ
 
 - v1では、複数のParquetファイルに前処理とflattenを適用し、その結果にPCAをfitする。
-- `flatten_pca`はfit済みの`sklearn.decomposition.PCA`を返す。flatten結果およびPCAスコアを結合した`pl.DataFrame`は別の公開関数で取得する。
+- `flatten_pca`はfit済みの`PcaModel`を返す。flatten結果およびPCAスコアを結合した`pl.DataFrame`は別の公開関数で取得する。
 - v1の公開APIは、学習済みPCAモデルの永続化および未知データへのtransformを扱わない。
 - t方向およびw方向のsmoothingと規格化は、任意の前処理としてv1の対象に含める。
 - CLIおよびNotebookは成果物に含めない。
@@ -28,8 +28,9 @@ def preprocess_and_flatten(
 
 
 def flatten_pca(
-    paths: Sequence[str | Path],
+    paths: Sequence[str | Path] | None = None,
     *,
+    flattened: pl.LazyFrame | None = None,
     n_component: int | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
@@ -37,27 +38,30 @@ def flatten_pca(
     w_normalization_range: tuple[float, float] | None = None,
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
-) -> PCA:
+) -> PcaModel:
     ...
 
 
 def append_pca_scores(
-    pca: PCA,
+    pca_model: PcaModel,
     flattened: pl.LazyFrame,
 ) -> pl.LazyFrame:
     ...
 
 
 def reshape_pca_components(
-    pca: PCA,
+    pca_model: PcaModel,
     flattened: pl.LazyFrame,
-) -> np.ndarray:
+) -> pl.DataFrame:
     ...
 ```
 
 - `preprocess_and_flatten`の`paths`は1個以上のParquetファイルへのパスとする。
 - `preprocess_and_flatten`は、`filename`列およびflatten特徴量列を持つ`pl.LazyFrame`を返す。列順と特徴量列名は「flatten仕様」に従う。
-- `flatten_pca`の`paths`および前処理引数は`preprocess_and_flatten`と同じ意味・検証規則とする。内部で`preprocess_and_flatten`を呼び出し、その`filename`以外の列を特徴量としてPCAをfitして、fit済みの`PCA`を返す。
+- `flatten_pca`は`paths`または`flattened`のいずれか一方を受け取り、両引数の初期値は`None`とする。両方が`None`の場合、および両方が指定された場合は`ValueError`を送出する。
+- `paths`を指定した場合、`paths`および前処理引数は`preprocess_and_flatten`と同じ意味・検証規則とする。内部で`preprocess_and_flatten`を呼び出す。
+- `flattened`を指定した場合は、`filename`列およびflatten特徴量列を持つ`pl.LazyFrame`を直接使用し、前処理およびflattenは行わない。
+- `flatten_pca`は、選択したflatten結果の`filename`以外の列を特徴量としてPCAをfitし、fit済みの`PcaModel`を返す。
 - `n_component`は1以上かつ`min(n_samples, n_features)`以下の整数、または`None`とする。`None`の場合はこの上限を使用する。
 - `t_smoothing_window`はt方向smoothingの片側窓幅をTimeと同じ単位で指定し、`None`の場合は適用しない。
 - `w_smoothing_window`はw方向smoothingの片側窓幅を波長と同じ単位で指定し、`None`の場合は適用しない。
@@ -65,8 +69,8 @@ def reshape_pca_components(
 - `w_normalization_range`はw方向規格化に用いる閉区間`(w1, w2)`を指定し、`None`の場合は適用しない。
 - `t_downsampling_stride`はt方向の間引き間隔を指定する。`1`の場合は間引かない。
 - `w_downsampling_stride`はw方向の間引き間隔を指定する。`1`の場合は間引かない。
-- `append_pca_scores`は、fit済み`pca`とflatten済み`flattened`を受け取り、`filename`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。
-- `reshape_pca_components`は、fit済み`pca`とflatten済み`flattened`を受け取り、後述のshapeへ並べ替えた`pca.components_`を返す。
+- `append_pca_scores`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、`filename`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。
+- `reshape_pca_components`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、後述の座標へ展開した`pca_model.pca.components_`を`pl.DataFrame`として返す。
 
 ### LazyFrameとメモリ使用
 
@@ -188,21 +192,25 @@ def apply_w_downsampling(
 ### PCA仕様
 
 - PCAの入力には`filename`を除くすべてのflatten特徴量列を使用する。
-- `flatten_pca`は`sklearn.decomposition.PCA`をfitし、そのfit済みインスタンスを返す。
+- `flatten_pca`は`fit_pca`でPCAをfitし、そのfit済み`PcaModel`を返す。
+- `fit_flattened_pca`は、PCAのfitに`src/spca/feature_engineering/pca.py`の`fit_pca`を使用しなければならない。`sklearn.decomposition.PCA`を直接生成・fitしてはならない。
+- `fit_flattened_pca`は`fit_pca`に、flatten特徴量列、`impute_strategy="drop"`、`outlier_strategy=None`、`scaling_strategy="none"`および`max_n_component=None`を指定し、返却された`PcaModel`をそのまま返す。
 - `scaling_strategy="none"`相当とし、PCA前の中心化および尺度変換は行わない。
 - 平均中心化は`sklearn.decomposition.PCA`内部の処理に任せ、分散による標準化は行わない。
 - `n_component`には公開APIで受け取った値を指定し、追加の上限は設けない。
 - 入力検証でnullとNaNを拒否するため、PCAのfitおよびtransform時に欠損値補完や行削除は行わない。外れ値処理も行わない。
 - PCA solverはscikit-learnのデフォルトである`svd_solver="auto"`を使用する。
-- `append_pca_scores`は、flatten特徴量を`pca.transform`へ渡して得たスコアを、入力の行順を維持して追加する。`pca.n_features_in_`と特徴量列数が異なる場合は`ValueError`を送出する。
+- `append_pca_scores`は、flatten特徴量を`pca_model.pca.transform`へ渡して得たスコアを、入力の行順を維持して追加する。`pca_model.pca.n_features_in_`と特徴量列数が異なる場合は`ValueError`を送出する。
 - PCA成分の符号は一意に定まらないため、テストでは主成分やスコアの符号そのものを固定値と単純比較しない。
 
 ### PCA成分のreshape仕様
 
-- `reshape_pca_components`は、flatten特徴量列の順序に対応する`pca.components_`を、component軸を先頭にして`(n_component, n_wavelengths, n_steps, n_sequences, n_times)`へreshapeした`np.ndarray`を返す。
+- `reshape_pca_components`は、flatten特徴量列の順序に対応する`pca_model.pca.components_`を、component軸、波長、`Step`、`Sequence`、`Time`の座標へ展開したlong形式の`pl.DataFrame`を返す。
+- 返却するDataFrameの列順は`component`、`wavelength`、`Step`、`Sequence`、`Time`、`coefficient`とする。`component`は0始まりの整数、`wavelength`は数値、`coefficient`は対応するPCA係数とする。
+- 行順は`component`、`wavelength`、`Step`、`Sequence`、`Time`を数値昇順にした順とする。
 - 各軸の値と順序はflatten仕様と同じく、波長、`Step`、`Sequence`、`Time`を数値昇順にしたものとする。
-- reshape後の`result[c, wi, si, qi, ti]`は、component `c`（0始まり）の、波長`wi`、Step `si`、Sequence `qi`、Time `ti`に対応する係数とする。
-- flatten特徴量がこれら4軸の直積を成さない場合、特徴量列名から座標を一意に復元できない場合、または`pca.n_features_in_`と特徴量列数が一致しない場合は`ValueError`を送出する。
+- 返却DataFrameの各行は、component `c`（0始まり）の、波長`wavelength`、Step `Step`、Sequence `Sequence`、Time `Time`に対応する係数を`coefficient`へ保持する。
+- flatten特徴量がこれら4軸の直積を成さない場合、特徴量列名から座標を一意に復元できない場合、または`pca_model.pca.n_features_in_`と特徴量列数が一致しない場合は`ValueError`を送出する。
 
 ### 出力要件
 

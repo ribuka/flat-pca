@@ -42,7 +42,7 @@ result = append_pca_scores(pca, flattened).collect()
 # サンプル名と PCA スコアだけを確認する
 print(result.select("filename", "pca-1", "pca-2"))
 
-# 成分係数を (component, wavelength, Step, Sequence, Time) 軸へ戻す。
+# 成分係数を long 形式の座標付きテーブルへ戻す。
 components = reshape_pca_components(pca, flattened)
 
 # スコアを後続の解析用に保存する場合
@@ -57,9 +57,9 @@ result.write_parquet("data/flatten_pca_result.parquet")
 ### 各 API の責務
 
 - `preprocess_and_flatten` は前処理と flatten の遅延クエリ (`polars.LazyFrame`) を返します。列は `filename` と決定的に並んだ flatten 特徴量です。
-- `flatten_pca` は同じ入力と前処理設定で PCA を fit し、学習済みの `sklearn.decomposition.PCA` を返します。スコアは返しません。
-- `append_pca_scores` は fit 済み PCA と flatten 済み `LazyFrame` を受け取り、`pca-1` から `pca-{n_component}` のスコア列を追加した `LazyFrame` を返します。
-- `reshape_pca_components` は PCA 成分を `(n_component, n_wavelengths, n_steps, n_sequences, n_times)` の NumPy 配列へ並べ替えます。
+- `flatten_pca` は `paths` または flatten 済みの `LazyFrame` の一方から PCA を fit し、学習済みの `PcaModel` を返します。スコアは返しません。
+- `append_pca_scores` は fit 済みの `PcaModel` と flatten 済み `LazyFrame` を受け取り、`pca-1` から `pca-{n_component}` のスコア列を追加した `LazyFrame` を返します。
+- `reshape_pca_components` は PCA 成分を `component`、`wavelength`、`Step`、`Sequence`、`Time`、`coefficient` 列の long 形式 `DataFrame` として返します。
 
 `preprocess_and_flatten` と `append_pca_scores` は、呼び出し側が `.collect()` する時点を選べます。`flatten_pca` は PCA fit に必要な特徴量だけを materialize します。
 

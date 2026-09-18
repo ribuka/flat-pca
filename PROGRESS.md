@@ -130,3 +130,19 @@ Append Ralph loop results in English using the format defined in `RALPH_PROJECT.
 - Requirements: Implementation and prior passing real-fixture tests verify fitted PCA return, feature-only fitting, component validation, ordered LazyFrame score appending, mismatch validation, public exports, and reconstruction-based score validation.
 - Notes: The final required pytest invocation cannot currently complete because `C:\\Users\\rtagu\\AppData\\Local\\Temp\\pytest-of-rtagu` is access-restricted. Preserve this work and restore access to rerun the acceptance commands before marking the task completed.
 - Additional notes: As `uv run -m pytest` all passed, status is changed from `blocked` to `completed`.
+
+## 2026-09-18 04:42 - TASK-018
+
+- Result: blocked
+- Changes: Migrated Flatten-PCA fitting and score/component APIs to `PcaModel`; added exclusive `paths`/`flattened` input support; delegated fitting to shared `fit_pca` with drop imputation, no outlier handling, no scaling, and no component cap; emitted long-form component coordinates; and updated documentation and real-fixture regression coverage.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` first passed (25 passed), then later was blocked after 24 passed by `WinError 5` accessing `C:\Users\rtagu\AppData\Local\Temp\pytest-of-rtagu`; `uv run -m pytest` was blocked by the same external Temp-directory permission error after 115 passed and 2 setup errors; `uv run -m ruff check .` and `git diff --check` passed.
+- Requirements: Implementation and the initially passing focused test cover both input routes, exclusive-input validation, shared fitter configuration, `PcaModel` use by score/component APIs, and ordered long-form component coefficients. Completion cannot be recorded until the documented pytest commands can access the normal Windows Temp directory.
+- Notes: No task ledger file was present to update. No fixture Parquet files were modified.
+
+## 2026-09-18 04:50 - TASK-018
+
+- Result: completed
+- Changes: Restored Flatten-PCA's explicit component-count validation after the shared PCA fitter began clamping counts to the available feature count. Requests above the post-downsampling flattened feature count now raise `ValueError` before shared fitting.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca_downsampling.py tests/feature_engineering/test_flatten_pca.py` (65 passed); `uv run -m pytest` (117 passed); `uv run -m ruff check .` (passed); `git diff --check` (passed).
+- Requirements: Confirmed the real-fixture-derived downsampling boundary test rejects two components when one feature remains, while default fitting uses one component and the shared fitter delegation remains unchanged.
+- Notes: The Windows Temp-directory access issue did not recur. No fixture Parquet files were modified.

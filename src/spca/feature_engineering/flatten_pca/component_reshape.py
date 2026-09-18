@@ -6,8 +6,8 @@ import re
 
 import numpy as np
 import polars as pl
-from sklearn.decomposition import PCA
 
+from ..pca import PcaModel
 from .schema import parse_wavelength
 
 _FEATURE_NAME_PATTERN = re.compile(
@@ -16,24 +16,23 @@ _FEATURE_NAME_PATTERN = re.compile(
 
 
 def reshape_pca_components(
-    pca: PCA,
+    pca_model: PcaModel,
     flattened: pl.LazyFrame,
-) -> np.ndarray:
+) -> pl.DataFrame:
     """Reshape fitted PCA components into sorted spectral coordinate axes.
 
     Parameters
     ----------
-    pca : PCA
-        Fitted PCA estimator whose components correspond to ``flattened``.
+    pca_model : PcaModel
+        Fitted PCA pipeline state whose components correspond to ``flattened``.
     flattened : pl.LazyFrame
         Flattened spectral features with a ``filename`` column.
 
     Returns
     -------
-    np.ndarray
-        Components with shape ``(n_components, n_wavelengths, n_steps,
-        n_sequences, n_times)``. Coordinate axes are in numeric ascending
-        order.
+    pl.DataFrame
+        Long-form components ordered by component, wavelength, Step, Sequence,
+        and Time.
 
     Raises
     ------
@@ -47,7 +46,7 @@ def reshape_pca_components(
         for column in flattened.collect_schema().names()
         if column != "filename"
     ]
-    components = _validated_components(pca, len(feature_columns))
+    components = _validated_components(pca_model, len(feature_columns))
     coordinates = [_parse_feature_coordinate(column) for column in feature_columns]
     wavelengths = sorted({coordinate[0] for coordinate in coordinates})
     steps = sorted({coordinate[1] for coordinate in coordinates})
@@ -58,31 +57,40 @@ def reshape_pca_components(
     if len(coordinate_set) != len(coordinates) or len(coordinates) != expected_count:
         raise ValueError("flattened features must form a coordinate Cartesian product")
 
-    result = np.empty(
-        (components.shape[0], len(wavelengths), len(steps), len(sequences), len(times))
+    component_columns = [str(index) for index in range(components.shape[0])]
+    table = pl.DataFrame(
+        {
+            "wavelength": [coordinate[0] for coordinate in coordinates],
+            "Step": [coordinate[1] for coordinate in coordinates],
+            "Sequence": [coordinate[2] for coordinate in coordinates],
+            "Time": [coordinate[3] for coordinate in coordinates],
+        }
+    ).with_columns(
+        [
+            pl.Series(name, components[index, :])
+            for index, name in enumerate(component_columns)
+        ]
     )
-    wavelength_indices = {value: index for index, value in enumerate(wavelengths)}
-    step_indices = {value: index for index, value in enumerate(steps)}
-    sequence_indices = {value: index for index, value in enumerate(sequences)}
-    time_indices = {value: index for index, value in enumerate(times)}
-    for column_index, (wavelength, step, sequence, time) in enumerate(coordinates):
-        result[
-            :,
-            wavelength_indices[wavelength],
-            step_indices[step],
-            sequence_indices[sequence],
-            time_indices[time],
-        ] = components[:, column_index]
-    return result
+    return (
+        table.unpivot(
+            index=["wavelength", "Step", "Sequence", "Time"],
+            on=component_columns,
+            variable_name="component",
+            value_name="coefficient",
+        )
+        .with_columns(pl.col("component").cast(pl.Int64))
+        .select(["component", "wavelength", "Step", "Sequence", "Time", "coefficient"])
+        .sort(["component", "wavelength", "Step", "Sequence", "Time"])
+    )
 
 
-def _validated_components(pca: PCA, feature_count: int) -> np.ndarray:
+def _validated_components(pca_model: PcaModel, feature_count: int) -> np.ndarray:
     """Return fitted PCA components after checking their feature dimension.
 
     Parameters
     ----------
-    pca : PCA
-        Candidate fitted PCA estimator.
+    pca_model : PcaModel
+        Candidate fitted PCA pipeline state.
     feature_count : int
         Number of flattened spectral feature columns.
 
@@ -96,11 +104,12 @@ def _validated_components(pca: PCA, feature_count: int) -> np.ndarray:
     ValueError
         If PCA has no compatible fitted component matrix.
     """
-    try:
-        components = pca.components_
-        n_features = pca.n_features_in_
-    except AttributeError as error:
-        raise ValueError("pca must be fitted") from error
+    if not hasattr(pca_model.pca, "components_") or not hasattr(
+        pca_model.pca, "n_features_in_"
+    ):
+        raise ValueError("pca must be fitted")
+    components = pca_model.pca.components_
+    n_features = pca_model.pca.n_features_in_
     if n_features != feature_count or components.shape[1] != feature_count:
         raise ValueError("PCA feature count does not match flattened feature count")
     return components
