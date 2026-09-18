@@ -79,7 +79,7 @@ def reshape_pca_components(
             value_name="coefficient",
         )
         .with_columns(pl.col("component").cast(pl.Int64))
-        .select(["Time", "Step", "Sequence", "wavelength", "component", "coefficient"])
+        .select(["component", "wavelength", "Step", "Sequence", "Time", "coefficient"])
         .sort(["component", "wavelength", "Step", "Sequence", "Time"])
     )
 

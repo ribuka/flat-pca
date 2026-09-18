@@ -479,7 +479,7 @@
     {
       "id": "TASK-018",
       "title": "PcaModelを用いるFlatten-PCA APIへの移行",
-      "status": "pending",
+      "status": "completed",
       "priority": 18,
       "depends_on": [
         "TASK-017"

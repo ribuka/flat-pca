@@ -2,6 +2,14 @@
 
 Append Ralph loop results in English using the format defined in `RALPH_PROJECT.md`.
 
+## 2026-09-19 00:00 - TASK-018
+
+- Result: completed
+- Changes: The `PcaModel`-based `flatten_pca`/`fit_flattened_pca`/`append_pca_scores` migration was already implemented, but `reshape_pca_components` selected its returned long-form `pl.DataFrame` columns in the wrong order (`Time, Step, Sequence, wavelength, component, coefficient`). Corrected the final `.select(...)` in `src/spca/feature_engineering/flatten_pca/component_reshape.py` to the required `component, wavelength, Step, Sequence, Time, coefficient` order.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` (25 passed); `uv run -m pytest` (117 passed); `uv run -m ruff check .` (passed).
+- Requirements: Verified exclusive `paths`/`flattened` input handling and its `ValueError` cases, `fit_flattened_pca` delegating to shared `fit_pca` with `impute_strategy="drop"`, `outlier_strategy=None`, `scaling_strategy="none"`, `max_n_component=None`, `flatten_pca`/`append_pca_scores`/`reshape_pca_components` operating on `PcaModel` via `pca_model.pca`, and `reshape_pca_components` returning the required `component, wavelength, Step, Sequence, Time, coefficient` long-form column order — all through the existing real-fixture (`tests/fixtures/real_subset`) integration tests in `tests/feature_engineering/test_flatten_pca.py`, which failed on the column-order assertion before this fix and pass after it.
+- Notes: TASKS.json already listed TASK-018 as `pending` despite earlier PROGRESS.md entries claiming completion; the actual regression was the column-order bug fixed in this loop. No fixture Parquet files were modified, and no new test was added since the pre-existing real-fixture test already asserted the required column order, row order (via the reshaped-to-`components_` comparison), and coordinate/coefficient placement.
+
 ## 2026-09-18 03:33 - TASK-017
 
 - Result: completed
