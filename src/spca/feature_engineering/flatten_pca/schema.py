@@ -3,6 +3,8 @@
 from math import isfinite
 
 METADATA_COLUMNS = ("Time", "Step", "Sequence")
+STEP_TIME_COLUMNS = ("StepTime", "ReverseStepTime")
+NON_SPECTRAL_COLUMNS = METADATA_COLUMNS + STEP_TIME_COLUMNS
 
 
 def parse_wavelength(column: str) -> float:
@@ -45,6 +47,6 @@ def wavelength_columns(columns: list[str]) -> list[str]:
     Returns
     -------
     list[str]
-        Column names not reserved for metadata.
+        Column names not reserved for metadata or StepTime columns.
     """
-    return [column for column in columns if column not in METADATA_COLUMNS]
+    return [column for column in columns if column not in NON_SPECTRAL_COLUMNS]

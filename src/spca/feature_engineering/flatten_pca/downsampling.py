@@ -7,7 +7,7 @@ from numbers import Integral
 
 import polars as pl
 
-from .schema import METADATA_COLUMNS, parse_wavelength, wavelength_columns
+from .schema import parse_wavelength, wavelength_columns
 
 
 def collect_unique_times(
@@ -115,7 +115,8 @@ def apply_w_downsampling(
     Returns
     -------
     pl.DataFrame
-        Frame containing all metadata and wavelength columns at selected indices.
+        Frame containing all metadata, StepTime columns (if present), and
+        wavelength columns at selected indices.
 
     Raises
     ------
@@ -125,15 +126,17 @@ def apply_w_downsampling(
     if isinstance(stride, bool) or not isinstance(stride, Integral) or stride < 1:
         raise ValueError("w_downsampling_stride must be an integer of at least 1")
 
+    columns = _column_names(frame)
+    spectra = wavelength_columns(columns)
+    non_spectral_columns = [column for column in columns if column not in spectra]
     wavelength_to_column = {
-        parse_wavelength(column): column
-        for column in wavelength_columns(_column_names(frame))
+        parse_wavelength(column): column for column in spectra
     }
     selected_columns = [
         wavelength_to_column[wavelength]
         for wavelength in unique_wavelengths[:: int(stride)]
     ]
-    return frame.select(*METADATA_COLUMNS, *selected_columns)
+    return frame.select(*non_spectral_columns, *selected_columns)
 
 
 def _column_names(frame: pl.DataFrame | pl.LazyFrame) -> list[str]:

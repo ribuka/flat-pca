@@ -33,6 +33,9 @@ from spca.feature_engineering.flatten_pca.smoothing import (
 from spca.feature_engineering.flatten_pca.smoothing import (
     apply_w_smoothing as _apply_w_smoothing,
 )
+from spca.feature_engineering.flatten_pca.step_time import (
+    add_step_time_columns as _add_step_time_columns,
+)
 from spca.feature_engineering.pca import PcaModel, fit_and_transform_pca
 
 METADATA_COLUMNS = {"Time", "Step", "Sequence"}
@@ -49,6 +52,8 @@ def test_public_import_and_signature_are_stable(
         "paths",
         "flattened",
         "n_component",
+        "target_steps",
+        "edge_trim",
         "t_smoothing_window",
         "w_smoothing_window",
         "t_normalization_range",
@@ -59,7 +64,7 @@ def test_public_import_and_signature_are_stable(
     assert parameters["paths"].kind is Parameter.POSITIONAL_OR_KEYWORD
     for parameter in list(parameters.values())[1:]:
         assert parameter.kind is Parameter.KEYWORD_ONLY
-    for name in list(parameters)[0:7]:
+    for name in list(parameters)[0:9]:
         assert parameters[name].default is None
     assert parameters["t_downsampling_stride"].default == 1
     assert parameters["w_downsampling_stride"].default == 1
@@ -150,6 +155,7 @@ def _expected_flatten_pca(
     """
     prepared_inputs = []
     for path, frame in _load_and_validate_inputs(paths):
+        frame = _add_step_time_columns(frame)
         prepared = _apply_t_smoothing(frame, t_smoothing_window)
         prepared = _apply_w_smoothing(prepared, w_smoothing_window)
         prepared = _apply_t_normalization(prepared, t_normalization_range)
@@ -445,7 +451,8 @@ def test_preprocess_and_flatten_returns_lazy_real_fixture_query(
     """Defer real-Parquet preprocessing and match the established flatten contract."""
     flattened = preprocess_and_flatten(real_fixture_paths[:3])
     expected_inputs = [
-        (path, pl.read_parquet(path)) for path in sorted(real_fixture_paths[:3])
+        (path, _add_step_time_columns(pl.read_parquet(path)))
+        for path in sorted(real_fixture_paths[:3])
     ]
     expected = _flatten_inputs(expected_inputs)
 
@@ -486,6 +493,8 @@ def test_preprocess_and_flatten_matches_eager_stage_contract(
 
     prepared = []
     for path, frame in loaded:
+        frame = _add_step_time_columns(frame)
+        assert isinstance(frame, pl.DataFrame)
         frame = _apply_t_smoothing(frame, preprocessing.get("t_smoothing_window"))
         frame = _apply_w_smoothing(frame, preprocessing.get("w_smoothing_window"))
         frame = _apply_t_normalization(frame, preprocessing.get("t_normalization_range"))

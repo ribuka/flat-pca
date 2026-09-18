@@ -506,7 +506,7 @@
     {
       "id": "TASK-019",
       "title": "Step行フィルタ・StepTime/ReverseStepTime生成・edge_trim行処理の追加",
-      "status": "pending",
+      "status": "completed",
       "priority": 19,
       "depends_on": [
         "TASK-018"

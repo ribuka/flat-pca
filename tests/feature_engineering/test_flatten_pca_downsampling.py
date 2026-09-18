@@ -33,6 +33,7 @@ from spca.feature_engineering.flatten_pca.smoothing import (
     apply_t_smoothing,
     apply_w_smoothing,
 )
+from spca.feature_engineering.flatten_pca.step_time import add_step_time_columns
 
 _METADATA_COLUMNS = ["Time", "Step", "Sequence"]
 
@@ -222,6 +223,7 @@ def _expected_downsampled_flatten(
     unique_wavelengths = _collect_unique_wavelengths(frames)
     prepared = []
     for path, frame in loaded:
+        frame = add_step_time_columns(frame)
         transformed = apply_t_smoothing(frame, t_smoothing_window)
         transformed = apply_w_smoothing(transformed, w_smoothing_window)
         transformed = apply_t_normalization(

@@ -19,6 +19,7 @@ from .input import load_and_validate_inputs
 from .normalization import apply_t_normalization, apply_w_normalization
 from .pca_scores import fit_flattened_pca
 from .smoothing import apply_t_smoothing, apply_w_smoothing
+from .step_time import add_step_time_columns, apply_edge_trim, filter_target_steps
 
 
 def flatten_pca(
@@ -26,6 +27,8 @@ def flatten_pca(
     *,
     flattened: pl.LazyFrame | None = None,
     n_component: int | None = None,
+    target_steps: list[int] | None = None,
+    edge_trim: list[float, float] | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
@@ -46,6 +49,13 @@ def flatten_pca(
         Number of PCA score columns to append. If ``None``, use the maximum
         available count: the smaller of the input-file count and flattened
         spectral-feature count.
+    target_steps : list[int] | None, default None
+        ``Step`` values to keep, or ``None`` to keep every row. Used only
+        when ``paths`` is specified; ignored when ``flattened`` is specified.
+    edge_trim : list[float, float] | None, default None
+        ``(edge_trim[0], edge_trim[1])`` StepTime/ReverseStepTime trim
+        thresholds, or ``None`` to disable trimming. Used only when ``paths``
+        is specified; ignored when ``flattened`` is specified.
     t_smoothing_window : float | None, default None
         Positive time-direction smoothing half-window, or ``None``.
     w_smoothing_window : float | None, default None
@@ -77,6 +87,8 @@ def flatten_pca(
         assert paths is not None
         flattened = preprocess_and_flatten(
             paths,
+            target_steps=target_steps,
+            edge_trim=edge_trim,
             t_smoothing_window=t_smoothing_window,
             w_smoothing_window=w_smoothing_window,
             t_normalization_range=t_normalization_range,
@@ -90,6 +102,8 @@ def flatten_pca(
 def preprocess_and_flatten(
     paths: Sequence[str | Path],
     *,
+    target_steps: list[int] | None = None,
+    edge_trim: list[float, float] | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
@@ -103,6 +117,13 @@ def preprocess_and_flatten(
     ----------
     paths : Sequence[str | Path]
         One or more Parquet input paths.
+    target_steps : list[int] | None, default None
+        ``Step`` values to keep, or ``None`` to keep every row. Applied after
+        input validation and before StepTime/ReverseStepTime generation.
+    edge_trim : list[float, float] | None, default None
+        ``(edge_trim[0], edge_trim[1])`` StepTime/ReverseStepTime trim
+        thresholds, or ``None`` to disable trimming. Applied immediately
+        after StepTime/ReverseStepTime generation.
     t_smoothing_window, w_smoothing_window : float | None, default None
         Positive smoothing half-windows, or ``None`` to disable each stage.
     t_normalization_range, w_normalization_range : tuple[float, float] | None, default None
@@ -116,11 +137,18 @@ def preprocess_and_flatten(
         Deferred one-row-per-file flattened features with ``filename`` first.
     """
     loaded_inputs = load_and_validate_inputs(paths)
-    frames = [frame for _, frame in loaded_inputs]
+    step_time_inputs: list[tuple[Path, pl.LazyFrame]] = []
+    for path, frame in loaded_inputs:
+        filtered = filter_target_steps(frame, target_steps)
+        with_step_time = add_step_time_columns(filtered)
+        trimmed = apply_edge_trim(with_step_time, edge_trim)
+        step_time_inputs.append((path, trimmed))
+
+    frames = [frame for _, frame in step_time_inputs]
     unique_times = collect_unique_times(frames)
     unique_wavelengths = collect_unique_wavelengths(frames)
     prepared_inputs: list[tuple[Path, pl.LazyFrame]] = []
-    for path, frame in loaded_inputs:
+    for path, frame in step_time_inputs:
         prepared = apply_t_smoothing(frame, t_smoothing_window)
         prepared = apply_w_smoothing(prepared, w_smoothing_window)
         prepared = apply_t_normalization(prepared, t_normalization_range)

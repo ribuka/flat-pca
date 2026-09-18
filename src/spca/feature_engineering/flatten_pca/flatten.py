@@ -23,7 +23,7 @@ def flatten_inputs(
     pl.DataFrame | pl.LazyFrame
         One row per input file, ordered by normalized path, with ``filename``
         followed by spectral features ordered by numeric wavelength, Step,
-        Sequence, and Time.
+        Sequence, and StepTime.
 
     Raises
     ------
@@ -49,18 +49,18 @@ def flatten_inputs(
             ),
             key=lambda item: item[0],
         )
-        sorted_frame = frame.sort("Step", "Sequence", "Time")
+        sorted_frame = frame.sort("Step", "Sequence", "StepTime")
         feature_names: list[str] = []
         feature_values: list[object] = []
         for _, wavelength_column in spectra:
-            for step, sequence, time, intensity in sorted_frame.select(
+            for step, sequence, step_time, intensity in sorted_frame.select(
                 "Step",
                 "Sequence",
-                "Time",
+                "StepTime",
                 wavelength_column,
             ).iter_rows():
                 feature_names.append(
-                    f"{wavelength_column}_{int(step)}_{int(sequence)}_{float(time):.2f}"
+                    f"{wavelength_column}_{int(step)}_{int(sequence)}_{float(step_time):.2f}"
                 )
                 feature_values.append(intensity)
 
@@ -105,9 +105,9 @@ def _flatten_lazy_inputs(
         key=lambda item: item[0],
     )
     metadata_rows = list(
-        first_frame.select("Step", "Sequence", "Time")
+        first_frame.select("Step", "Sequence", "StepTime")
         .unique()
-        .sort("Step", "Sequence", "Time")
+        .sort("Step", "Sequence", "StepTime")
         .collect()
         .iter_rows()
     )
@@ -116,11 +116,11 @@ def _flatten_lazy_inputs(
             column,
             step,
             sequence,
-            time,
-            f"{column}_{int(step)}_{int(sequence)}_{float(time):.2f}",
+            step_time,
+            f"{column}_{int(step)}_{int(sequence)}_{float(step_time):.2f}",
         )
         for _, column in spectra
-        for step, sequence, time in metadata_rows
+        for step, sequence, step_time in metadata_rows
     ]
     feature_names = [spec[-1] for spec in feature_specs]
     if len(feature_names) != len(set(feature_names)):
@@ -136,11 +136,11 @@ def _flatten_lazy_inputs(
                     .filter(
                         (pl.col("Step") == step)
                         & (pl.col("Sequence") == sequence)
-                        & (pl.col("Time") == time)
+                        & (pl.col("StepTime") == step_time)
                     )
                     .first()
                     .alias(name)
-                    for column, step, sequence, time, name in feature_specs
+                    for column, step, sequence, step_time, name in feature_specs
                 ],
             )
         )
