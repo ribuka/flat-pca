@@ -8,7 +8,7 @@
 
 ### Python coding
 
-- Before working python coding, read `docs/agents/python.md` in full and follow its instructions exactly.
+- Before working python coding, read `docs/agents/python.md` and follow it.
 
 ### Verification commands
 
@@ -17,7 +17,8 @@
 
 #### Test execution
 
-- Before running any pytest command, read `docs/agents/pytest.md` in full and follow its instructions exactly.
+- **NEVER** run pytest inside the Codex Windows sandbox.
+- Before running any pytest command, read `docs/agents/pytest.md` and follow it.
 
 #### Lint
 
