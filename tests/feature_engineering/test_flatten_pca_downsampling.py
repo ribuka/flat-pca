@@ -348,9 +348,9 @@ def test_flatten_pca_stride_one_preserves_existing_end_to_end_result(
         w_downsampling_stride=1,
     )
 
-    assert explicit.n_components_ == default.n_components_ == 3
-    assert explicit.mean_ == pytest.approx(default.mean_)
-    assert explicit.components_ == pytest.approx(default.components_)
+    assert explicit.pca.n_components_ == default.pca.n_components_ == 3
+    assert explicit.pca.mean_ == pytest.approx(default.pca.mean_)
+    assert explicit.pca.components_ == pytest.approx(default.pca.components_)
 
 
 def test_flatten_pca_uses_downsampled_feature_count_for_pca_limit(
@@ -370,7 +370,7 @@ def test_flatten_pca_uses_downsampled_feature_count_for_pca_limit(
         w_downsampling_stride=99,
     )
 
-    assert result.n_components_ == 1
+    assert result.pca.n_components_ == 1
     with pytest.raises(ValueError, match="n_component"):
         flatten_pca(
             derived_paths,

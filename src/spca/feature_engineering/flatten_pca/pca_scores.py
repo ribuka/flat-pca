@@ -5,13 +5,14 @@ from __future__ import annotations
 from numbers import Integral
 
 import polars as pl
-from sklearn.decomposition import PCA
+
+from ..pca import PcaModel, fit_pca
 
 
 def fit_flattened_pca(
     flattened: pl.LazyFrame,
     n_component: int | None,
-) -> PCA:
+) -> PcaModel:
     """Fit PCA from the non-filename columns of flattened features.
 
     Parameters
@@ -23,47 +24,50 @@ def fit_flattened_pca(
 
     Returns
     -------
-    PCA
-        Fitted scikit-learn PCA estimator.
+    PcaModel
+        Fitted PCA pipeline state.
 
     Raises
     ------
     ValueError
         If ``n_component`` is not an integer in the permitted range.
     """
-    materialized = flattened.collect()
     feature_columns = [
-        column for column in materialized.columns if column != "filename"
+        column
+        for column in flattened.collect_schema().names()
+        if column != "filename"
     ]
-    max_component = min(materialized.height, len(feature_columns))
-    if n_component is None:
-        resolved_n_component = max_component
-    elif (
-        isinstance(n_component, bool)
-        or not isinstance(n_component, Integral)
-        or not 1 <= n_component <= max_component
+    if isinstance(n_component, bool) or (
+        n_component is not None and not isinstance(n_component, Integral)
     ):
+        raise ValueError("n_component must be an integer or None")
+    if n_component is not None and n_component <= 0:
+        raise ValueError("n_component must be a positive integer")
+    if n_component is not None and n_component > len(feature_columns):
         raise ValueError(
-            f"n_component must be an integer between 1 and {max_component}"
+            "n_component must be less than or equal to the flattened feature count"
         )
-    else:
-        resolved_n_component = int(n_component)
-
-    pca = PCA(n_components=resolved_n_component)
-    pca.fit(materialized.select(feature_columns).to_numpy())
-    return pca
+    return fit_pca(
+        df=flattened,
+        columns=feature_columns,
+        n_component=n_component,
+        max_n_component=None,
+        impute_strategy="drop",
+        outlier_strategy=None,
+        scaling_strategy="none",
+    )
 
 
 def append_pca_scores(
-    pca: PCA,
+    pca_model: PcaModel,
     flattened: pl.LazyFrame,
 ) -> pl.LazyFrame:
     """Append PCA scores to flattened features without changing row order.
 
     Parameters
     ----------
-    pca : PCA
-        Fitted scikit-learn PCA estimator.
+    pca_model : PcaModel
+        Fitted PCA pipeline state.
     flattened : pl.LazyFrame
         Flattened spectral features with a ``filename`` column.
 
@@ -81,12 +85,12 @@ def append_pca_scores(
     feature_columns = [
         column for column in materialized.columns if column != "filename"
     ]
-    if pca.n_features_in_ != len(feature_columns):
+    if pca_model.pca.n_features_in_ != len(feature_columns):
         raise ValueError(
             "PCA feature count does not match flattened feature count"
         )
 
-    scores = pca.transform(materialized.select(feature_columns).to_numpy())
+    scores = pca_model.pca.transform(materialized.select(feature_columns).to_numpy())
     score_columns = {
         f"pca-{index + 1}": scores[:, index]
         for index in range(scores.shape[1])

@@ -6,8 +6,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import polars as pl
-from sklearn.decomposition import PCA
 
+from ..pca import PcaModel
 from .downsampling import (
     apply_t_downsampling,
     apply_w_downsampling,
@@ -22,8 +22,9 @@ from .smoothing import apply_t_smoothing, apply_w_smoothing
 
 
 def flatten_pca(
-    paths: Sequence[str | Path],
+    paths: Sequence[str | Path] | None = None,
     *,
+    flattened: pl.LazyFrame | None = None,
     n_component: int | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
@@ -31,13 +32,16 @@ def flatten_pca(
     w_normalization_range: tuple[float, float] | None = None,
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
-) -> PCA:
+) -> PcaModel:
     """Preprocess, flatten, and fit PCA across spectral Parquet files.
 
     Parameters
     ----------
-    paths : Sequence[str | Path]
-        One or more Parquet input paths.
+    paths : Sequence[str | Path] | None, default None
+        One or more Parquet input paths. Exactly one of ``paths`` and
+        ``flattened`` must be supplied.
+    flattened : pl.LazyFrame | None, default None
+        Existing flattened features used directly for PCA fitting.
     n_component : int | None, default None
         Number of PCA score columns to append. If ``None``, use the maximum
         available count: the smaller of the input-file count and flattened
@@ -57,8 +61,8 @@ def flatten_pca(
 
     Returns
     -------
-    PCA
-        Fitted scikit-learn PCA estimator.
+    PcaModel
+        Fitted PCA pipeline state.
 
     Raises
     ------
@@ -67,15 +71,19 @@ def flatten_pca(
     ValueError
         If inputs, preprocessing arguments, or ``n_component`` are invalid.
     """
-    flattened = preprocess_and_flatten(
-        paths,
-        t_smoothing_window=t_smoothing_window,
-        w_smoothing_window=w_smoothing_window,
-        t_normalization_range=t_normalization_range,
-        w_normalization_range=w_normalization_range,
-        t_downsampling_stride=t_downsampling_stride,
-        w_downsampling_stride=w_downsampling_stride,
-    )
+    if (paths is None) == (flattened is None):
+        raise ValueError("exactly one of paths or flattened must be specified")
+    if flattened is None:
+        assert paths is not None
+        flattened = preprocess_and_flatten(
+            paths,
+            t_smoothing_window=t_smoothing_window,
+            w_smoothing_window=w_smoothing_window,
+            t_normalization_range=t_normalization_range,
+            w_normalization_range=w_normalization_range,
+            t_downsampling_stride=t_downsampling_stride,
+            w_downsampling_stride=w_downsampling_stride,
+        )
     return fit_flattened_pca(flattened, n_component)
 
 

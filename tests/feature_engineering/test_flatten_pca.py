@@ -6,7 +6,6 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import pytest
-from sklearn.decomposition import PCA
 
 from spca.feature_engineering import (
     append_pca_scores,
@@ -15,6 +14,7 @@ from spca.feature_engineering import (
     reshape_pca_components,
 )
 from spca.feature_engineering.flatten_pca import flatten_pca as package_flatten_pca
+from spca.feature_engineering.flatten_pca import pca_scores
 from spca.feature_engineering.flatten_pca.flatten import (
     flatten_inputs as _flatten_inputs,
 )
@@ -33,7 +33,7 @@ from spca.feature_engineering.flatten_pca.smoothing import (
 from spca.feature_engineering.flatten_pca.smoothing import (
     apply_w_smoothing as _apply_w_smoothing,
 )
-from spca.feature_engineering.pca import fit_and_transform_pca
+from spca.feature_engineering.pca import PcaModel, fit_and_transform_pca
 
 METADATA_COLUMNS = {"Time", "Step", "Sequence"}
 
@@ -47,6 +47,7 @@ def test_public_import_and_signature_are_stable(
     assert flatten_pca is package_flatten_pca
     assert list(parameters) == [
         "paths",
+        "flattened",
         "n_component",
         "t_smoothing_window",
         "w_smoothing_window",
@@ -58,14 +59,62 @@ def test_public_import_and_signature_are_stable(
     assert parameters["paths"].kind is Parameter.POSITIONAL_OR_KEYWORD
     for parameter in list(parameters.values())[1:]:
         assert parameter.kind is Parameter.KEYWORD_ONLY
-    for name in list(parameters)[1:6]:
+    for name in list(parameters)[0:7]:
         assert parameters[name].default is None
     assert parameters["t_downsampling_stride"].default == 1
     assert parameters["w_downsampling_stride"].default == 1
 
     result = flatten_pca(real_fixture_paths, n_component=1)
-    assert isinstance(result, PCA)
-    assert result.n_components_ == 1
+    assert isinstance(result, PcaModel)
+    assert result.pca.n_components_ == 1
+
+
+def test_flatten_pca_accepts_exactly_one_real_fixture_input_source(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Fit identical PcaModels from paths or an already flattened real query."""
+    flattened = preprocess_and_flatten(real_fixture_paths[:3])
+
+    from_paths = flatten_pca(real_fixture_paths[:3], n_component=2)
+    from_flattened = flatten_pca(flattened=flattened, n_component=2)
+
+    assert isinstance(from_paths, PcaModel)
+    assert isinstance(from_flattened, PcaModel)
+    assert from_paths.columns == from_flattened.columns
+    assert from_paths.pca.components_ == pytest.approx(from_flattened.pca.components_)
+    assert from_paths.pca.explained_variance_ == pytest.approx(
+        from_flattened.pca.explained_variance_
+    )
+    with pytest.raises(ValueError, match="exactly one"):
+        flatten_pca(n_component=2)
+    with pytest.raises(ValueError, match="exactly one"):
+        flatten_pca(real_fixture_paths[:3], flattened=flattened, n_component=2)
+
+
+def test_fit_flattened_pca_delegates_to_common_pca_configuration(
+    real_fixture_paths: list[Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Use the shared PCA fitter with the required unmodified-data settings."""
+    flattened = preprocess_and_flatten(real_fixture_paths[:3])
+    original_fit_pca = pca_scores.fit_pca
+    captured: dict[str, object] = {}
+
+    def capture_fit_pca(**kwargs: object) -> PcaModel:
+        """Capture delegated PCA-fitting arguments while retaining behavior."""
+        captured.update(kwargs)
+        return original_fit_pca(**kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(pca_scores, "fit_pca", capture_fit_pca)
+    model = pca_scores.fit_flattened_pca(flattened, n_component=2)
+
+    assert isinstance(model, PcaModel)
+    assert captured["df"] is flattened
+    assert captured["columns"] == flattened.collect_schema().names()[1:]
+    assert captured["n_component"] == 2
+    assert captured["impute_strategy"] == "drop"
+    assert captured["outlier_strategy"] is None
+    assert captured["scaling_strategy"] == "none"
+    assert captured["max_n_component"] is None
 
 
 def _expected_flatten_pca(
@@ -162,8 +211,8 @@ def test_flatten_pca_runs_all_real_fixtures_end_to_end(
     result = append_pca_scores(pca, preprocess_and_flatten(paths)).collect()
 
     assert len(paths) == 6
-    assert isinstance(pca, PCA)
-    assert pca.n_components_ == 3
+    assert isinstance(pca, PcaModel)
+    assert pca.pca.n_components_ == 3
     assert result.columns == [*expected.columns[:-3], "pca-1", "pca-2", "pca-3"]
     assert result.height == len(paths)
     _assert_flatten_pca_matches(result, expected, 3)
@@ -212,9 +261,9 @@ def test_readme_minimal_public_api_example_runs_on_all_real_fixtures(
         assert public_name in readme
     assert len(paths) == len(fixture_frames) == 6
     assert isinstance(flattened, pl.LazyFrame)
-    assert isinstance(pca, PCA)
+    assert isinstance(pca, PcaModel)
     assert result.columns[-2:] == ["pca-1", "pca-2"]
-    assert components.shape[0] == pca.n_components_ == 2
+    assert components["component"].n_unique() == pca.pca.n_components_ == 2
 
 
 @pytest.mark.parametrize(
@@ -306,9 +355,9 @@ def test_append_pca_scores_preserves_real_flattened_rows_and_columns(
     scores = materialized_result.select(["pca-1", "pca-2"]).to_numpy()
     assert np.isfinite(scores).all()
     assert scores == pytest.approx(
-        pca.transform(materialized_flattened.select(feature_columns).to_numpy())
+        pca.pca.transform(materialized_flattened.select(feature_columns).to_numpy())
     )
-    reconstructed = scores @ pca.components_ + pca.mean_
+    reconstructed = scores @ pca.pca.components_ + pca.pca.mean_
     assert reconstructed == pytest.approx(
         materialized_flattened.select(feature_columns).to_numpy()
     )
@@ -351,16 +400,21 @@ def test_reshape_pca_components_places_real_flattened_features_on_sorted_axes(
     sequences = sorted({coordinate[2] for coordinate in coordinates})
     times = sorted({coordinate[3] for coordinate in coordinates})
 
-    assert reshaped.shape == (2, len(wavelengths), len(steps), len(sequences), len(times))
-    assert reshaped.reshape(2, -1) == pytest.approx(pca.components_)
+    assert reshaped.columns == [
+        "component", "wavelength", "Step", "Sequence", "Time", "coefficient"
+    ]
+    assert reshaped.height == 2 * len(wavelengths) * len(steps) * len(sequences) * len(times)
+    assert reshaped["coefficient"].to_numpy().reshape(2, -1) == pytest.approx(
+        pca.pca.components_
+    )
     coordinate = coordinates[0]
-    assert reshaped[
-        :,
-        wavelengths.index(coordinate[0]),
-        steps.index(coordinate[1]),
-        sequences.index(coordinate[2]),
-        times.index(coordinate[3]),
-    ] == pytest.approx(pca.components_[:, 0])
+    selected = reshaped.filter(
+        (pl.col("wavelength") == coordinate[0])
+        & (pl.col("Step") == coordinate[1])
+        & (pl.col("Sequence") == coordinate[2])
+        & (pl.col("Time") == coordinate[3])
+    )
+    assert selected["coefficient"].to_numpy() == pytest.approx(pca.pca.components_[:, 0])
 
 
 def test_reshape_pca_components_rejects_invalid_real_flattened_layouts(
@@ -380,10 +434,7 @@ def test_reshape_pca_components_rejects_invalid_real_flattened_layouts(
         )
 
     incomplete = flattened.drop(feature_columns[-1])
-    incomplete_features = incomplete.collect_schema().names()[1:]
-    incomplete_pca = PCA(n_components=1).fit(
-        incomplete.collect().select(incomplete_features).to_numpy()
-    )
+    incomplete_pca = pca_scores.fit_flattened_pca(incomplete, 1)
     with pytest.raises(ValueError, match="Cartesian product"):
         reshape_pca_components(incomplete_pca, incomplete)
 
