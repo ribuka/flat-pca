@@ -502,6 +502,39 @@
         "`uv run -m pytest`",
         "`uv run -m ruff check .`"
       ]
+    },
+    {
+      "id": "TASK-019",
+      "title": "Step行フィルタ・StepTime/ReverseStepTime生成・edge_trim行処理の追加",
+      "status": "pending",
+      "priority": 19,
+      "depends_on": [
+        "TASK-018"
+      ],
+      "requirements": [
+        "`preprocess_and_flatten`および`flatten_pca`（`paths`指定時）に`target_steps: list[int] | None = None`を追加する。`flattened`指定時は使用しない。",
+        "各ファイルのParquet読み込み・入力検証後、`target_steps`が`None`でない場合に`pl.col(\"Step\").is_in(target_steps)`で行を絞り込む。入力検証はこの絞り込み前の元データに対して行う。",
+        "Step行フィルタ適用後、`Time`列の直後に`StepTime`列を追加する。各ファイル内で`Time`昇順に並べたとき、直前行に対し`Step`または`Sequence`が変化した行を区間の先頭行とし、先頭行の`StepTime`を`0.00`、区間内各行の`StepTime`を区間先頭行の`Time`との差分とする。",
+        "`ReverseStepTime`列を追加する。StepTimeと同じ区間分割を用い、区間内の`StepTime`値の並びを逆順にした値を持たせ、区間の末尾行は常に`0.00`とする。",
+        "flatten処理の特徴量列名に用いる`t`を、`Time`列ではなく`StepTime`列の値から生成するよう変更する。",
+        "`preprocess_and_flatten`および`flatten_pca`（`paths`指定時）に`edge_trim: list[float, float] | None = None`を追加する。`flattened`指定時は使用しない。",
+        "`edge_trim`が`None`でない場合、StepTime・ReverseStepTime列生成の直後に、`StepTime`が`edge_trim[0]`未満の行、および`ReverseStepTime`が`edge_trim[1]`未満の行それぞれについて、meta列（`Time`、`Step`、`StepTime`、`ReverseStepTime`、`Sequence`）以外の列を`None`で上書きする。",
+        "Step行フィルタ、StepTime・ReverseStepTime生成およびedge_trimによる上書きは、t/w方向smoothing、t/w方向規格化、t/w方向の間引きおよびflattenより前に適用する既存の処理順を維持する。",
+        "追加した引数の初期値は両方とも`None`とし、`None`の場合は既存の出力契約を変更しない。",
+        "すべての関数に型ヒントとNumPy形式docstringを付け、`SPEC.md`の記述と実装を一致させる。"
+      ],
+      "tests": [
+        "`tests/fixtures/real_subset`を用い、`target_steps`で一部の`Step`のみを指定した場合に、対象外`Step`の行が除外され、flatten特徴量列数が減少することを検証する。`target_steps=None`では既存結果が変わらないことを検証する。",
+        "実フィクスチャから作った変種で、`Step`または`Sequence`が変化する境界ごとに`StepTime`が`0.00`から始まり`Time`との差分になること、`ReverseStepTime`が各区間の末尾で`0.00`になることを検証する。",
+        "flatten後の特徴量列名の`t`部分が`Time`値ではなく`StepTime`値の`f\"{t:.2f}\"`表現になっていることを検証する。",
+        "`edge_trim`を指定した場合に、閾値未満の`StepTime`または`ReverseStepTime`を持つ行でmeta列以外が`None`になり、meta列（`Time`、`Step`、`StepTime`、`ReverseStepTime`、`Sequence`）は保持されることを検証する。`edge_trim=None`では上書きが発生しないことを検証する。",
+        "`target_steps`、`edge_trim`と既存の前処理・間引き引数を組み合わせたend-to-end結果を`tests/fixtures/real_subset`で検証する。"
+      ],
+      "acceptance_commands": [
+        "`uv run -m pytest tests/feature_engineering/test_flatten_pca.py`",
+        "`uv run -m pytest`",
+        "`uv run -m ruff check .`"
+      ]
     }
   ]
 }

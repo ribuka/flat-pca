@@ -17,6 +17,8 @@
 def preprocess_and_flatten(
     paths: Sequence[str | Path],
     *,
+    target_steps: list[int] | None = None,
+    edge_trim: list[float, float] | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
@@ -32,6 +34,8 @@ def flatten_pca(
     *,
     flattened: pl.LazyFrame | None = None,
     n_component: int | None = None,
+    target_steps: list[int] | None = None,
+    edge_trim: list[float, float] | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
@@ -58,6 +62,9 @@ def reshape_pca_components(
 
 - `preprocess_and_flatten`の`paths`は1個以上のParquetファイルへのパスとする。
 - `preprocess_and_flatten`は、`filename`列およびflatten特徴量列を持つ`pl.LazyFrame`を返す。列順と特徴量列名は「flatten仕様」に従う。
+- `target_steps`は対象とする`Step`列の値のリストを指定し、`None`の場合は`Step`列による行フィルタを適用しない。詳細は「Step行フィルタ仕様」に従う。
+- `edge_trim`は`(edge_trim[0], edge_trim[1])`の2値を指定し、`None`の場合はStepTime・ReverseStepTime列を用いた行処理を適用しない。詳細は「StepTime列生成仕様」および「edge_trimによる行処理仕様」に従う。
+- `flatten_pca`が`paths`を指定する場合、`target_steps`および`edge_trim`は`preprocess_and_flatten`と同じ意味・検証規則とする。`flattened`を指定する場合、`target_steps`および`edge_trim`は使用しない。
 - `flatten_pca`は`paths`または`flattened`のいずれか一方を受け取り、両引数の初期値は`None`とする。両方が`None`の場合、および両方が指定された場合は`ValueError`を送出する。
 - `paths`を指定した場合、`paths`および前処理引数は`preprocess_and_flatten`と同じ意味・検証規則とする。内部で`preprocess_and_flatten`を呼び出す。
 - `flattened`を指定した場合は、`filename`列およびflatten特徴量列を持つ`pl.LazyFrame`を直接使用し、前処理およびflattenは行わない。
@@ -92,6 +99,33 @@ def reshape_pca_components(
 - 入力パスが空、ファイルが存在しない、または上記の要件を満たさない場合は例外を送出する。
   - 存在しないファイルには`FileNotFoundError`を使用する。
   - 値、スキーマおよび引数の不正には`ValueError`を使用する。
+
+### Step行フィルタ仕様
+
+- 入力検証は各ファイルのParquetを読み込んだ直後の元データに対して行い、「入力要件」の各項目は`target_steps`による行フィルタ適用前の状態を対象に判定する。
+- Step行フィルタは、入力検証の直後、StepTime列生成より前に適用する。
+- `target_steps`が`None`でない場合、各ファイルについて`pl.col("Step").is_in(target_steps)`を満たさない行を削除する。
+- `target_steps`が`None`の場合は行フィルタを適用せず、全行を保持する。
+- すべての入力ファイルに同一の`target_steps`を適用するため、フィルタ後も各ファイル間で行集合の対応関係は維持される。
+
+### StepTime列生成仕様
+
+- StepTime列は、Step行フィルタ適用後、`Time`列の直後に挿入する新しい数値列とする。
+- 各ファイル内の行を`Time`昇順に並べたとき、直前行に対して`Step`または`Sequence`の値が変化した行を、新しい区間の先頭行とする。先頭行自身も区間の一部とする。
+- 区間の先頭行の`StepTime`は`0.00`とする。
+- 区間内の各行の`StepTime`は、その行の`Time`値から区間先頭行の`Time`値を引いた差分とする。すなわちStepTime列は、`Step`と`Sequence`の組が変化しない区間ごとに独立した経過時間を表す。
+- ReverseStepTime列は、StepTime列と同じ区間分割を用い、区間内の`StepTime`値の並びをTime降順に対応させた（区間内で逆順に並べ替えた）値を持つ新しい数値列とする。区間の末尾行の`ReverseStepTime`は常に`0.00`となる。
+- StepTimeおよびReverseStepTime列の生成は、t/w方向smoothing、t/w方向規格化、間引きおよびflattenより前に適用する。
+- flatten処理における特徴量列名の`t`は、`Time`列の値ではなく`StepTime`列の値を使用する。「flatten仕様」を参照する。
+
+### edge_trimによる行処理仕様
+
+- `edge_trim`が`None`でない場合、StepTimeおよびReverseStepTime列を生成した直後に、以下の上書き処理を適用する。`None`の場合は適用しない。
+- meta列は`Time`、`Step`、`StepTime`、`ReverseStepTime`、`Sequence`の5列を指す。
+- `StepTime`が`edge_trim[0]`より小さい行について、meta列以外の列（波長列を含む）の値を`None`で上書きする。
+- `ReverseStepTime`が`edge_trim[1]`より小さい行について、meta列以外の列（波長列を含む）の値を`None`で上書きする。
+- 上記2条件は独立に判定し、両方に該当する行はどちらの上書きも適用された結果となる。
+- この上書きは、t/w方向smoothing、t/w方向規格化、間引きおよびflattenより前に適用する。
 
 ### 前処理仕様
 
@@ -178,13 +212,13 @@ def apply_w_downsampling(
 
 - 各入力パスは`Path(path).resolve()`で絶対パスへ正規化する。
 - 入力ファイルの処理順は、正規化した絶対パスの文字列表現による昇順とする。
-- flatten前に、波長、`Step`、`Sequence`、`Time`をそれぞれ数値として昇順に並べる。
+- flatten前に、波長、`Step`、`Sequence`、`StepTime`をそれぞれ数値として昇順に並べる。
 - flatten後の特徴量列は、`(w, s, q, t)`をsort keyとして昇順に並べる。
 - `Sequence`列の値を`q`とする。
 - 特徴量列名は`f"{w}_{s}_{q}_{t}"`の形式とする。
 - `w`は`f"{v:.1f}nm"`で表現される入力波長列名をそのまま使用する。
 - `s`、`q` は int型で表現する。
-- `t`は `f"{t:.2f}"` で表現する。
+- `t`は`StepTime`列の値を`f"{t:.2f}"`で表現する。`Time`列の値は使用しない。
 - 正規化後の特徴量列名が重複する場合は`ValueError`を送出する。
 - flatten結果`df`の列順は、`filename`、flattenした特徴量列の順とする。
 - `preprocess_and_flatten`が返すLazyFrameのスキーマは、collect後の`df`と同じとする。
@@ -221,7 +255,7 @@ def apply_w_downsampling(
 ### 完了条件
 
 - 公開APIと公開される関数・クラスには型ヒントとNumPy形式のdocstringがある。
-- 正常系、入力検証、`Sequence`、t/w方向smoothing、t/w方向規格化、t/w方向の間引き、並び順、LazyFrameの遅延実行、flatten結果、PCAのfit、PCAスコアの結合およびPCA成分のreshapeを対象とした自動テストがある。
+- 正常系、入力検証、`Sequence`、Step行フィルタ、StepTime・ReverseStepTime列生成、edge_trimによる行処理、t/w方向smoothing、t/w方向規格化、t/w方向の間引き、並び順、LazyFrameの遅延実行、flatten結果、PCAのfit、PCAスコアの結合およびPCA成分のreshapeを対象とした自動テストがある。
 - t/w方向の間引きテストは、間引き間隔`1`、`2`、入力不正、および末尾が選択indexに該当しない場合を対象とする。
 - `tests/fixtures/real_subset`のParquetを使用し、複数ファイルを入力するend-to-endテストがある。
 - PCAのテストは、符号反転を許容しながら分散、部分空間、再構成結果またはreshape後の係数配置を検証する。
