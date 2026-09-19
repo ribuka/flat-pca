@@ -240,7 +240,7 @@ def apply_w_downsampling(
 ### PCA成分のreshape仕様
 
 - `reshape_pca_components`は、flatten特徴量列の順序に対応する`pca_model.pca.components_`を、component軸、波長、`Step`、`Sequence`、`Time`の座標へ展開したlong形式の`pl.DataFrame`を返す。
-- 返却するDataFrameの列順は`component`、`wavelength`、`Step`、`Sequence`、`Time`、`coefficient`とする。`component`は0始まりの整数、`wavelength`は数値、`coefficient`は対応するPCA係数とする。
+- 返却するDataFrameの列順は`Time`、`Step`、`Sequence`、`wavelength`、`component`、`coefficient`とする。`component`は0始まりの整数、`wavelength`は数値、`coefficient`は対応するPCA係数とする。
 - 行順は`component`、`wavelength`、`Step`、`Sequence`、`Time`を数値昇順にした順とする。
 - 各軸の値と順序はflatten仕様と同じく、波長、`Step`、`Sequence`、`Time`を数値昇順にしたものとする。
 - 返却DataFrameの各行は、component `c`（0始まり）の、波長`wavelength`、Step `Step`、Sequence `Sequence`、Time `Time`に対応する係数を`coefficient`へ保持する。

@@ -59,7 +59,7 @@ result.write_parquet("data/flatten_pca_result.parquet")
 - `preprocess_and_flatten` は前処理と flatten の遅延クエリ (`polars.LazyFrame`) を返します。列は `filename` と決定的に並んだ flatten 特徴量です。
 - `flatten_pca` は `paths` または flatten 済みの `LazyFrame` の一方から PCA を fit し、学習済みの `PcaModel` を返します。スコアは返しません。
 - `append_pca_scores` は fit 済みの `PcaModel` と flatten 済み `LazyFrame` を受け取り、`pca-1` から `pca-{n_component}` のスコア列を追加した `LazyFrame` を返します。
-- `reshape_pca_components` は PCA 成分を `component`、`wavelength`、`Step`、`Sequence`、`Time`、`coefficient` 列の long 形式 `DataFrame` として返します。
+- `reshape_pca_components` は PCA 成分を `Time`、`Step`、`Sequence`、`wavelength`、`component`、`coefficient` 列の long 形式 `DataFrame` として返します。
 
 `preprocess_and_flatten` と `append_pca_scores` は、呼び出し側が `.collect()` する時点を選べます。`flatten_pca` は PCA fit に必要な特徴量だけを materialize します。
 

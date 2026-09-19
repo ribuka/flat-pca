@@ -21,22 +21,22 @@ from spca.feature_engineering.flatten_pca.flatten import (
 from spca.feature_engineering.flatten_pca.input import (
     load_and_validate_inputs as _load_and_validate_inputs,
 )
-from spca.feature_engineering.flatten_pca.normalization import (
-    apply_t_normalization as _apply_t_normalization,
-)
-from spca.feature_engineering.flatten_pca.normalization import (
-    apply_w_normalization as _apply_w_normalization,
-)
-from spca.feature_engineering.flatten_pca.smoothing import (
-    apply_t_smoothing as _apply_t_smoothing,
-)
-from spca.feature_engineering.flatten_pca.smoothing import (
-    apply_w_smoothing as _apply_w_smoothing,
-)
-from spca.feature_engineering.flatten_pca.step_time import (
+from spca.feature_engineering.pca import PcaModel, fit_and_transform_pca
+from spca.feature_engineering.preprocess import (
     add_step_time_columns as _add_step_time_columns,
 )
-from spca.feature_engineering.pca import PcaModel, fit_and_transform_pca
+from spca.feature_engineering.preprocess.normalization import (
+    apply_t_normalization as _apply_t_normalization,
+)
+from spca.feature_engineering.preprocess.normalization import (
+    apply_w_normalization as _apply_w_normalization,
+)
+from spca.feature_engineering.preprocess.smoothing import (
+    apply_t_smoothing as _apply_t_smoothing,
+)
+from spca.feature_engineering.preprocess.smoothing import (
+    apply_w_smoothing as _apply_w_smoothing,
+)
 
 METADATA_COLUMNS = {"Time", "Step", "Sequence"}
 
@@ -407,7 +407,7 @@ def test_reshape_pca_components_places_real_flattened_features_on_sorted_axes(
     times = sorted({coordinate[3] for coordinate in coordinates})
 
     assert reshaped.columns == [
-        "component", "wavelength", "Step", "Sequence", "Time", "coefficient"
+        "Time", "Step", "Sequence", "wavelength", "component", "coefficient"
     ]
     assert reshaped.height == 2 * len(wavelengths) * len(steps) * len(sequences) * len(times)
     assert reshaped["coefficient"].to_numpy().reshape(2, -1) == pytest.approx(
@@ -484,7 +484,7 @@ def test_preprocess_and_flatten_matches_eager_stage_contract(
     """Match eager real-fixture stages for each preprocessing configuration."""
     loaded = [(path, pl.read_parquet(path)) for path in real_fixture_paths[:3]]
     frames = [frame for _, frame in loaded]
-    from spca.feature_engineering.flatten_pca.downsampling import (
+    from spca.feature_engineering.preprocess.downsampling import (
         apply_t_downsampling,
         apply_w_downsampling,
         collect_unique_times,

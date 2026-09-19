@@ -8,18 +8,22 @@ from pathlib import Path
 import polars as pl
 
 from ..pca import PcaModel
-from .downsampling import (
+from ..preprocess import (
+    add_step_time_columns,
+    apply_edge_trim,
     apply_t_downsampling,
+    apply_t_normalization,
+    apply_t_smoothing,
     apply_w_downsampling,
+    apply_w_normalization,
+    apply_w_smoothing,
     collect_unique_times,
     collect_unique_wavelengths,
+    filter_target_steps,
 )
 from .flatten import flatten_inputs
 from .input import load_and_validate_inputs
-from .normalization import apply_t_normalization, apply_w_normalization
 from .pca_scores import fit_flattened_pca
-from .smoothing import apply_t_smoothing, apply_w_smoothing
-from .step_time import add_step_time_columns, apply_edge_trim, filter_target_steps
 
 
 def flatten_pca(

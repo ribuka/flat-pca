@@ -7,7 +7,7 @@ import pytest
 
 from spca.feature_engineering import preprocess_and_flatten
 from spca.feature_engineering.flatten_pca.input import load_and_validate_inputs
-from spca.feature_engineering.flatten_pca.step_time import (
+from spca.feature_engineering.preprocess import (
     add_step_time_columns,
     apply_edge_trim,
 )

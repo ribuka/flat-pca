@@ -7,7 +7,7 @@ from numbers import Integral
 
 import polars as pl
 
-from .schema import parse_wavelength, wavelength_columns
+from ..flatten_pca.schema import parse_wavelength, wavelength_columns
 
 
 def collect_unique_times(

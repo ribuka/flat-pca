@@ -11,7 +11,7 @@ from spca.feature_engineering.flatten_pca.flatten import (
 from spca.feature_engineering.flatten_pca.input import (
     load_and_validate_inputs as _load_and_validate_inputs,
 )
-from spca.feature_engineering.flatten_pca.step_time import (
+from spca.feature_engineering.preprocess import (
     add_step_time_columns as _add_step_time_columns,
 )
 
