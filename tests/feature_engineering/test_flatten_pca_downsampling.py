@@ -11,25 +11,26 @@ from spca.feature_engineering import (
     flatten_pca,
     preprocess_and_flatten,
 )
-from spca.feature_engineering.flatten_pca.downsampling import (
-    apply_t_downsampling as _apply_t_downsampling,
-)
-from spca.feature_engineering.flatten_pca.downsampling import (
-    apply_w_downsampling as _apply_w_downsampling,
-)
-from spca.feature_engineering.flatten_pca.downsampling import (
-    collect_unique_times as _collect_unique_times,
-)
-from spca.feature_engineering.flatten_pca.downsampling import (
-    collect_unique_wavelengths as _collect_unique_wavelengths,
-)
 from spca.feature_engineering.flatten_pca.flatten import flatten_inputs
 from spca.feature_engineering.flatten_pca.input import load_and_validate_inputs
-from spca.feature_engineering.flatten_pca.normalization import (
+from spca.feature_engineering.preprocess import add_step_time_columns
+from spca.feature_engineering.preprocess.downsampling import (
+    apply_t_downsampling as _apply_t_downsampling,
+)
+from spca.feature_engineering.preprocess.downsampling import (
+    apply_w_downsampling as _apply_w_downsampling,
+)
+from spca.feature_engineering.preprocess.downsampling import (
+    collect_unique_times as _collect_unique_times,
+)
+from spca.feature_engineering.preprocess.downsampling import (
+    collect_unique_wavelengths as _collect_unique_wavelengths,
+)
+from spca.feature_engineering.preprocess.normalization import (
     apply_t_normalization,
     apply_w_normalization,
 )
-from spca.feature_engineering.flatten_pca.smoothing import (
+from spca.feature_engineering.preprocess.smoothing import (
     apply_t_smoothing,
     apply_w_smoothing,
 )
@@ -222,6 +223,7 @@ def _expected_downsampled_flatten(
     unique_wavelengths = _collect_unique_wavelengths(frames)
     prepared = []
     for path, frame in loaded:
+        frame = add_step_time_columns(frame)
         transformed = apply_t_smoothing(frame, t_smoothing_window)
         transformed = apply_w_smoothing(transformed, w_smoothing_window)
         transformed = apply_t_normalization(
