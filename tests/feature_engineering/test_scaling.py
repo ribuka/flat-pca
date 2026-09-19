@@ -2,7 +2,7 @@
 
 import polars as pl
 
-from spca.feature_engineering.scaling import apply_scaler, fit_scaler
+from flat_pca.feature_engineering.scaling import apply_scaler, fit_scaler
 
 
 def test_none_scaling_preserves_values_and_dtypes() -> None:

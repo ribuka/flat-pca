@@ -6,10 +6,10 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from spca.feature_engineering.preprocess.smoothing import (
+from flat_pca.feature_engineering.preprocess.smoothing import (
     apply_t_smoothing as _apply_t_smoothing,
 )
-from spca.feature_engineering.preprocess.smoothing import (
+from flat_pca.feature_engineering.preprocess.smoothing import (
     apply_w_smoothing as _apply_w_smoothing,
 )
 

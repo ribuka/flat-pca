@@ -227,7 +227,7 @@ def apply_w_downsampling(
 
 - PCAの入力には`filename`を除くすべてのflatten特徴量列を使用する。
 - `flatten_pca`は`fit_pca`でPCAをfitし、そのfit済み`PcaModel`を返す。
-- `fit_flattened_pca`は、PCAのfitに`src/spca/feature_engineering/pca.py`の`fit_pca`を使用しなければならない。`sklearn.decomposition.PCA`を直接生成・fitしてはならない。
+- `fit_flattened_pca`は、PCAのfitに`src/flat_pca/feature_engineering/pca.py`の`fit_pca`を使用しなければならない。`sklearn.decomposition.PCA`を直接生成・fitしてはならない。
 - `fit_flattened_pca`は`fit_pca`に、flatten特徴量列、`impute_strategy="drop"`、`outlier_strategy=None`、`scaling_strategy="none"`および`max_n_component=None`を指定し、返却された`PcaModel`をそのまま返す。
 - `scaling_strategy="none"`相当とし、PCA前の中心化および尺度変換は行わない。
 - 平均中心化は`sklearn.decomposition.PCA`内部の処理に任せ、分散による標準化は行わない。

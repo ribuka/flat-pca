@@ -6,31 +6,31 @@ import numpy as np
 import polars as pl
 import pytest
 
-from spca.feature_engineering import (
+from flat_pca.feature_engineering import (
     append_pca_scores,
     flatten_pca,
     preprocess_and_flatten,
 )
-from spca.feature_engineering.flatten_pca.flatten import flatten_inputs
-from spca.feature_engineering.flatten_pca.input import load_and_validate_inputs
-from spca.feature_engineering.preprocess import add_step_time_columns
-from spca.feature_engineering.preprocess.downsampling import (
+from flat_pca.feature_engineering.flatten_pca.flatten import flatten_inputs
+from flat_pca.feature_engineering.flatten_pca.input import load_and_validate_inputs
+from flat_pca.feature_engineering.preprocess import add_step_time_columns
+from flat_pca.feature_engineering.preprocess.downsampling import (
     apply_t_downsampling as _apply_t_downsampling,
 )
-from spca.feature_engineering.preprocess.downsampling import (
+from flat_pca.feature_engineering.preprocess.downsampling import (
     apply_w_downsampling as _apply_w_downsampling,
 )
-from spca.feature_engineering.preprocess.downsampling import (
+from flat_pca.feature_engineering.preprocess.downsampling import (
     collect_unique_times as _collect_unique_times,
 )
-from spca.feature_engineering.preprocess.downsampling import (
+from flat_pca.feature_engineering.preprocess.downsampling import (
     collect_unique_wavelengths as _collect_unique_wavelengths,
 )
-from spca.feature_engineering.preprocess.normalization import (
+from flat_pca.feature_engineering.preprocess.normalization import (
     apply_t_normalization,
     apply_w_normalization,
 )
-from spca.feature_engineering.preprocess.smoothing import (
+from flat_pca.feature_engineering.preprocess.smoothing import (
     apply_t_smoothing,
     apply_w_smoothing,
 )

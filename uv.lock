@@ -183,6 +183,46 @@ wheels = [
 ]
 
 [[package]]
+name = "flat-pca"
+source = { editable = "." }
+dependencies = [
+    { name = "loguru" },
+    { name = "numpy" },
+    { name = "plotly" },
+    { name = "polars" },
+    { name = "scikit-learn" },
+    { name = "wiggum" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "ipykernel" },
+    { name = "nbformat" },
+    { name = "pylint" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "loguru", specifier = "==0.7.3" },
+    { name = "numpy", specifier = "==2.5.3" },
+    { name = "plotly", specifier = "==7.0.0" },
+    { name = "polars", specifier = "==1.44.2" },
+    { name = "scikit-learn", specifier = "==1.9.1" },
+    { name = "wiggum", git = "https://github.com/ribuka/wiggum.git" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "ipykernel", specifier = "==7.3.0" },
+    { name = "nbformat", specifier = "==5.11.1" },
+    { name = "pylint", specifier = "==4.0.8" },
+    { name = "pytest", specifier = "==9.1.1" },
+    { name = "ruff", specifier = "==0.16.7" },
+]
+
+[[package]]
 name = "iniconfig"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -993,46 +1033,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
-]
-
-[[package]]
-name = "spca"
-source = { editable = "." }
-dependencies = [
-    { name = "loguru" },
-    { name = "numpy" },
-    { name = "plotly" },
-    { name = "polars" },
-    { name = "scikit-learn" },
-    { name = "wiggum" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "ipykernel" },
-    { name = "nbformat" },
-    { name = "pylint" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "loguru", specifier = "==0.7.3" },
-    { name = "numpy", specifier = "==2.5.3" },
-    { name = "plotly", specifier = "==7.0.0" },
-    { name = "polars", specifier = "==1.44.2" },
-    { name = "scikit-learn", specifier = "==1.9.1" },
-    { name = "wiggum", git = "https://github.com/ribuka/wiggum.git" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "ipykernel", specifier = "==7.3.0" },
-    { name = "nbformat", specifier = "==5.11.1" },
-    { name = "pylint", specifier = "==4.0.8" },
-    { name = "pytest", specifier = "==9.1.1" },
-    { name = "ruff", specifier = "==0.16.7" },
 ]
 
 [[package]]

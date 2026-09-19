@@ -2,7 +2,7 @@
 
 import polars as pl
 
-from spca.visualize import create_spectra_heatmap
+from flat_pca.visualize import create_spectra_heatmap
 
 
 def test_create_spectra_heatmap_ignores_metadata_columns() -> None:
