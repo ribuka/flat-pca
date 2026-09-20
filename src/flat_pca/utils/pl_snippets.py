@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Literal
 from pathlib import Path
+from typing import Literal
+
 import polars as pl
-from datetime import datetime
 
 from .natural_keys import natural_keys
 
@@ -18,12 +18,13 @@ def _normalize_join_how(how: HOW) -> Literal["left", "right", "full", "inner"]:
 def _join_polars_with_indicator(
     left: pl.DataFrame | pl.LazyFrame,
     right: pl.DataFrame | pl.LazyFrame,
-    on: list[str] = [],
-    left_on: list[str] = [],
-    right_on: list[str] = [],
+    on: list[str] | None = None,
+    left_on: list[str] | None = None,
+    right_on: list[str] | None = None,
     how: HOW = "left",
     indicator: str | bool = "_merge",
 ) -> pl.DataFrame | pl.LazyFrame:
+    """Join two Polars frames and optionally add a merge-origin indicator."""
     left = left.with_columns(pl.lit(True).alias("in_left"))
     right = right.with_columns(pl.lit(True).alias("in_right"))
     how = _normalize_join_how(how)
@@ -57,13 +58,16 @@ def my_merge(
     left: pl.DataFrame | pl.LazyFrame,
     right: pl.DataFrame | pl.LazyFrame,
     addons: list[str] | None = None,
-    on: list[str] = ["ID"],
+    on: list[str] | None = None,
     left_on: str | None = None,
     right_on: str | None = None,
     how: Literal["left", "right", "outer", "full", "inner"] = "left",
     indicator: str | bool = "_merge",
     show_result: bool = True,
 ) -> pl.DataFrame | pl.LazyFrame:
+    """Merge two same-kind Polars frames with optional column selection."""
+    if on is None:
+        on = ["ID"]
 
     if type(left) is not type(right):
         raise TypeError(f"df: {type(left)} and wfl: {type(right)} must be the same type")
@@ -198,7 +202,11 @@ def get_columns_from_polars(df) -> list:
     raise TypeError("df must be a polars.DataFrame or polars.LazyFrame")
 
 
-def get_schema_from_polars(df, args: list[str] = []) -> dict[str, pl.DataType]:
+def get_schema_from_polars(
+    df: pl.DataFrame | pl.LazyFrame,
+    args: list[str] | None = None,
+) -> dict[str, pl.DataType]:
+    """Return the schema of a Polars frame, optionally limited to columns."""
     if args:
         df = df.select(args)
     if isinstance(df, pl.LazyFrame):
@@ -210,10 +218,9 @@ def get_schema_from_polars(df, args: list[str] = []) -> dict[str, pl.DataType]:
 
 def get_numeric_args(
     df: pl.DataFrame,
-    args: list[str] = [],
+    args: list[str] | None = None,
 ) -> list[str]:
-    """ Get numeric arguments from DataFrame.
-    """
+    """Return numeric column names from a DataFrame."""
     if not args:
         args = get_columns_from_polars(df)
     numeric_types = [pl.Float32, pl.Float64, pl.Int8, pl.Int16, pl.Int32, pl.Int64]
