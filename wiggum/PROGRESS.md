@@ -136,14 +136,14 @@ Append Ralph loop results in English using the format defined in `RALPH_PROJECT.
 - Changes: Added a focused PCA-score module. `flatten_pca` now returns a fitted scikit-learn PCA from `preprocess_and_flatten` features only, and `append_pca_scores` returns a LazyFrame with ordered scores. Exported the new public API and updated affected real-fixture integration tests.
 - Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` (21 passed); `uv run -m pytest tests/feature_engineering/test_flatten_pca.py tests/feature_engineering/test_flatten_pca_downsampling.py` (61 passed); `uv run -m pytest` (113 passed); `uv run -m ruff check .` (passed). A final targeted pytest rerun was blocked after 20 passes by `WinError 5` accessing the normal Windows pytest temporary directory; `uv run -m ruff check .` and `git diff --check` passed.
 - Requirements: Implementation and prior passing real-fixture tests verify fitted PCA return, feature-only fitting, component validation, ordered LazyFrame score appending, mismatch validation, public exports, and reconstruction-based score validation.
-- Notes: The final required pytest invocation cannot currently complete because `C:\\Users\\rtagu\\AppData\\Local\\Temp\\pytest-of-rtagu` is access-restricted. Preserve this work and restore access to rerun the acceptance commands before marking the task completed.
+- Notes: The final required pytest invocation cannot currently complete because `%TEMP%\pytest-of-<user>` is access-restricted. Preserve this work and restore access to rerun the acceptance commands before marking the task completed.
 - Additional notes: As `uv run -m pytest` all passed, status is changed from `blocked` to `completed`.
 
 ## 2026-09-18 04:42 - TASK-018
 
 - Result: blocked
 - Changes: Migrated Flatten-PCA fitting and score/component APIs to `PcaModel`; added exclusive `paths`/`flattened` input support; delegated fitting to shared `fit_pca` with drop imputation, no outlier handling, no scaling, and no component cap; emitted long-form component coordinates; and updated documentation and real-fixture regression coverage.
-- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` first passed (25 passed), then later was blocked after 24 passed by `WinError 5` accessing `C:\Users\rtagu\AppData\Local\Temp\pytest-of-rtagu`; `uv run -m pytest` was blocked by the same external Temp-directory permission error after 115 passed and 2 setup errors; `uv run -m ruff check .` and `git diff --check` passed.
+- Tests: `uv run -m pytest tests/feature_engineering/test_flatten_pca.py` first passed (25 passed), then later was blocked after 24 passed by `WinError 5` accessing `%TEMP%\pytest-of-<user>`; `uv run -m pytest` was blocked by the same external Temp-directory permission error after 115 passed and 2 setup errors; `uv run -m ruff check .` and `git diff --check` passed.
 - Requirements: Implementation and the initially passing focused test cover both input routes, exclusive-input validation, shared fitter configuration, `PcaModel` use by score/component APIs, and ordered long-form component coefficients. Completion cannot be recorded until the documented pytest commands can access the normal Windows Temp directory.
 - Notes: No task ledger file was present to update. No fixture Parquet files were modified.
 
