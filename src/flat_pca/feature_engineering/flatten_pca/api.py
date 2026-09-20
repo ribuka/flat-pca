@@ -23,6 +23,7 @@ from ..preprocess import (
 )
 from .flatten import flatten_inputs
 from .input import StemUniquenessCheck, load_and_validate_inputs
+from .input import validate_metadata_alignment as _validate_metadata_alignment
 from .pca_scores import fit_flattened_pca
 
 
@@ -40,6 +41,7 @@ def flatten_pca(
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
     stem_uniqueness: StemUniquenessCheck = "skip",
+    validate_metadata_alignment: bool = False,
     materialize_once: bool = True,
 ) -> PcaModel:
     """Preprocess, flatten, and fit PCA across spectral Parquet files.
@@ -78,6 +80,10 @@ def flatten_pca(
         How to handle duplicate ``Path.stem`` values across ``paths``. Used
         only when ``paths`` is specified; ignored when ``flattened`` is
         specified. See ``load_and_validate_inputs`` for details.
+    validate_metadata_alignment : bool, default False
+        Forwarded to ``preprocess_and_flatten`` when ``paths`` is specified;
+        ignored when ``flattened`` is specified. See
+        ``preprocess_and_flatten`` for details.
     materialize_once : bool, default True
         Forwarded to ``preprocess_and_flatten`` when ``paths`` is specified;
         ignored when ``flattened`` is specified. See
@@ -110,6 +116,7 @@ def flatten_pca(
             t_downsampling_stride=t_downsampling_stride,
             w_downsampling_stride=w_downsampling_stride,
             stem_uniqueness=stem_uniqueness,
+            validate_metadata_alignment=validate_metadata_alignment,
             materialize_once=materialize_once,
         )
     return fit_flattened_pca(flattened, n_component)
@@ -127,6 +134,7 @@ def preprocess_and_flatten(
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
     stem_uniqueness: StemUniquenessCheck = "skip",
+    validate_metadata_alignment: bool = False,
     materialize_once: bool = True,
 ) -> pl.LazyFrame:
     """Build a lazy preprocessing and deterministic flattening query.
@@ -151,6 +159,16 @@ def preprocess_and_flatten(
     stem_uniqueness : Literal["skip", "warn", "error"], default "skip"
         How to handle duplicate ``Path.stem`` values across ``paths``. See
         ``load_and_validate_inputs`` for details.
+    validate_metadata_alignment : bool, default False
+        If ``True``, require every input file to share an identical set of
+        ``(Time, Step, Sequence)`` tuples after ``target_steps`` filtering,
+        raising ``ValueError`` on mismatch. Skipped by default. When skipped,
+        a mismatch is not guaranteed to raise downstream: the flattening
+        stage derives its feature layout from the first sorted input file, so
+        a later file missing a combination silently receives a null feature
+        value instead of an error, and a later file with an extra
+        combination has it silently dropped. Applied after ``target_steps``
+        filtering so files may freely differ outside the retained steps.
     materialize_once : bool, default True
         If ``True``, collect the flatten query exactly once and return the
         result as a ``LazyFrame`` backed by that in-memory ``DataFrame``, so
@@ -166,10 +184,16 @@ def preprocess_and_flatten(
         Deferred one-row-per-file flattened features with ``source`` first.
     """
     loaded_inputs = load_and_validate_inputs(paths, stem_uniqueness=stem_uniqueness)
+    filtered_inputs: list[tuple[Path, pl.LazyFrame]] = [
+        (path, filter_target_steps(frame, target_steps))
+        for path, frame in loaded_inputs
+    ]
+    if validate_metadata_alignment:
+        _validate_metadata_alignment(filtered_inputs)
+
     step_time_inputs: list[tuple[Path, pl.LazyFrame]] = []
-    for path, frame in loaded_inputs:
-        filtered = filter_target_steps(frame, target_steps)
-        with_step_time = add_step_time_columns(filtered)
+    for path, frame in filtered_inputs:
+        with_step_time = add_step_time_columns(frame)
         trimmed = apply_edge_trim(with_step_time, edge_trim)
         step_time_inputs.append((path, trimmed))
 

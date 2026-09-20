@@ -61,6 +61,7 @@ def test_public_import_and_signature_are_stable(
         "t_downsampling_stride",
         "w_downsampling_stride",
         "stem_uniqueness",
+        "validate_metadata_alignment",
         "materialize_once",
     ]
     assert parameters["paths"].kind is Parameter.POSITIONAL_OR_KEYWORD
@@ -71,6 +72,7 @@ def test_public_import_and_signature_are_stable(
     assert parameters["t_downsampling_stride"].default == 1
     assert parameters["w_downsampling_stride"].default == 1
     assert parameters["stem_uniqueness"].default == "skip"
+    assert parameters["validate_metadata_alignment"].default is False
     assert parameters["materialize_once"].default is True
 
     result = flatten_pca(real_fixture_paths, n_component=1)
@@ -543,6 +545,66 @@ def test_preprocess_and_flatten_rejects_real_fixture_schema_variant(
 
     with pytest.raises(ValueError, match="required columns"):
         preprocess_and_flatten([invalid_path])
+
+
+def _write_extra_step_variant(
+    frame: pl.DataFrame, baseline_path: Path, variant_path: Path
+) -> None:
+    """Write a baseline real-fixture frame and a variant with an extra Step row.
+
+    Parameters
+    ----------
+    frame : pl.DataFrame
+        Real-fixture-derived data shared by both written files.
+    baseline_path : Path
+        Destination for the unmodified frame.
+    variant_path : Path
+        Destination for the frame plus one row at a ``Step`` and ``Time``
+        combination absent from ``baseline_path``.
+    """
+    frame.write_parquet(baseline_path)
+    extra_step_row = frame.head(1).with_columns(
+        pl.lit(2).alias("Step"),
+        pl.lit(frame["Time"].max() + 100.0).alias("Time"),
+    )
+    pl.concat([frame, extra_step_row]).write_parquet(variant_path)
+
+
+def test_preprocess_and_flatten_skips_metadata_alignment_check_by_default(
+    real_fixture_paths: list[Path], tmp_path: Path
+) -> None:
+    """Flatten real-fixture-derived inputs with mismatched keys by default."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    baseline = tmp_path / "baseline.parquet"
+    variant = tmp_path / "variant.parquet"
+    _write_extra_step_variant(frame, baseline, variant)
+
+    flattened = preprocess_and_flatten([baseline, variant]).collect()
+
+    assert flattened.height == 2
+
+
+def test_preprocess_and_flatten_applies_target_steps_before_metadata_alignment_check(
+    real_fixture_paths: list[Path], tmp_path: Path
+) -> None:
+    """Filter Step rows before the opt-in Time/Step/Sequence alignment check."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    baseline = tmp_path / "baseline.parquet"
+    variant = tmp_path / "variant.parquet"
+    _write_extra_step_variant(frame, baseline, variant)
+
+    with pytest.raises(ValueError, match="metadata-key sets"):
+        preprocess_and_flatten(
+            [baseline, variant], validate_metadata_alignment=True
+        )
+
+    flattened = preprocess_and_flatten(
+        [baseline, variant],
+        target_steps=[1],
+        validate_metadata_alignment=True,
+    ).collect()
+
+    assert flattened.height == 2
 
 
 def test_preprocess_and_flatten_materialize_once_matches_deferred_result(
