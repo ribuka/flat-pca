@@ -67,6 +67,7 @@ components: pl.DataFrame = reshape_pca_components(pca, flattened)
 - `PcaModel.get_component_coefficients` は、指定した成分(1-based)の特徴量ごとの係数を絶対値の降順で並べた `DataFrame` を返します。
 
 `preprocess_and_flatten` と `append_pca_scores` は、呼び出し側が `.collect()` する時点を選べます。`flatten_pca` は PCA fit に必要な特徴量だけを materialize します。
+`preprocess_and_flatten`(および内部で呼び出す `flatten_pca`)は既定 (`materialize_once=True`) で、flatten 完了後に一度だけ `.collect()` した結果をメモリ上に固定し、`pl.LazyFrame` として返します。これはメモリ消費と引き換えに、戻り値を PCA の fit・スコア付与などで再利用しても前処理・flatten を再実行しないための挙動です。完全な遅延実行が必要な場合は `materialize_once=False` を指定してください。どちらの場合も戻り値の型は常に `pl.LazyFrame` です。
 
 ### 前処理を指定する例
 
