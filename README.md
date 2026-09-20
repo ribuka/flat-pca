@@ -22,6 +22,8 @@ uv sync
 ```python
 from pathlib import Path
 
+from polars as pl
+
 from flat_pca.feature_engineering import (
     append_pca_scores,
     flatten_pca,
@@ -36,8 +38,8 @@ paths = sorted(input_dir.glob("*.parquet"))
 flattened: pl.LazyFrame = preprocess_and_flatten(paths)
 
 ## PCA を fit
-pca: PcaModel = flatten_pca(flattened=flattened)
-# pca: PcaModel = flatten_pca(paths)
+pca: "PcaModel" = flatten_pca(flattened=flattened)
+# pca: "PcaModel" = flatten_pca(paths)
 
 ## flattened へスコアを結合する。
 result: pl.LazyFrame = append_pca_scores(pca, flattened)
@@ -57,17 +59,6 @@ components: pl.DataFrame = reshape_pca_components(pca, flattened)
 `n_component` を省略すると、「入力ファイル数」と「展開後のスペクトル特徴量数」の小さい方まで
 すべての主成分を計算します。必要な主成分数だけに絞る場合は、1 以上かつこの上限以下の整数を
 指定します。入力パスの順序は結果に影響しません。
-
-### 各 API の責務
-
-- `preprocess_and_flatten` は前処理と flatten の遅延クエリ (`polars.LazyFrame`) を返します。列は `source` と決定的に並んだ flatten 特徴量です。
-- `flatten_pca` は `paths` または flatten 済みの `LazyFrame` の一方から PCA を fit し、学習済みの `PcaModel` を返します。スコアは返しません。
-- `append_pca_scores` は fit 済みの `PcaModel` と flatten 済み `LazyFrame` を受け取り、`pca-1` から `pca-{n_component}` のスコア列を追加した `LazyFrame` を返します。
-- `reshape_pca_components` は PCA 成分を `StepTime`、`Step`、`Sequence`、`wavelength`、`component`、`coefficient` 列の long 形式 `DataFrame` として返します。
-- `PcaModel.get_component_coefficients` は、指定した成分(1-based)の特徴量ごとの係数を絶対値の降順で並べた `DataFrame` を返します。
-
-`preprocess_and_flatten` と `append_pca_scores` は、呼び出し側が `.collect()` する時点を選べます。`flatten_pca` は PCA fit に必要な特徴量だけを materialize します。
-`preprocess_and_flatten`(および内部で呼び出す `flatten_pca`)は既定 (`materialize_once=True`) で、flatten 完了後に一度だけ `.collect()` した結果をメモリ上に固定し、`pl.LazyFrame` として返します。これはメモリ消費と引き換えに、戻り値を PCA の fit・スコア付与などで再利用しても前処理・flatten を再実行しないための挙動です。完全な遅延実行が必要な場合は `materialize_once=False` を指定してください。どちらの場合も戻り値の型は常に `pl.LazyFrame` です。
 
 ### 前処理を指定する例
 
@@ -89,23 +80,7 @@ preprocess_cfg = {
 
 flattened = preprocess_and_flatten(paths, **preprocess_cfg)
 pca = flatten_pca(paths, **preprocess_cfg)
-result = append_pca_scores(pca, flattened)
 ```
-
-`target_steps` は残す `Step` 値のリストです。`None`(既定値)なら全行を残します。
-`edge_trim` は `(edge_trim[0], edge_trim[1])` のしきい値で、各セグメント(`Step` と
-`Sequence` が連続して同じ範囲)内で `StepTime` が `edge_trim[0]` 未満、または
-`ReverseStepTime` が `edge_trim[1]` 未満の行を除外します。`None`(既定値)ならトリムを
-行いません。どちらも `paths` を渡した場合のみ有効で、`flattened` を直接渡す場合は無視
-されます。
-`t_downsampling_stride` と `w_downsampling_stride` は、全入力で共通する昇順の Time 値・
-波長値について先頭から何個おきに残すかを、1 以上の整数で指定します。既定値 `1` は
-間引きを行いません。
-
-前処理は常に、対象 `Step` の絞り込み、`StepTime`/`ReverseStepTime` の付与、端のトリム、
-時間方向平滑化、波長方向平滑化、時間方向規格化、波長方向規格化、時間方向間引き、
-波長方向間引き、flatten の順で適用されます。平滑化と規格化は間引き前の全観測値を
-使用します。不要な平滑化・規格化は引数を省略するか `None` を渡してください。
 
 ### 可視化
 
