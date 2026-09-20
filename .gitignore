@@ -20,6 +20,7 @@ wheels/
 !.env.example
 .codex/
 .copilot/
+.claude/
 
 # data
 /data/
