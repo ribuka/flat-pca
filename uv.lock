@@ -191,7 +191,6 @@ dependencies = [
     { name = "plotly" },
     { name = "polars" },
     { name = "scikit-learn" },
-    { name = "wiggum" },
 ]
 
 [package.dev-dependencies]
@@ -201,6 +200,7 @@ dev = [
     { name = "pylint" },
     { name = "pytest" },
     { name = "ruff" },
+    { name = "wiggum" },
 ]
 
 [package.metadata]
@@ -210,7 +210,6 @@ requires-dist = [
     { name = "plotly", specifier = "==7.0.0" },
     { name = "polars", specifier = "==1.44.2" },
     { name = "scikit-learn", specifier = "==1.9.1" },
-    { name = "wiggum", git = "https://github.com/ribuka/wiggum.git" },
 ]
 
 [package.metadata.requires-dev]
@@ -220,6 +219,7 @@ dev = [
     { name = "pylint", specifier = "==4.0.8" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "ruff", specifier = "==0.16.7" },
+    { name = "wiggum", git = "https://github.com/ribuka/wiggum.git" },
 ]
 
 [[package]]

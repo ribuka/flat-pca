@@ -14,11 +14,11 @@ dependencies = [
     "plotly==7.0.0",
     "polars==1.44.2",
     "scikit-learn==1.9.1",
-    "wiggum",
 ]
 
 [dependency-groups]
 dev = [
+    "wiggum",
     "ipykernel==7.3.0",
     "nbformat==5.11.1",
     "pylint==4.0.8",
