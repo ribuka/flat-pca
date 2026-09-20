@@ -409,11 +409,11 @@ def test_reshape_pca_components_places_real_flattened_features_on_sorted_axes(
     times = sorted({coordinate[3] for coordinate in coordinates})
 
     assert reshaped.columns == [
-        "Time", "Step", "Sequence", "wavelength", "component", "coefficient"
+        "StepTime", "Step", "Sequence", "wavelength", "component", "coefficient"
     ]
     assert reshaped.height == 2 * len(wavelengths) * len(steps) * len(sequences) * len(times)
     assert reshaped.equals(
-        reshaped.sort(["Step", "Sequence", "Time", "component", "wavelength"])
+        reshaped.sort(["Step", "Sequence", "StepTime", "component", "wavelength"])
     )
 
     coordinate_frame = pl.DataFrame(
@@ -421,17 +421,17 @@ def test_reshape_pca_components_places_real_flattened_features_on_sorted_axes(
             "wavelength": [coordinate[0] for coordinate in coordinates],
             "Step": [coordinate[1] for coordinate in coordinates],
             "Sequence": [coordinate[2] for coordinate in coordinates],
-            "Time": [coordinate[3] for coordinate in coordinates],
+            "StepTime": [coordinate[3] for coordinate in coordinates],
         }
     )
-    sort_keys = ["wavelength", "Step", "Sequence", "Time"]
+    sort_keys = ["wavelength", "Step", "Sequence", "StepTime"]
     for component_index in range(pca.pca.n_components_):
         expected = coordinate_frame.with_columns(
             pl.Series("coefficient", pca.pca.components_[component_index, :])
         ).sort(sort_keys)
         actual = (
             reshaped.filter(pl.col("component") == component_index)
-            .select(["wavelength", "Step", "Sequence", "Time", "coefficient"])
+            .select(["wavelength", "Step", "Sequence", "StepTime", "coefficient"])
             .sort(sort_keys)
         )
         assert actual["coefficient"].to_numpy() == pytest.approx(

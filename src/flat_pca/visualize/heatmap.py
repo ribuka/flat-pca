@@ -60,6 +60,7 @@ def create_heatmap(
         ``range_color`` is not explicitly set, by default ``0.995``.
     """
     if {x_name, y_name, z_name}.issubset(spectra.columns):
+        print("Using long-format data as-is.")
         spectra_long = spectra
     else:
         x_columns = [c for c in spectra.columns if c not in metadata_columns]

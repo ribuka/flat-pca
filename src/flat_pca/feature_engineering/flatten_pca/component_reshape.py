@@ -31,8 +31,8 @@ def reshape_pca_components(
     Returns
     -------
     pl.DataFrame
-        Long-form components ordered by Step, Sequence, Time, component, and
-        wavelength.
+        Long-form components ordered by Step, Sequence, StepTime, component,
+        and wavelength.
 
     Raises
     ------
@@ -63,7 +63,7 @@ def reshape_pca_components(
             "wavelength": [coordinate[0] for coordinate in coordinates],
             "Step": [coordinate[1] for coordinate in coordinates],
             "Sequence": [coordinate[2] for coordinate in coordinates],
-            "Time": [coordinate[3] for coordinate in coordinates],
+            "StepTime": [coordinate[3] for coordinate in coordinates],
         }
     ).with_columns(
         [
@@ -73,14 +73,14 @@ def reshape_pca_components(
     )
     return (
         table.unpivot(
-            index=["wavelength", "Step", "Sequence", "Time"],
+            index=["wavelength", "Step", "Sequence", "StepTime"],
             on=component_columns,
             variable_name="component",
             value_name="coefficient",
         )
         .with_columns(pl.col("component").cast(pl.Int64))
-        .select(["Time", "Step", "Sequence", "wavelength", "component", "coefficient"])
-        .sort(["Step", "Sequence", "Time", "component", "wavelength"])
+        .select(["StepTime", "Step", "Sequence", "wavelength", "component", "coefficient"])
+        .sort(["Step", "Sequence", "StepTime", "component", "wavelength"])
     )
 
 
@@ -126,7 +126,7 @@ def _parse_feature_coordinate(column: str) -> tuple[float, int, int, float]:
     Returns
     -------
     tuple[float, int, int, float]
-        Wavelength, Step, Sequence, and Time coordinates.
+        Wavelength, Step, Sequence, and StepTime coordinates.
 
     Raises
     ------
