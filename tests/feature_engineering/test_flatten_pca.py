@@ -61,6 +61,7 @@ def test_public_import_and_signature_are_stable(
         "t_downsampling_stride",
         "w_downsampling_stride",
         "stem_uniqueness",
+        "materialize_once",
     ]
     assert parameters["paths"].kind is Parameter.POSITIONAL_OR_KEYWORD
     for parameter in list(parameters.values())[1:]:
@@ -70,6 +71,7 @@ def test_public_import_and_signature_are_stable(
     assert parameters["t_downsampling_stride"].default == 1
     assert parameters["w_downsampling_stride"].default == 1
     assert parameters["stem_uniqueness"].default == "skip"
+    assert parameters["materialize_once"].default is True
 
     result = flatten_pca(real_fixture_paths, n_component=1)
     assert isinstance(result, PcaModel)
@@ -541,3 +543,66 @@ def test_preprocess_and_flatten_rejects_real_fixture_schema_variant(
 
     with pytest.raises(ValueError, match="required columns"):
         preprocess_and_flatten([invalid_path])
+
+
+def test_preprocess_and_flatten_materialize_once_matches_deferred_result(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Return an equal `pl.LazyFrame` result whether materialize_once is True or False."""
+    paths = real_fixture_paths[:3]
+
+    materialized = preprocess_and_flatten(paths)
+    default = preprocess_and_flatten(paths, materialize_once=True)
+    deferred = preprocess_and_flatten(paths, materialize_once=False)
+
+    assert isinstance(materialized, pl.LazyFrame)
+    assert isinstance(deferred, pl.LazyFrame)
+    assert materialized.collect().equals(default.collect())
+    assert materialized.collect().equals(deferred.collect())
+
+
+def test_materialize_once_default_decouples_result_from_source_files(
+    real_fixture_paths: list[Path], tmp_path: Path
+) -> None:
+    """Materializing once lets later collects survive removal of the source files."""
+    copied_paths = []
+    for source in real_fixture_paths[:3]:
+        destination = tmp_path / source.name
+        destination.write_bytes(source.read_bytes())
+        copied_paths.append(destination)
+
+    materialized = preprocess_and_flatten(copied_paths)
+    deferred = preprocess_and_flatten(copied_paths, materialize_once=False)
+    expected = materialized.collect()
+
+    for path in copied_paths:
+        path.unlink()
+
+    assert materialized.collect().equals(expected)
+    with pytest.raises(FileNotFoundError):
+        deferred.collect()
+
+
+def test_flatten_pca_materialize_once_matches_deferred_pca_and_scores(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Match fitted PCA and appended scores whether materialize_once is True or False."""
+    paths = real_fixture_paths[:3]
+
+    materialized_flattened = preprocess_and_flatten(paths)
+    deferred_flattened = preprocess_and_flatten(paths, materialize_once=False)
+
+    pca_materialized = flatten_pca(flattened=materialized_flattened, n_component=2)
+    pca_deferred = flatten_pca(flattened=deferred_flattened, n_component=2)
+    pca_via_paths = flatten_pca(paths, n_component=2, materialize_once=False)
+
+    result_materialized = append_pca_scores(
+        pca_materialized, materialized_flattened
+    ).collect()
+    result_deferred = append_pca_scores(pca_deferred, deferred_flattened).collect()
+
+    assert pca_materialized.columns == pca_deferred.columns == pca_via_paths.columns
+    assert pca_materialized.pca.components_ == pytest.approx(
+        pca_deferred.pca.components_
+    )
+    assert result_materialized.equals(result_deferred)

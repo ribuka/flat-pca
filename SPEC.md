@@ -25,6 +25,7 @@ def preprocess_and_flatten(
     w_normalization_range: tuple[float, float] | None = None,
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
+    materialize_once: bool = True,
 ) -> pl.LazyFrame:
     ...
 
@@ -42,6 +43,7 @@ def flatten_pca(
     w_normalization_range: tuple[float, float] | None = None,
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
+    materialize_once: bool = True,
 ) -> PcaModel:
     ...
 
@@ -77,6 +79,7 @@ def reshape_pca_components(
 - `t_downsampling_stride`はt方向の間引き間隔を指定する。`1`の場合は間引かない。
 - `w_downsampling_stride`はw方向の間引き間隔を指定する。`1`の場合は間引かない。
 - `append_pca_scores`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、`source`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。
+- `materialize_once`（既定値`True`）が`True`の場合、`preprocess_and_flatten`はflatten完了後に一度だけ`.collect().lazy()`を行い、結果をメモリ上の`pl.DataFrame`起点の`pl.LazyFrame`として返す。これにより、戻り値をPCAのfitやスコア付与などで再利用しても、Parquet読み込みからflattenまでのクエリが再実行されない。`False`の場合は未実行のflattenクエリをそのまま返す。いずれの場合も戻り値の型は`pl.LazyFrame`であり、flatten結果・列順は一致する。`flatten_pca`が`paths`を指定する場合、`materialize_once`は同じ意味で内部の`preprocess_and_flatten`へ伝播する。`flattened`を指定する場合、`materialize_once`は使用しない。
 - `reshape_pca_components`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、後述の座標へ展開した`pca_model.pca.components_`を`pl.DataFrame`として返す。
 
 ### LazyFrameとメモリ使用
@@ -84,6 +87,7 @@ def reshape_pca_components(
 - `preprocess_and_flatten`では、Parquetの読み込みに`pl.scan_parquet`を使用し、前処理、間引きおよびflattenの列演算を可能な限り`pl.LazyFrame`のまま構成する。
 - 入力検証、共通のUnique配列の確定、PCAのfit・transformなど、結果値が必要な境界でのみ必要最小限のcollectを行う。前処理済みの全入力フレームを一括で`pl.DataFrame`へmaterializeしてはならない。
 - `preprocess_and_flatten`、`append_pca_scores`は呼び出し側がcollectの時点と実行方法を選べるよう、常に`pl.LazyFrame`を返す。
+- `preprocess_and_flatten`は既定（`materialize_once=True`）で、flatten完了後に一度だけcollectしメモリ上に固定した結果を`pl.LazyFrame`として返す。これはメモリ消費と引き換えに、戻り値を複数回collectしても前処理・flattenを再実行しないための挙動である。完全な遅延実行が必要な場合は`materialize_once=False`を指定する。
 
 ### 入力要件
 

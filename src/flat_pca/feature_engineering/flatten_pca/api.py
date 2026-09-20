@@ -40,6 +40,7 @@ def flatten_pca(
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
     stem_uniqueness: StemUniquenessCheck = "skip",
+    materialize_once: bool = True,
 ) -> PcaModel:
     """Preprocess, flatten, and fit PCA across spectral Parquet files.
 
@@ -77,6 +78,10 @@ def flatten_pca(
         How to handle duplicate ``Path.stem`` values across ``paths``. Used
         only when ``paths`` is specified; ignored when ``flattened`` is
         specified. See ``load_and_validate_inputs`` for details.
+    materialize_once : bool, default True
+        Forwarded to ``preprocess_and_flatten`` when ``paths`` is specified;
+        ignored when ``flattened`` is specified. See
+        ``preprocess_and_flatten`` for details.
 
     Returns
     -------
@@ -105,6 +110,7 @@ def flatten_pca(
             t_downsampling_stride=t_downsampling_stride,
             w_downsampling_stride=w_downsampling_stride,
             stem_uniqueness=stem_uniqueness,
+            materialize_once=materialize_once,
         )
     return fit_flattened_pca(flattened, n_component)
 
@@ -121,6 +127,7 @@ def preprocess_and_flatten(
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
     stem_uniqueness: StemUniquenessCheck = "skip",
+    materialize_once: bool = True,
 ) -> pl.LazyFrame:
     """Build a lazy preprocessing and deterministic flattening query.
 
@@ -144,6 +151,14 @@ def preprocess_and_flatten(
     stem_uniqueness : Literal["skip", "warn", "error"], default "skip"
         How to handle duplicate ``Path.stem`` values across ``paths``. See
         ``load_and_validate_inputs`` for details.
+    materialize_once : bool, default True
+        If ``True``, collect the flatten query exactly once and return the
+        result as a ``LazyFrame`` backed by that in-memory ``DataFrame``, so
+        reusing the return value (e.g. for PCA fitting and score appending)
+        does not re-run the Parquet read and flatten steps. Trades memory for
+        avoiding repeated computation. If ``False``, return the deferred,
+        not-yet-executed flatten query as before, useful when full lazy
+        execution is required. Either value returns a ``pl.LazyFrame``.
 
     Returns
     -------
@@ -181,4 +196,24 @@ def preprocess_and_flatten(
 
     flattened = flatten_inputs(prepared_inputs)
     assert isinstance(flattened, pl.LazyFrame)
+    if materialize_once:
+        flattened = materialize_flattened(flattened)
     return flattened
+
+
+def materialize_flattened(flattened: pl.LazyFrame) -> pl.LazyFrame:
+    """Collect a flatten query once and rewrap it as an in-memory-backed LazyFrame.
+
+    Parameters
+    ----------
+    flattened : pl.LazyFrame
+        Deferred flatten query to execute exactly once.
+
+    Returns
+    -------
+    pl.LazyFrame
+        ``LazyFrame`` wrapping the collected ``DataFrame``, so downstream
+        ``.collect()`` calls reuse the materialized result instead of
+        re-running the underlying query.
+    """
+    return flattened.collect().lazy()
