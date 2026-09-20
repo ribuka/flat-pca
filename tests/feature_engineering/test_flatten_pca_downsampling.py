@@ -284,15 +284,15 @@ def test_flatten_pca_downsamples_real_inputs_end_to_end(
     feature_columns = result.columns[1:-2]
     assert feature_columns == expected.columns[1:]
     assert len(feature_columns) == expected.width - 1
-    assert result.get_column("filename").to_list() == expected["filename"].to_list()
+    assert result.get_column("source").to_list() == expected["source"].to_list()
     assert result.select(feature_columns).equals(expected.select(feature_columns))
     assert result.columns[-2:] == ["pca-1", "pca-2"]
-    assert result.select(pl.exclude("filename")).to_numpy().shape == (
+    assert result.select(pl.exclude("source")).to_numpy().shape == (
         len(real_fixture_paths),
         len(feature_columns) + 2,
     )
-    assert result.select(pl.exclude("filename")).to_numpy().dtype.kind == "f"
-    assert np.isfinite(result.select(pl.exclude("filename")).to_numpy()).all()
+    assert result.select(pl.exclude("source")).to_numpy().dtype.kind == "f"
+    assert np.isfinite(result.select(pl.exclude("source")).to_numpy()).all()
 
 
 def test_flatten_pca_preprocesses_all_observations_before_downsampling(

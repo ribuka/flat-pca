@@ -26,13 +26,13 @@ def reshape_pca_components(
     pca_model : PcaModel
         Fitted PCA pipeline state whose components correspond to ``flattened``.
     flattened : pl.LazyFrame
-        Flattened spectral features with a ``filename`` column.
+        Flattened spectral features with a ``source`` column.
 
     Returns
     -------
     pl.DataFrame
-        Long-form components ordered by component, wavelength, Step, Sequence,
-        and Time.
+        Long-form components ordered by Step, Sequence, StepTime, component,
+        and wavelength.
 
     Raises
     ------
@@ -44,7 +44,7 @@ def reshape_pca_components(
     feature_columns = [
         column
         for column in flattened.collect_schema().names()
-        if column != "filename"
+        if column != "source"
     ]
     components = _validated_components(pca_model, len(feature_columns))
     coordinates = [_parse_feature_coordinate(column) for column in feature_columns]
@@ -63,7 +63,7 @@ def reshape_pca_components(
             "wavelength": [coordinate[0] for coordinate in coordinates],
             "Step": [coordinate[1] for coordinate in coordinates],
             "Sequence": [coordinate[2] for coordinate in coordinates],
-            "Time": [coordinate[3] for coordinate in coordinates],
+            "StepTime": [coordinate[3] for coordinate in coordinates],
         }
     ).with_columns(
         [
@@ -73,14 +73,14 @@ def reshape_pca_components(
     )
     return (
         table.unpivot(
-            index=["wavelength", "Step", "Sequence", "Time"],
+            index=["wavelength", "Step", "Sequence", "StepTime"],
             on=component_columns,
             variable_name="component",
             value_name="coefficient",
         )
         .with_columns(pl.col("component").cast(pl.Int64))
-        .select(["Time", "Step", "Sequence", "wavelength", "component", "coefficient"])
-        .sort(["component", "wavelength", "Step", "Sequence", "Time"])
+        .select(["StepTime", "Step", "Sequence", "wavelength", "component", "coefficient"])
+        .sort(["Step", "Sequence", "StepTime", "component", "wavelength"])
     )
 
 
@@ -126,7 +126,7 @@ def _parse_feature_coordinate(column: str) -> tuple[float, int, int, float]:
     Returns
     -------
     tuple[float, int, int, float]
-        Wavelength, Step, Sequence, and Time coordinates.
+        Wavelength, Step, Sequence, and StepTime coordinates.
 
     Raises
     ------

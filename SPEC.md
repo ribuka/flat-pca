@@ -61,14 +61,14 @@ def reshape_pca_components(
 ```
 
 - `preprocess_and_flatten`の`paths`は1個以上のParquetファイルへのパスとする。
-- `preprocess_and_flatten`は、`filename`列およびflatten特徴量列を持つ`pl.LazyFrame`を返す。列順と特徴量列名は「flatten仕様」に従う。
+- `preprocess_and_flatten`は、`source`列およびflatten特徴量列を持つ`pl.LazyFrame`を返す。列順と特徴量列名は「flatten仕様」に従う。
 - `target_steps`は対象とする`Step`列の値のリストを指定し、`None`の場合は`Step`列による行フィルタを適用しない。詳細は「Step行フィルタ仕様」に従う。
 - `edge_trim`は`(edge_trim[0], edge_trim[1])`の2値を指定し、`None`の場合はStepTime・ReverseStepTime列を用いた行処理を適用しない。詳細は「StepTime列生成仕様」および「edge_trimによる行処理仕様」に従う。
 - `flatten_pca`が`paths`を指定する場合、`target_steps`および`edge_trim`は`preprocess_and_flatten`と同じ意味・検証規則とする。`flattened`を指定する場合、`target_steps`および`edge_trim`は使用しない。
 - `flatten_pca`は`paths`または`flattened`のいずれか一方を受け取り、両引数の初期値は`None`とする。両方が`None`の場合、および両方が指定された場合は`ValueError`を送出する。
 - `paths`を指定した場合、`paths`および前処理引数は`preprocess_and_flatten`と同じ意味・検証規則とする。内部で`preprocess_and_flatten`を呼び出す。
-- `flattened`を指定した場合は、`filename`列およびflatten特徴量列を持つ`pl.LazyFrame`を直接使用し、前処理およびflattenは行わない。
-- `flatten_pca`は、選択したflatten結果の`filename`以外の列を特徴量としてPCAをfitし、fit済みの`PcaModel`を返す。
+- `flattened`を指定した場合は、`source`列およびflatten特徴量列を持つ`pl.LazyFrame`を直接使用し、前処理およびflattenは行わない。
+- `flatten_pca`は、選択したflatten結果の`source`以外の列を特徴量としてPCAをfitし、fit済みの`PcaModel`を返す。
 - `n_component`は1以上かつ`min(n_samples, n_features)`以下の整数、または`None`とする。`None`の場合はこの上限を使用する。
 - `t_smoothing_window`はt方向smoothingの片側窓幅をTimeと同じ単位で指定し、`None`の場合は適用しない。
 - `w_smoothing_window`はw方向smoothingの片側窓幅を波長と同じ単位で指定し、`None`の場合は適用しない。
@@ -76,7 +76,7 @@ def reshape_pca_components(
 - `w_normalization_range`はw方向規格化に用いる閉区間`(w1, w2)`を指定し、`None`の場合は適用しない。
 - `t_downsampling_stride`はt方向の間引き間隔を指定する。`1`の場合は間引かない。
 - `w_downsampling_stride`はw方向の間引き間隔を指定する。`1`の場合は間引かない。
-- `append_pca_scores`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、`filename`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。
+- `append_pca_scores`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、`source`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。
 - `reshape_pca_components`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、後述の座標へ展開した`pca_model.pca.components_`を`pl.DataFrame`として返す。
 
 ### LazyFrameとメモリ使用
@@ -95,7 +95,8 @@ def reshape_pca_components(
 - null、NaNおよび無限大を含む入力は受け付けない。
 - 各ファイル内で`(Time, Step, Sequence)`の組み合わせは一意でなければならない。
 - すべてのファイルは、同一の波長集合および同一の`(Time, Step, Sequence)`集合を持たなければならない。
-- `path.stem`を`filename`として使用するため、入力ファイル間で`path.stem`は一意でなければならない。
+- `source`列には正規化済み入力パスの`path.as_posix()`を使用する。正規化パスは`Path.resolve()`により一意であるため、`path.stem`の一意性は`source`列の一意性には必要としない。
+- `load_and_validate_inputs`（および`preprocess_and_flatten`・`flatten_pca`）は`stem_uniqueness`引数（`"skip"` | `"warn"` | `"error"`、既定値`"skip"`）で入力ファイル間の`path.stem`重複チェックの有無を選択できる。`"skip"`は重複を許容してチェックを行わず、`"warn"`は重複時に警告を出しつつ処理を継続し、`"error"`は重複時に`ValueError`を送出する。
 - 入力パスが空、ファイルが存在しない、または上記の要件を満たさない場合は例外を送出する。
   - 存在しないファイルには`FileNotFoundError`を使用する。
   - 値、スキーマおよび引数の不正には`ValueError`を使用する。
@@ -220,12 +221,12 @@ def apply_w_downsampling(
 - `s`、`q` は int型で表現する。
 - `t`は`StepTime`列の値を`f"{t:.2f}"`で表現する。`Time`列の値は使用しない。
 - 正規化後の特徴量列名が重複する場合は`ValueError`を送出する。
-- flatten結果`df`の列順は、`filename`、flattenした特徴量列の順とする。
+- flatten結果`df`の列順は、`source`、flattenした特徴量列の順とする。
 - `preprocess_and_flatten`が返すLazyFrameのスキーマは、collect後の`df`と同じとする。
 
 ### PCA仕様
 
-- PCAの入力には`filename`を除くすべてのflatten特徴量列を使用する。
+- PCAの入力には`source`を除くすべてのflatten特徴量列を使用する。
 - `flatten_pca`は`fit_pca`でPCAをfitし、そのfit済み`PcaModel`を返す。
 - `fit_flattened_pca`は、PCAのfitに`src/flat_pca/feature_engineering/pca.py`の`fit_pca`を使用しなければならない。`sklearn.decomposition.PCA`を直接生成・fitしてはならない。
 - `fit_flattened_pca`は`fit_pca`に、flatten特徴量列、`impute_strategy="drop"`、`outlier_strategy=None`、`scaling_strategy="none"`および`max_n_component=None`を指定し、返却された`PcaModel`をそのまま返す。
@@ -239,17 +240,17 @@ def apply_w_downsampling(
 
 ### PCA成分のreshape仕様
 
-- `reshape_pca_components`は、flatten特徴量列の順序に対応する`pca_model.pca.components_`を、component軸、波長、`Step`、`Sequence`、`Time`の座標へ展開したlong形式の`pl.DataFrame`を返す。
-- 返却するDataFrameの列順は`Time`、`Step`、`Sequence`、`wavelength`、`component`、`coefficient`とする。`component`は0始まりの整数、`wavelength`は数値、`coefficient`は対応するPCA係数とする。
-- 行順は`component`、`wavelength`、`Step`、`Sequence`、`Time`を数値昇順にした順とする。
-- 各軸の値と順序はflatten仕様と同じく、波長、`Step`、`Sequence`、`Time`を数値昇順にしたものとする。
-- 返却DataFrameの各行は、component `c`（0始まり）の、波長`wavelength`、Step `Step`、Sequence `Sequence`、Time `Time`に対応する係数を`coefficient`へ保持する。
+- `reshape_pca_components`は、flatten特徴量列の順序に対応する`pca_model.pca.components_`を、component軸、波長、`Step`、`Sequence`、`StepTime`の座標へ展開したlong形式の`pl.DataFrame`を返す。
+- 返却するDataFrameの列順は`StepTime`、`Step`、`Sequence`、`wavelength`、`component`、`coefficient`とする。`component`は0始まりの整数、`wavelength`は数値、`coefficient`は対応するPCA係数とする。
+- 行順は`Step`、`Sequence`、`StepTime`、`component`、`wavelength`を数値昇順にした順とする。
+- 各軸の値と順序はflatten仕様と同じく、波長、`Step`、`Sequence`、`StepTime`を数値昇順にしたものとする。
+- 返却DataFrameの各行は、component `c`（0始まり）の、波長`wavelength`、Step `Step`、Sequence `Sequence`、StepTime `StepTime`に対応する係数を`coefficient`へ保持する。
 - flatten特徴量がこれら4軸の直積を成さない場合、特徴量列名から座標を一意に復元できない場合、または`pca_model.pca.n_features_in_`と特徴量列数が一致しない場合は`ValueError`を送出する。
 
 ### 出力要件
 
-- `preprocess_and_flatten`をcollectした結果の行数は入力ファイル数nと一致し、各行は`filename`によって元の入力ファイルを一意に識別できなければならない。
-- `append_pca_scores`をcollectした結果の列順は、`filename`、flatten特徴量列、`pca-1`から始まるPCAスコア列の順とする。
+- `preprocess_and_flatten`をcollectした結果の行数は入力ファイル数nと一致し、各行は`source`によって元の入力ファイルを一意に識別できなければならない。
+- `append_pca_scores`をcollectした結果の列順は、`source`、flatten特徴量列、`pca-1`から始まるPCAスコア列の順とする。
 - 入力パスの指定順に依存せず、同じファイル集合から同じ行順および列順を得られなければならない。
 
 ### 完了条件

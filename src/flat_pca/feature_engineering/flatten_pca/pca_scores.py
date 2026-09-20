@@ -13,12 +13,12 @@ def fit_flattened_pca(
     flattened: pl.LazyFrame,
     n_component: int | None,
 ) -> PcaModel:
-    """Fit PCA from the non-filename columns of flattened features.
+    """Fit PCA from the non-source columns of flattened features.
 
     Parameters
     ----------
     flattened : pl.LazyFrame
-        Flattened spectral features with a ``filename`` column.
+        Flattened spectral features with a ``source`` column.
     n_component : int | None
         Requested number of components, or ``None`` for the matrix limit.
 
@@ -35,7 +35,7 @@ def fit_flattened_pca(
     feature_columns = [
         column
         for column in flattened.collect_schema().names()
-        if column != "filename"
+        if column != "source"
     ]
     if isinstance(n_component, bool) or (
         n_component is not None and not isinstance(n_component, Integral)
@@ -69,12 +69,12 @@ def append_pca_scores(
     pca_model : PcaModel
         Fitted PCA pipeline state.
     flattened : pl.LazyFrame
-        Flattened spectral features with a ``filename`` column.
+        Flattened spectral features with a ``source`` column.
 
     Returns
     -------
     pl.LazyFrame
-        ``filename``, flattened feature columns, and ``pca-1`` onward scores.
+        ``source``, flattened feature columns, and ``pca-1`` onward scores.
 
     Raises
     ------
@@ -83,7 +83,7 @@ def append_pca_scores(
     """
     materialized = flattened.collect()
     feature_columns = [
-        column for column in materialized.columns if column != "filename"
+        column for column in materialized.columns if column != "source"
     ]
     if pca_model.pca.n_features_in_ != len(feature_columns):
         raise ValueError(

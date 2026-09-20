@@ -60,6 +60,7 @@ def test_public_import_and_signature_are_stable(
         "w_normalization_range",
         "t_downsampling_stride",
         "w_downsampling_stride",
+        "stem_uniqueness",
     ]
     assert parameters["paths"].kind is Parameter.POSITIONAL_OR_KEYWORD
     for parameter in list(parameters.values())[1:]:
@@ -68,6 +69,7 @@ def test_public_import_and_signature_are_stable(
         assert parameters[name].default is None
     assert parameters["t_downsampling_stride"].default == 1
     assert parameters["w_downsampling_stride"].default == 1
+    assert parameters["stem_uniqueness"].default == "skip"
 
     result = flatten_pca(real_fixture_paths, n_component=1)
     assert isinstance(result, PcaModel)
@@ -193,7 +195,7 @@ def _assert_flatten_pca_matches(
     feature_columns = result.columns[1:-n_component]
     pca_columns = result.columns[-n_component:]
     assert result.columns == expected.columns
-    assert result["filename"].to_list() == expected["filename"].to_list()
+    assert result["source"].to_list() == expected["source"].to_list()
     assert result.select(feature_columns).to_numpy() == pytest.approx(
         expected.select(feature_columns).to_numpy()
     )
@@ -222,7 +224,7 @@ def test_flatten_pca_runs_all_real_fixtures_end_to_end(
     assert result.columns == [*expected.columns[:-3], "pca-1", "pca-2", "pca-3"]
     assert result.height == len(paths)
     _assert_flatten_pca_matches(result, expected, 3)
-    assert np.isfinite(result.select(pl.exclude("filename")).to_numpy()).all()
+    assert np.isfinite(result.select(pl.exclude("source")).to_numpy()).all()
     features = result.select(result.columns[1:-3]).to_numpy()
     scores = result.select(result.columns[-3:]).to_numpy()
     singular_values = np.linalg.svd(
@@ -350,13 +352,13 @@ def test_append_pca_scores_preserves_real_flattened_rows_and_columns(
 
     assert isinstance(result, pl.LazyFrame)
     assert materialized_result.columns == [
-        "filename",
+        "source",
         *feature_columns,
         "pca-1",
         "pca-2",
     ]
-    assert materialized_result["filename"].to_list() == materialized_flattened[
-        "filename"
+    assert materialized_result["source"].to_list() == materialized_flattened[
+        "source"
     ].to_list()
     scores = materialized_result.select(["pca-1", "pca-2"]).to_numpy()
     assert np.isfinite(scores).all()
@@ -407,20 +409,34 @@ def test_reshape_pca_components_places_real_flattened_features_on_sorted_axes(
     times = sorted({coordinate[3] for coordinate in coordinates})
 
     assert reshaped.columns == [
-        "Time", "Step", "Sequence", "wavelength", "component", "coefficient"
+        "StepTime", "Step", "Sequence", "wavelength", "component", "coefficient"
     ]
     assert reshaped.height == 2 * len(wavelengths) * len(steps) * len(sequences) * len(times)
-    assert reshaped["coefficient"].to_numpy().reshape(2, -1) == pytest.approx(
-        pca.pca.components_
+    assert reshaped.equals(
+        reshaped.sort(["Step", "Sequence", "StepTime", "component", "wavelength"])
     )
-    coordinate = coordinates[0]
-    selected = reshaped.filter(
-        (pl.col("wavelength") == coordinate[0])
-        & (pl.col("Step") == coordinate[1])
-        & (pl.col("Sequence") == coordinate[2])
-        & (pl.col("Time") == coordinate[3])
+
+    coordinate_frame = pl.DataFrame(
+        {
+            "wavelength": [coordinate[0] for coordinate in coordinates],
+            "Step": [coordinate[1] for coordinate in coordinates],
+            "Sequence": [coordinate[2] for coordinate in coordinates],
+            "StepTime": [coordinate[3] for coordinate in coordinates],
+        }
     )
-    assert selected["coefficient"].to_numpy() == pytest.approx(pca.pca.components_[:, 0])
+    sort_keys = ["wavelength", "Step", "Sequence", "StepTime"]
+    for component_index in range(pca.pca.n_components_):
+        expected = coordinate_frame.with_columns(
+            pl.Series("coefficient", pca.pca.components_[component_index, :])
+        ).sort(sort_keys)
+        actual = (
+            reshaped.filter(pl.col("component") == component_index)
+            .select(["wavelength", "Step", "Sequence", "StepTime", "coefficient"])
+            .sort(sort_keys)
+        )
+        assert actual["coefficient"].to_numpy() == pytest.approx(
+            expected["coefficient"].to_numpy()
+        )
 
 
 def test_reshape_pca_components_rejects_invalid_real_flattened_layouts(
@@ -451,7 +467,7 @@ def test_preprocess_and_flatten_returns_lazy_real_fixture_query(
     """Defer real-Parquet preprocessing and match the established flatten contract."""
     flattened = preprocess_and_flatten(real_fixture_paths[:3])
     expected_inputs = [
-        (path, _add_step_time_columns(pl.read_parquet(path)))
+        (path.resolve(), _add_step_time_columns(pl.read_parquet(path)))
         for path in sorted(real_fixture_paths[:3])
     ]
     expected = _flatten_inputs(expected_inputs)
@@ -506,7 +522,7 @@ def test_preprocess_and_flatten_matches_eager_stage_contract(
             frame, collect_unique_wavelengths(frames), preprocessing.get("w_downsampling_stride", 1)
         )
         assert isinstance(frame, pl.DataFrame)
-        prepared.append((path, frame))
+        prepared.append((path.resolve(), frame))
     expected = _flatten_inputs(prepared)
     actual = preprocess_and_flatten(
         list(reversed(real_fixture_paths[:3])), **preprocessing  # type: ignore[arg-type]

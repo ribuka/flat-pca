@@ -22,7 +22,7 @@ from ..preprocess import (
     filter_target_steps,
 )
 from .flatten import flatten_inputs
-from .input import load_and_validate_inputs
+from .input import StemUniquenessCheck, load_and_validate_inputs
 from .pca_scores import fit_flattened_pca
 
 
@@ -39,6 +39,7 @@ def flatten_pca(
     w_normalization_range: tuple[float, float] | None = None,
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
+    stem_uniqueness: StemUniquenessCheck = "skip",
 ) -> PcaModel:
     """Preprocess, flatten, and fit PCA across spectral Parquet files.
 
@@ -72,6 +73,10 @@ def flatten_pca(
         Interval between retained values in the shared sorted Time array.
     w_downsampling_stride : int, default 1
         Interval between retained values in the shared sorted wavelength array.
+    stem_uniqueness : Literal["skip", "warn", "error"], default "skip"
+        How to handle duplicate ``Path.stem`` values across ``paths``. Used
+        only when ``paths`` is specified; ignored when ``flattened`` is
+        specified. See ``load_and_validate_inputs`` for details.
 
     Returns
     -------
@@ -99,6 +104,7 @@ def flatten_pca(
             w_normalization_range=w_normalization_range,
             t_downsampling_stride=t_downsampling_stride,
             w_downsampling_stride=w_downsampling_stride,
+            stem_uniqueness=stem_uniqueness,
         )
     return fit_flattened_pca(flattened, n_component)
 
@@ -114,6 +120,7 @@ def preprocess_and_flatten(
     w_normalization_range: tuple[float, float] | None = None,
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
+    stem_uniqueness: StemUniquenessCheck = "skip",
 ) -> pl.LazyFrame:
     """Build a lazy preprocessing and deterministic flattening query.
 
@@ -134,13 +141,16 @@ def preprocess_and_flatten(
         Inclusive normalization ranges, or ``None`` to disable each stage.
     t_downsampling_stride, w_downsampling_stride : int, default 1
         Positive intervals in the shared sorted Time and wavelength arrays.
+    stem_uniqueness : Literal["skip", "warn", "error"], default "skip"
+        How to handle duplicate ``Path.stem`` values across ``paths``. See
+        ``load_and_validate_inputs`` for details.
 
     Returns
     -------
     pl.LazyFrame
-        Deferred one-row-per-file flattened features with ``filename`` first.
+        Deferred one-row-per-file flattened features with ``source`` first.
     """
-    loaded_inputs = load_and_validate_inputs(paths)
+    loaded_inputs = load_and_validate_inputs(paths, stem_uniqueness=stem_uniqueness)
     step_time_inputs: list[tuple[Path, pl.LazyFrame]] = []
     for path, frame in loaded_inputs:
         filtered = filter_target_steps(frame, target_steps)
