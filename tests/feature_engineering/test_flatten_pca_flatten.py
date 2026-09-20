@@ -5,13 +5,13 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from spca.feature_engineering.flatten_pca.flatten import (
+from flat_pca.feature_engineering.flatten_pca.flatten import (
     flatten_inputs as _flatten_inputs,
 )
-from spca.feature_engineering.flatten_pca.input import (
+from flat_pca.feature_engineering.flatten_pca.input import (
     load_and_validate_inputs as _load_and_validate_inputs,
 )
-from spca.feature_engineering.preprocess import (
+from flat_pca.feature_engineering.preprocess import (
     add_step_time_columns as _add_step_time_columns,
 )
 

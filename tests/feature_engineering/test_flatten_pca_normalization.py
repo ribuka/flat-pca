@@ -5,10 +5,10 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from spca.feature_engineering.preprocess.normalization import (
+from flat_pca.feature_engineering.preprocess.normalization import (
     apply_t_normalization as _apply_t_normalization,
 )
-from spca.feature_engineering.preprocess.normalization import (
+from flat_pca.feature_engineering.preprocess.normalization import (
     apply_w_normalization as _apply_w_normalization,
 )
 

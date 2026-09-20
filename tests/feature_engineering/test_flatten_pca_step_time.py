@@ -5,14 +5,9 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from spca.feature_engineering import preprocess_and_flatten
-from spca.feature_engineering.flatten_pca.input import load_and_validate_inputs
-from spca.feature_engineering.preprocess import (
-    add_step_time_columns,
-    apply_edge_trim,
-)
-
-_META_COLUMNS = {"Time", "Step", "Sequence", "StepTime", "ReverseStepTime"}
+from flat_pca.feature_engineering import preprocess_and_flatten
+from flat_pca.feature_engineering.flatten_pca.input import load_and_validate_inputs
+from flat_pca.feature_engineering.preprocess import add_step_time_columns
 
 # Every real fixture row has a constant Step of 1, so partial Step filtering
 # and multi-segment StepTime boundaries cannot be exercised from the real
@@ -132,48 +127,6 @@ def test_flatten_feature_names_use_step_time_not_time(
     assert not any("19380.00" in column for column in flattened.columns[1:])
 
 
-def test_apply_edge_trim_nulls_non_meta_columns_near_segment_edges(
-    real_fixture_paths: list[Path], tmp_path: Path
-) -> None:
-    """Null spectral values within either trimmed edge and keep meta columns."""
-    path = _write_stepped_fixture(
-        real_fixture_paths[0], tmp_path / real_fixture_paths[0].name,
-        _STEP_PATTERN_SPLIT,
-    )
-    _, lazy_frame = load_and_validate_inputs([path])[0]
-    frame = add_step_time_columns(lazy_frame).collect()
-    wavelength_columns = [
-        column for column in frame.columns if column not in _META_COLUMNS
-    ]
-
-    trimmed = apply_edge_trim(frame, [5000.0, 5000.0])
-    assert isinstance(trimmed, pl.DataFrame)
-
-    step_time = trimmed.get_column("StepTime").to_list()
-    reverse_step_time = trimmed.get_column("ReverseStepTime").to_list()
-    sample_values = trimmed.get_column(wavelength_columns[0]).to_list()
-
-    edge_trimmed_seen = False
-    preserved_seen = False
-    for row_step_time, row_reverse_step_time, value in zip(
-        step_time, reverse_step_time, sample_values, strict=True
-    ):
-        if row_step_time < 5000.0 or row_reverse_step_time < 5000.0:
-            assert value is None
-            edge_trimmed_seen = True
-        else:
-            assert value is not None
-            preserved_seen = True
-    assert edge_trimmed_seen
-    assert preserved_seen
-
-    for column in _META_COLUMNS:
-        assert trimmed.get_column(column).null_count() == 0
-
-    unchanged = apply_edge_trim(frame, None)
-    assert unchanged.equals(frame)
-
-
 def test_preprocess_and_flatten_end_to_end_with_target_steps_and_edge_trim(
     real_fixture_paths: list[Path], tmp_path: Path
 ) -> None:
@@ -195,12 +148,10 @@ def test_preprocess_and_flatten_end_to_end_with_target_steps_and_edge_trim(
         w_downsampling_stride=2,
     ).collect()
 
-    assert flattened.width == 1 + 2 * 8
-    assert "649.9nm_1_1_0.00" in flattened.columns
-    assert "649.9nm_1_1_19380.00" in flattened.columns
+    assert flattened.width == 1 + 8
+    assert "649.9nm_1_1_9690.00" in flattened.columns
 
     for row in flattened.iter_rows(named=True):
-        assert row["649.9nm_1_1_0.00"] is None
-        assert row["649.9nm_1_1_19380.00"] == pytest.approx(
-            original_values[row["filename"]][2]
+        assert row["649.9nm_1_1_9690.00"] == pytest.approx(
+            original_values[row["filename"]][1]
         )

@@ -1,6 +1,6 @@
-# SPCA
+# Flat PCA
 
-SPCA provides a deterministic Flatten-PCA workflow for time-series spectral
+Flat PCA provides a deterministic Flatten-PCA workflow for time-series spectral
 data stored in Parquet files.
 
 ## 使い方
@@ -22,7 +22,7 @@ uv sync
 ```python
 from pathlib import Path
 
-from spca.feature_engineering import (
+from flat_pca.feature_engineering import (
     append_pca_scores,
     flatten_pca,
     preprocess_and_flatten,

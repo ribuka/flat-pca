@@ -7,34 +7,34 @@ import numpy as np
 import polars as pl
 import pytest
 
-from spca.feature_engineering import (
+from flat_pca.feature_engineering import (
     append_pca_scores,
     flatten_pca,
     preprocess_and_flatten,
     reshape_pca_components,
 )
-from spca.feature_engineering.flatten_pca import flatten_pca as package_flatten_pca
-from spca.feature_engineering.flatten_pca import pca_scores
-from spca.feature_engineering.flatten_pca.flatten import (
+from flat_pca.feature_engineering.flatten_pca import flatten_pca as package_flatten_pca
+from flat_pca.feature_engineering.flatten_pca import pca_scores
+from flat_pca.feature_engineering.flatten_pca.flatten import (
     flatten_inputs as _flatten_inputs,
 )
-from spca.feature_engineering.flatten_pca.input import (
+from flat_pca.feature_engineering.flatten_pca.input import (
     load_and_validate_inputs as _load_and_validate_inputs,
 )
-from spca.feature_engineering.pca import PcaModel, fit_and_transform_pca
-from spca.feature_engineering.preprocess import (
+from flat_pca.feature_engineering.pca import PcaModel, fit_and_transform_pca
+from flat_pca.feature_engineering.preprocess import (
     add_step_time_columns as _add_step_time_columns,
 )
-from spca.feature_engineering.preprocess.normalization import (
+from flat_pca.feature_engineering.preprocess.normalization import (
     apply_t_normalization as _apply_t_normalization,
 )
-from spca.feature_engineering.preprocess.normalization import (
+from flat_pca.feature_engineering.preprocess.normalization import (
     apply_w_normalization as _apply_w_normalization,
 )
-from spca.feature_engineering.preprocess.smoothing import (
+from flat_pca.feature_engineering.preprocess.smoothing import (
     apply_t_smoothing as _apply_t_smoothing,
 )
-from spca.feature_engineering.preprocess.smoothing import (
+from flat_pca.feature_engineering.preprocess.smoothing import (
     apply_w_smoothing as _apply_w_smoothing,
 )
 
@@ -242,14 +242,14 @@ def test_readme_minimal_public_api_example_runs_on_all_real_fixtures(
     paths = real_fixture_paths
     fixture_frames = [pl.read_parquet(path) for path in paths]
 
-    from spca.feature_engineering import (
+    from flat_pca.feature_engineering import (
         append_pca_scores as public_append_pca_scores,
     )
-    from spca.feature_engineering import flatten_pca as public_flatten_pca
-    from spca.feature_engineering import (
+    from flat_pca.feature_engineering import flatten_pca as public_flatten_pca
+    from flat_pca.feature_engineering import (
         preprocess_and_flatten as public_preprocess_and_flatten,
     )
-    from spca.feature_engineering import (
+    from flat_pca.feature_engineering import (
         reshape_pca_components as public_reshape_pca_components,
     )
 
@@ -484,7 +484,7 @@ def test_preprocess_and_flatten_matches_eager_stage_contract(
     """Match eager real-fixture stages for each preprocessing configuration."""
     loaded = [(path, pl.read_parquet(path)) for path in real_fixture_paths[:3]]
     frames = [frame for _, frame in loaded]
-    from spca.feature_engineering.preprocess.downsampling import (
+    from flat_pca.feature_engineering.preprocess.downsampling import (
         apply_t_downsampling,
         apply_w_downsampling,
         collect_unique_times,

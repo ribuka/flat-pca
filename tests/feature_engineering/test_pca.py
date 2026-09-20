@@ -3,7 +3,7 @@
 import numpy as np
 import polars as pl
 
-from spca.feature_engineering.pca import fit_pca, transform_pca
+from flat_pca.feature_engineering.pca import fit_pca, transform_pca
 
 
 def test_none_scaling_leaves_centering_to_sklearn_pca() -> None:

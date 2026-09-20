@@ -5,7 +5,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from spca.feature_engineering.flatten_pca.input import (
+from flat_pca.feature_engineering.flatten_pca.input import (
     load_and_validate_inputs as _load_and_validate_inputs,
 )
 
