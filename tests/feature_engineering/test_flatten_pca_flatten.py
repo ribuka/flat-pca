@@ -34,7 +34,7 @@ def test_flatten_real_fixture_has_deterministic_columns_and_values(
         frame.select("Step", "Sequence", "StepTime").iter_rows(),
         key=lambda row: tuple(float(value) for value in row),
     )
-    expected_columns = ["filename"] + [
+    expected_columns = ["source"] + [
         f"{wavelength}_{int(step)}_{int(sequence)}_{float(step_time):.2f}"
         for wavelength in wavelength_columns
         for step, sequence, step_time in metadata_rows
@@ -55,7 +55,7 @@ def test_flatten_real_fixture_has_deterministic_columns_and_values(
 
     assert collected.height == 1
     assert collected.columns == expected_columns
-    assert collected["filename"].to_list() == [path.stem]
+    assert collected["source"].to_list() == [path.as_posix()]
     assert collected.row(0)[1:] == pytest.approx(expected_values)
 
 
@@ -76,8 +76,8 @@ def test_flatten_multiple_real_fixtures_ignores_input_order(
     assert isinstance(reverse, pl.LazyFrame)
     collected = forward.collect()
     assert collected.equals(reverse.collect())
-    assert collected["filename"].to_list() == [
-        path.stem for path in sorted(path.resolve() for path in paths)
+    assert collected["source"].to_list() == [
+        path.as_posix() for path in sorted(path.resolve() for path in paths)
     ]
 
 

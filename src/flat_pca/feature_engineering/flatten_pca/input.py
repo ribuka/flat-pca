@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Literal
 
 import polars as pl
 
 from .schema import METADATA_COLUMNS, parse_wavelength, wavelength_columns
+
+StemUniquenessCheck = Literal["skip", "warn", "error"]
 
 
 def read_parquet(path: Path) -> pl.LazyFrame:
@@ -100,6 +104,8 @@ def validate_frame(
 
 def load_and_validate_inputs(
     paths: Sequence[str | Path],
+    *,
+    stem_uniqueness: StemUniquenessCheck = "skip",
 ) -> list[tuple[Path, pl.LazyFrame]]:
     """Load and validate Flatten-PCA Parquet inputs deterministically.
 
@@ -107,6 +113,12 @@ def load_and_validate_inputs(
     ----------
     paths : Sequence[str | Path]
         One or more input Parquet paths.
+    stem_uniqueness : Literal["skip", "warn", "error"], default "skip"
+        How to handle duplicate ``Path.stem`` values across inputs.
+        ``"skip"`` performs no check, ``"warn"`` emits a ``UserWarning`` and
+        continues, and ``"error"`` raises ``ValueError``. The ``source``
+        column produced downstream is derived from the full normalized path,
+        not the stem, so stem uniqueness is not required for correctness.
 
     Returns
     -------
@@ -119,16 +131,20 @@ def load_and_validate_inputs(
     FileNotFoundError
         If an input path does not exist.
     ValueError
-        If paths are empty, stems repeat, or input data violates the schema,
-        value, uniqueness, or cross-file consistency requirements.
+        If paths are empty, ``stem_uniqueness="error"`` and stems repeat, or
+        input data violates the schema, value, uniqueness, or cross-file
+        consistency requirements.
     """
     if isinstance(paths, (str, Path)) or len(paths) == 0:
         raise ValueError("paths must contain at least one input path")
 
     normalized_paths = sorted((Path(path).resolve() for path in paths), key=str)
-    stems = [path.stem for path in normalized_paths]
-    if len(stems) != len(set(stems)):
-        raise ValueError("input path stems must be unique")
+    if stem_uniqueness != "skip":
+        stems = [path.stem for path in normalized_paths]
+        if len(stems) != len(set(stems)):
+            if stem_uniqueness == "error":
+                raise ValueError("input path stems must be unique")
+            warnings.warn("input path stems are not unique", stacklevel=2)
 
     loaded: list[tuple[Path, pl.LazyFrame]] = []
     expected_wavelengths: frozenset[str] | None = None

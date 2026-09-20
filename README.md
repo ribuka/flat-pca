@@ -40,7 +40,7 @@ pca = flatten_pca(paths, n_component=2)
 result = append_pca_scores(pca, flattened).collect()
 
 # サンプル名と PCA スコアだけを確認する
-print(result.select("filename", "pca-1", "pca-2"))
+print(result.select("source", "pca-1", "pca-2"))
 
 # 成分係数を long 形式の座標付きテーブルへ戻す。
 components = reshape_pca_components(pca, flattened)
@@ -49,14 +49,17 @@ components = reshape_pca_components(pca, flattened)
 result.write_parquet("data/flatten_pca_result.parquet")
 ```
 
-`paths` には、拡張子を除いたファイル名が重複しない 1 個以上のパスを渡します。
+`paths` には 1 個以上のパスを渡します。各行を識別する `source` 列は正規化した入力パスの
+`path.as_posix()` を使うため、拡張子を除いたファイル名(stem)が重複していても既定では
+問題ありません。stem の重複を警告またはエラーにしたい場合は `stem_uniqueness="warn"` /
+`"error"` を指定します(既定値は `"skip"`)。
 `n_component` を省略すると、「入力ファイル数」と「展開後のスペクトル特徴量数」の小さい方まで
 すべての主成分を計算します。必要な主成分数だけに絞る場合は、1 以上かつこの上限以下の整数を
 指定します。入力パスの順序は結果に影響しません。
 
 ### 各 API の責務
 
-- `preprocess_and_flatten` は前処理と flatten の遅延クエリ (`polars.LazyFrame`) を返します。列は `filename` と決定的に並んだ flatten 特徴量です。
+- `preprocess_and_flatten` は前処理と flatten の遅延クエリ (`polars.LazyFrame`) を返します。列は `source` と決定的に並んだ flatten 特徴量です。
 - `flatten_pca` は `paths` または flatten 済みの `LazyFrame` の一方から PCA を fit し、学習済みの `PcaModel` を返します。スコアは返しません。
 - `append_pca_scores` は fit 済みの `PcaModel` と flatten 済み `LazyFrame` を受け取り、`pca-1` から `pca-{n_component}` のスコア列を追加した `LazyFrame` を返します。
 - `reshape_pca_components` は PCA 成分を `Time`、`Step`、`Sequence`、`wavelength`、`component`、`coefficient` 列の long 形式 `DataFrame` として返します。
@@ -109,7 +112,7 @@ result = append_pca_scores(pca, flattened).collect()
 ## 出力
 
 `preprocess_and_flatten` の戻り値は Polars の `LazyFrame` です。collect 後は 1 行が入力
-ファイル 1 個に対応し、列順は `filename`、展開したスペクトル特徴量です。
+ファイル 1 個に対応し、列順は `source`、展開したスペクトル特徴量です。
 `append_pca_scores` の戻り値も `LazyFrame` で、collect 後はこの列順の末尾に `pca-1` から
 `pca-{n_component}` が追加されます。特徴量列は間引き後も全入力で同じ集合となり、波長、
 `Step`、`Sequence`、`Time` の順で決定的に並びます。PCA の特徴量と主成分数の上限は、

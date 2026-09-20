@@ -136,8 +136,10 @@ def test_preprocess_and_flatten_end_to_end_with_target_steps_and_edge_trim(
         for path in real_fixture_paths
     ]
     original_values = {
-        path.stem: pl.read_parquet(path).get_column("649.9nm").to_list()
-        for path in real_fixture_paths
+        path.resolve().as_posix(): pl.read_parquet(source_path)
+        .get_column("649.9nm")
+        .to_list()
+        for path, source_path in zip(paths, real_fixture_paths, strict=True)
     }
 
     flattened = preprocess_and_flatten(
@@ -153,5 +155,5 @@ def test_preprocess_and_flatten_end_to_end_with_target_steps_and_edge_trim(
 
     for row in flattened.iter_rows(named=True):
         assert row["649.9nm_1_1_9690.00"] == pytest.approx(
-            original_values[row["filename"]][1]
+            original_values[row["source"]][1]
         )

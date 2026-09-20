@@ -26,7 +26,7 @@ def reshape_pca_components(
     pca_model : PcaModel
         Fitted PCA pipeline state whose components correspond to ``flattened``.
     flattened : pl.LazyFrame
-        Flattened spectral features with a ``filename`` column.
+        Flattened spectral features with a ``source`` column.
 
     Returns
     -------
@@ -44,7 +44,7 @@ def reshape_pca_components(
     feature_columns = [
         column
         for column in flattened.collect_schema().names()
-        if column != "filename"
+        if column != "source"
     ]
     components = _validated_components(pca_model, len(feature_columns))
     coordinates = [_parse_feature_coordinate(column) for column in feature_columns]

@@ -1,5 +1,6 @@
 """Tests for Flatten-PCA Parquet input loading and validation."""
 
+import warnings
 from pathlib import Path
 
 import polars as pl
@@ -57,10 +58,23 @@ def test_rejects_empty_and_missing_paths(tmp_path: Path) -> None:
         _load_and_validate_inputs([tmp_path / "missing.parquet"])
 
 
-def test_rejects_duplicate_path_stems(
+def _write_duplicate_stem_variants(
     tmp_path: Path, real_fixture_paths: list[Path]
-) -> None:
-    """Reject duplicate stems even when normalized paths differ."""
+) -> tuple[Path, Path]:
+    """Write two real-fixture-derived Parquet files sharing a stem.
+
+    Parameters
+    ----------
+    tmp_path : Path
+        Pytest temporary directory.
+    real_fixture_paths : list[Path]
+        Real fixture Parquet paths to derive the frame from.
+
+    Returns
+    -------
+    tuple[Path, Path]
+        Two written paths with identical stems in different directories.
+    """
     frame = pl.read_parquet(real_fixture_paths[0])
     first_directory = tmp_path / "first"
     second_directory = tmp_path / "second"
@@ -68,9 +82,46 @@ def test_rejects_duplicate_path_stems(
     second_directory.mkdir()
     first = _write_variant(frame, first_directory / "sample.parquet")
     second = _write_variant(frame, second_directory / "sample.parquet")
+    return first, second
+
+
+def test_rejects_duplicate_path_stems_when_checked_as_error(
+    tmp_path: Path, real_fixture_paths: list[Path]
+) -> None:
+    """Reject duplicate stems when ``stem_uniqueness="error"`` is requested."""
+    first, second = _write_duplicate_stem_variants(tmp_path, real_fixture_paths)
 
     with pytest.raises(ValueError, match="path stems"):
-        _load_and_validate_inputs([first, second])
+        _load_and_validate_inputs([first, second], stem_uniqueness="error")
+
+
+def test_allows_duplicate_path_stems_by_default(
+    tmp_path: Path, real_fixture_paths: list[Path]
+) -> None:
+    """Load duplicate-stem inputs without error or warning by default."""
+    first, second = _write_duplicate_stem_variants(tmp_path, real_fixture_paths)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        loaded = _load_and_validate_inputs([first, second])
+
+    assert [path for path, _ in loaded] == sorted(
+        (first.resolve(), second.resolve()), key=str
+    )
+
+
+def test_warns_on_duplicate_path_stems_when_checked_as_warn(
+    tmp_path: Path, real_fixture_paths: list[Path]
+) -> None:
+    """Warn but continue loading when ``stem_uniqueness="warn"`` is requested."""
+    first, second = _write_duplicate_stem_variants(tmp_path, real_fixture_paths)
+
+    with pytest.warns(UserWarning, match="path stems"):
+        loaded = _load_and_validate_inputs([first, second], stem_uniqueness="warn")
+
+    assert [path for path, _ in loaded] == sorted(
+        (first.resolve(), second.resolve()), key=str
+    )
 
 
 @pytest.mark.parametrize("column", ["Time", "Step", "Sequence"])

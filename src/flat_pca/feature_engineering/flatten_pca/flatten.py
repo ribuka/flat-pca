@@ -21,7 +21,7 @@ def flatten_inputs(
     Returns
     -------
     pl.DataFrame | pl.LazyFrame
-        One row per input file, ordered by normalized path, with ``filename``
+        One row per input file, ordered by normalized path, with ``source``
         followed by spectral features ordered by numeric wavelength, Step,
         Sequence, and StepTime.
 
@@ -71,11 +71,11 @@ def flatten_inputs(
         elif feature_names != expected_feature_names:
             raise ValueError("input frames must produce matching flattened features")
 
-        row: dict[str, object] = {"filename": path.stem}
+        row: dict[str, object] = {"source": path.as_posix()}
         row.update(zip(feature_names, feature_values, strict=True))
         rows.append(row)
 
-    return pl.DataFrame(rows).select("filename", *expected_feature_names)
+    return pl.DataFrame(rows).select("source", *expected_feature_names)
 
 
 def _flatten_lazy_inputs(
@@ -130,7 +130,7 @@ def _flatten_lazy_inputs(
     for path, frame in sorted(inputs, key=lambda item: str(item[0].resolve())):
         rows.append(
             frame.select(
-                pl.lit(path.stem).alias("filename"),
+                pl.lit(path.as_posix()).alias("source"),
                 *[
                     pl.col(column)
                     .filter(
@@ -144,4 +144,4 @@ def _flatten_lazy_inputs(
                 ],
             )
         )
-    return pl.concat(rows).select("filename", *feature_names)
+    return pl.concat(rows).select("source", *feature_names)
