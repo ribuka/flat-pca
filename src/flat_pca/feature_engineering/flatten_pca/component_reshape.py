@@ -31,8 +31,8 @@ def reshape_pca_components(
     Returns
     -------
     pl.DataFrame
-        Long-form components ordered by component, wavelength, Step, Sequence,
-        and Time.
+        Long-form components ordered by Step, Sequence, Time, component, and
+        wavelength.
 
     Raises
     ------
@@ -80,7 +80,7 @@ def reshape_pca_components(
         )
         .with_columns(pl.col("component").cast(pl.Int64))
         .select(["Time", "Step", "Sequence", "wavelength", "component", "coefficient"])
-        .sort(["component", "wavelength", "Step", "Sequence", "Time"])
+        .sort(["Step", "Sequence", "Time", "component", "wavelength"])
     )
 
 
