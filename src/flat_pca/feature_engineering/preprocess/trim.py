@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import polars as pl
 
 from ..flatten_pca.schema import wavelength_columns
@@ -10,8 +12,9 @@ from ..flatten_pca.schema import wavelength_columns
 def apply_edge_trim(
     frame: pl.DataFrame | pl.LazyFrame,
     edge_trim: list[float, float] | None,
+    action: Literal["drop", "null"] = "drop",
 ) -> pl.DataFrame | pl.LazyFrame:
-    """Null out non-meta values for rows near a segment's start or end.
+    """Drop or null rows near a segment's start or end.
 
     Parameters
     ----------
@@ -20,17 +23,27 @@ def apply_edge_trim(
     edge_trim : list[float, float] | None
         ``(edge_trim[0], edge_trim[1])`` thresholds. Rows with ``StepTime``
         less than ``edge_trim[0]`` or ``ReverseStepTime`` less than
-        ``edge_trim[1]`` have every non-meta column overwritten with
-        ``None``. Meta columns (``Time``, ``Step``, ``StepTime``,
-        ``ReverseStepTime``, ``Sequence``) are never overwritten. If
-        ``None``, the frame is returned unchanged.
+        ``edge_trim[1]`` are trimmed. If ``None``, the frame is returned
+        unchanged.
+    action : {"drop", "null"}, default "drop"
+        ``"drop"`` removes trimmed rows. ``"null"`` overwrites every
+        non-meta column in trimmed rows with ``None`` while preserving meta
+        columns (``Time``, ``Step``, ``StepTime``, ``ReverseStepTime``,
+        ``Sequence``).
 
     Returns
     -------
     pl.DataFrame | pl.LazyFrame
-        Frame with non-meta columns nulled on rows within either trimmed
-        edge, or the input frame unchanged if ``edge_trim`` is ``None``.
+        Frame with the requested trimming applied, or the input frame
+        unchanged if ``edge_trim`` is ``None``.
+
+    Raises
+    ------
+    ValueError
+        If ``action`` is not ``"drop"`` or ``"null"``.
     """
+    if action not in {"drop", "null"}:
+        raise ValueError("action must be either 'drop' or 'null'")
     if edge_trim is None:
         return frame
     start_threshold, end_threshold = edge_trim
@@ -44,7 +57,11 @@ def apply_edge_trim(
     condition = (pl.col("StepTime") < start_threshold) | (
         pl.col("ReverseStepTime") < end_threshold
     )
-    return frame.with_columns(
-        pl.when(condition).then(None).otherwise(pl.col(column)).alias(column)
-        for column in spectra
-    )
+    if action == "drop":
+        return frame.filter(~condition)
+    if action == "null":
+        return frame.with_columns(
+            pl.when(condition).then(None).otherwise(pl.col(column)).alias(column)
+            for column in spectra
+        )
+    raise AssertionError("validated action must be 'drop' or 'null'")
