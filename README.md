@@ -6,8 +6,8 @@ data stored in Parquet files.
 ## 使い方
 
 同じ測定条件（`Time`、`Step`、`Sequence`、波長列）を持つ複数の Parquet
-ファイルを、1 ファイルにつき 1 行の特徴量へ展開します。ファイル名（拡張子を除く）が
-サンプル名になります。公開 API は、遅延した前処理・flatten、PCA の fit、スコアの
+ファイルを、1 ファイルにつき 1 行の特徴量へ展開します。各行を識別する `source` 列は
+入力パスから決まります。公開 API は、遅延した前処理・flatten、PCA の fit、スコアの
 結合、成分の reshape をそれぞれ分離しています。
 
 まず、パッケージをインストールします。
@@ -32,21 +32,22 @@ from flat_pca.feature_engineering import (
 input_dir = Path("data/spectra")
 paths = sorted(input_dir.glob("*.parquet"))
 
-# 前処理済みの 1 ファイル 1 行の特徴量を、必要な時点で collect する。
-flattened = preprocess_and_flatten(paths)
+## 前処理済みの 1 ファイル 1 行の特徴量を、必要な時点で collect する。
+flattened: pl.LazyFrame = preprocess_and_flatten(paths)
 
-# PCA を fit し、同じ flatten 結果へスコアを結合する。
-pca = flatten_pca(paths, n_component=2)
-result = append_pca_scores(pca, flattened).collect()
+## PCA を fit
+pca: PcaModel = flatten_pca(flattened=flattened)
+# pca: PcaModel = flatten_pca(paths)
 
-# サンプル名と PCA スコアだけを確認する
-print(result.select("source", "pca-1", "pca-2"))
+## flattened へスコアを結合する。
+result: pl.LazyFrame = append_pca_scores(pca, flattened)
+result = result.collect()
 
-# 成分係数を long 形式の座標付きテーブルへ戻す。
-components = reshape_pca_components(pca, flattened)
+## 任意の成分において寄与度が大きい特徴量を確認する(1-based)
+print(pca.get_component_coefficients(1))
 
-# スコアを後続の解析用に保存する場合
-result.write_parquet("data/flatten_pca_result.parquet")
+## 成分係数を long 形式の座標付きテーブルへ戻す。
+components: pl.DataFrame = reshape_pca_components(pca, flattened)
 ```
 
 `paths` には 1 個以上のパスを渡します。各行を識別する `source` 列は正規化した入力パスの
@@ -63,44 +64,69 @@ result.write_parquet("data/flatten_pca_result.parquet")
 - `flatten_pca` は `paths` または flatten 済みの `LazyFrame` の一方から PCA を fit し、学習済みの `PcaModel` を返します。スコアは返しません。
 - `append_pca_scores` は fit 済みの `PcaModel` と flatten 済み `LazyFrame` を受け取り、`pca-1` から `pca-{n_component}` のスコア列を追加した `LazyFrame` を返します。
 - `reshape_pca_components` は PCA 成分を `StepTime`、`Step`、`Sequence`、`wavelength`、`component`、`coefficient` 列の long 形式 `DataFrame` として返します。
+- `PcaModel.get_component_coefficients` は、指定した成分(1-based)の特徴量ごとの係数を絶対値の降順で並べた `DataFrame` を返します。
 
 `preprocess_and_flatten` と `append_pca_scores` は、呼び出し側が `.collect()` する時点を選べます。`flatten_pca` は PCA fit に必要な特徴量だけを materialize します。
 
 ### 前処理を指定する例
 
-必要に応じて、時間・波長方向の平滑化と規格化を同時に指定できます。窓幅は半窓幅で、
-範囲の両端を含みます。単位はそれぞれ入力の `Time` と波長列名の数値部分に合わせます。
+必要に応じて、`Step` によるフィルタ、セグメント端のトリム、時間・波長方向の平滑化と
+規格化を同時に指定できます。窓幅は半窓幅で、範囲の両端を含みます。単位はそれぞれ入力の
+`Time`(トリムは `StepTime`/`ReverseStepTime`)と波長列名の数値部分に合わせます。
 
 ```python
-flattened = preprocess_and_flatten(
-    paths,
-    t_smoothing_window=300.0,
-    w_smoothing_window=5.0,
-    t_normalization_range=(0.0, 9_690.0),
-    w_normalization_range=(350.0, 450.0),
-    t_downsampling_stride=2,
-    w_downsampling_stride=3,
-)
-pca = flatten_pca(
-    paths,
-    n_component=3,
-    t_smoothing_window=300.0,
-    w_smoothing_window=5.0,
-    t_normalization_range=(0.0, 9_690.0),
-    w_normalization_range=(350.0, 450.0),
-    t_downsampling_stride=2,
-    w_downsampling_stride=3,
-)
-result = append_pca_scores(pca, flattened).collect()
+preprocess_cfg = {
+    "target_steps": [1],
+    "edge_trim": [6.0, 1.0],
+    "t_smoothing_window": None,
+    "w_smoothing_window": 1.0,
+    "t_normalization_range": None,
+    "w_normalization_range": None,
+    "t_downsampling_stride": 2,
+    "w_downsampling_stride": 10,
+}
+
+flattened = preprocess_and_flatten(paths, **preprocess_cfg)
+pca = flatten_pca(paths, **preprocess_cfg)
+result = append_pca_scores(pca, flattened)
 ```
 
+`target_steps` は残す `Step` 値のリストです。`None`(既定値)なら全行を残します。
+`edge_trim` は `(edge_trim[0], edge_trim[1])` のしきい値で、各セグメント(`Step` と
+`Sequence` が連続して同じ範囲)内で `StepTime` が `edge_trim[0]` 未満、または
+`ReverseStepTime` が `edge_trim[1]` 未満の行を除外します。`None`(既定値)ならトリムを
+行いません。どちらも `paths` を渡した場合のみ有効で、`flattened` を直接渡す場合は無視
+されます。
 `t_downsampling_stride` と `w_downsampling_stride` は、全入力で共通する昇順の Time 値・
 波長値について先頭から何個おきに残すかを、1 以上の整数で指定します。既定値 `1` は
 間引きを行いません。
 
-前処理は常に、時間方向平滑化、波長方向平滑化、時間方向規格化、波長方向規格化、
-時間方向間引き、波長方向間引き、flatten の順で適用されます。平滑化と規格化は間引き前の
-全観測値を使用します。不要な平滑化・規格化は引数を省略するか `None` を渡してください。
+前処理は常に、対象 `Step` の絞り込み、`StepTime`/`ReverseStepTime` の付与、端のトリム、
+時間方向平滑化、波長方向平滑化、時間方向規格化、波長方向規格化、時間方向間引き、
+波長方向間引き、flatten の順で適用されます。平滑化と規格化は間引き前の全観測値を
+使用します。不要な平滑化・規格化は引数を省略するか `None` を渡してください。
+
+### 可視化
+
+`flat_pca.visualize.create_heatmap` は、波長方向を横軸、時間方向を縦軸としたヒート
+マップ(`plotly.graph_objects.Figure`)を作成します。入力 Parquet と同じワイド形式
+(`Time`/`Step`/`Sequence` と波長列)、または `reshape_pca_components` が返す long 形式
+のどちらも渡せます。
+
+```python
+from flat_pca.visualize import create_heatmap
+
+# 入力データそのもの(ワイド形式)をスペクトル強度のヒートマップとして表示する
+create_heatmap(pl.read_parquet(paths[0]))
+
+# 特定の主成分の係数を、wavelength × StepTime のヒートマップとして表示する(long 形式)
+create_heatmap(
+    components.filter(pl.col("component") == 0).drop("component"),
+    x_name="wavelength",
+    y_name="StepTime",
+    z_name="coefficient",
+)
+```
 
 ## 入力 Parquet の形式
 
@@ -115,5 +141,5 @@ result = append_pca_scores(pca, flattened).collect()
 ファイル 1 個に対応し、列順は `source`、展開したスペクトル特徴量です。
 `append_pca_scores` の戻り値も `LazyFrame` で、collect 後はこの列順の末尾に `pca-1` から
 `pca-{n_component}` が追加されます。特徴量列は間引き後も全入力で同じ集合となり、波長、
-`Step`、`Sequence`、`Time` の順で決定的に並びます。PCA の特徴量と主成分数の上限は、
+`Step`、`Sequence`、`StepTime` の順で決定的に並びます。PCA の特徴量と主成分数の上限は、
 この間引き後の特徴量集合から決まります。
