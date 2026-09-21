@@ -13,6 +13,7 @@ from flat_pca.feature_engineering import (
     preprocess_and_flatten,
     reshape_pca_components,
 )
+from flat_pca.feature_engineering.flatten_pca import api as _api
 from flat_pca.feature_engineering.flatten_pca import flatten_pca as package_flatten_pca
 from flat_pca.feature_engineering.flatten_pca import pca_scores
 from flat_pca.feature_engineering.flatten_pca.flatten import (
@@ -730,6 +731,42 @@ def test_preprocess_and_flatten_materialize_once_matches_deferred_result(
     assert isinstance(deferred, pl.LazyFrame)
     assert materialized.collect().equals(default.collect())
     assert materialized.collect().equals(deferred.collect())
+
+
+def test_preprocess_and_flatten_materializes_upstream_flatten_once(
+    real_fixture_paths: list[Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Materialize real-Parquet flatten inputs once before sparse pruning."""
+    calls = 0
+    original_flatten_inputs = _api.flatten_inputs
+
+    def count_flatten_inputs(
+        inputs: list[tuple[Path, pl.LazyFrame]],
+    ) -> pl.LazyFrame:
+        """Wrap the real flatten query with a per-input execution counter."""
+        nonlocal calls
+        flattened = original_flatten_inputs(inputs)
+        assert isinstance(flattened, pl.LazyFrame)
+
+        def count_batch(batch: pl.DataFrame) -> pl.DataFrame:
+            """Record one executed input batch without altering its data."""
+            nonlocal calls
+            calls += 1
+            return batch
+
+        return flattened.map_batches(
+            count_batch,
+            schema=flattened.collect_schema(),
+        )
+
+    monkeypatch.setattr(_api, "flatten_inputs", count_flatten_inputs)
+
+    flattened = _api.preprocess_and_flatten(real_fixture_paths[:3])
+
+    assert calls == 1
+    assert flattened.collect().height == 3
+    assert calls == 1
 
 
 def test_materialize_once_default_decouples_result_from_source_files(

@@ -266,10 +266,12 @@ def preprocess_and_flatten(
 
     flattened = flatten_inputs(prepared_inputs)
     assert isinstance(flattened, pl.LazyFrame)
-    flattened = drop_sparse_feature_columns(flattened, max_null_ratio)
     if materialize_once:
-        flattened = materialize_flattened(flattened)
-    return flattened
+        return materialize_and_drop_sparse_feature_columns(
+            flattened,
+            max_null_ratio,
+        )
+    return drop_sparse_feature_columns(flattened, max_null_ratio)
 
 
 def materialize_flattened(flattened: pl.LazyFrame) -> pl.LazyFrame:
@@ -288,3 +290,32 @@ def materialize_flattened(flattened: pl.LazyFrame) -> pl.LazyFrame:
         re-running the underlying query.
     """
     return flattened.collect().lazy()
+
+
+def materialize_and_drop_sparse_feature_columns(
+    flattened: pl.LazyFrame,
+    max_null_ratio: float,
+) -> pl.LazyFrame:
+    """Materialize once, prune sparse columns, and cache the pruned result.
+
+    Parameters
+    ----------
+    flattened : pl.LazyFrame
+        Deferred flattened features before sparse-column pruning.
+    max_null_ratio : float
+        Inclusive maximum missing-value ratio for retained feature columns.
+
+    Returns
+    -------
+    pl.LazyFrame
+        An in-memory-backed LazyFrame containing the pruned flattened features.
+
+    Notes
+    -----
+    Sparse-column statistics are calculated from the already materialized
+    result. This prevents the expensive upstream Parquet and flatten query
+    from being run both for statistics and for the cached return value.
+    """
+    materialized = materialize_flattened(flattened)
+    pruned = drop_sparse_feature_columns(materialized, max_null_ratio)
+    return materialize_flattened(pruned)
