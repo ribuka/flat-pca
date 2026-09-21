@@ -54,6 +54,7 @@ def test_public_import_and_signature_are_stable(
         "n_component",
         "target_steps",
         "edge_trim",
+        "wavelength_range",
         "t_smoothing_window",
         "w_smoothing_window",
         "t_normalization_range",
@@ -70,7 +71,7 @@ def test_public_import_and_signature_are_stable(
     assert parameters["paths"].kind is Parameter.POSITIONAL_OR_KEYWORD
     for parameter in list(parameters.values())[1:]:
         assert parameter.kind is Parameter.KEYWORD_ONLY
-    for name in list(parameters)[0:9]:
+    for name in list(parameters)[0:10]:
         assert parameters[name].default is None
     assert parameters["t_downsampling_stride"].default == 1
     assert parameters["w_downsampling_stride"].default == 1

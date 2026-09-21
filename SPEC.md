@@ -19,6 +19,7 @@ def preprocess_and_flatten(
     *,
     target_steps: list[int] | None = None,
     edge_trim: list[float, float] | None = None,
+    wavelength_range: tuple[float, float] | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
@@ -37,6 +38,7 @@ def flatten_pca(
     n_component: int | None = None,
     target_steps: list[int] | None = None,
     edge_trim: list[float, float] | None = None,
+    wavelength_range: tuple[float, float] | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
@@ -66,7 +68,8 @@ def reshape_pca_components(
 - `preprocess_and_flatten`は、`source`列およびflatten特徴量列を持つ`pl.LazyFrame`を返す。列順と特徴量列名は「flatten仕様」に従う。
 - `target_steps`は対象とする`Step`列の値のリストを指定し、`None`の場合は`Step`列による行フィルタを適用しない。詳細は「Step行フィルタ仕様」に従う。
 - `edge_trim`は`(edge_trim[0], edge_trim[1])`の2値を指定し、`None`の場合はStepTime・ReverseStepTime列を用いた行処理を適用しない。詳細は「StepTime列生成仕様」および「edge_trimによる行処理仕様」に従う。
-- `flatten_pca`が`paths`を指定する場合、`target_steps`および`edge_trim`は`preprocess_and_flatten`と同じ意味・検証規則とする。`flattened`を指定する場合、`target_steps`および`edge_trim`は使用しない。
+- `wavelength_range`は`(wavelength_range[0], wavelength_range[1])`の閉区間を指定し、`None`の場合は波長列による列フィルタを適用しない。詳細は「wavelength_rangeによる列フィルタ仕様」に従う。
+- `flatten_pca`が`paths`を指定する場合、`target_steps`、`edge_trim`および`wavelength_range`は`preprocess_and_flatten`と同じ意味・検証規則とする。`flattened`を指定する場合、`target_steps`、`edge_trim`および`wavelength_range`は使用しない。
 - `flatten_pca`は`paths`または`flattened`のいずれか一方を受け取り、両引数の初期値は`None`とする。両方が`None`の場合、および両方が指定された場合は`ValueError`を送出する。
 - `paths`を指定した場合、`paths`および前処理引数は`preprocess_and_flatten`と同じ意味・検証規則とする。内部で`preprocess_and_flatten`を呼び出す。
 - `flattened`を指定した場合は、`source`列およびflatten特徴量列を持つ`pl.LazyFrame`を直接使用し、前処理およびflattenは行わない。
@@ -131,6 +134,14 @@ def reshape_pca_components(
 - `ReverseStepTime`が`edge_trim[1]`より小さい行について、meta列以外の列（波長列を含む）の値を`None`で上書きする。
 - 上記2条件は独立に判定し、両方に該当する行はどちらの上書きも適用された結果となる。
 - この上書きは、t/w方向smoothing、t/w方向規格化、間引きおよびflattenより前に適用する。
+
+### wavelength_rangeによる列フィルタ仕様
+
+- `wavelength_range`が`None`でない場合、StepTime・ReverseStepTime列を生成した直後、`edge_trim`による行処理より前に、以下の列選択を適用する。`None`の場合は適用しない。
+- `wavelength_range[0]`（下限）以上`wavelength_range[1]`（上限）以下の波長を持つ波長列だけを残し、それ以外の波長列を削除する。`Time`、`Step`、`Sequence`、`StepTime`、`ReverseStepTime`列は削除しない。
+- `wavelength_range[0]`および`wavelength_range[1]`は有限値でなければならず、`wavelength_range[0] <= wavelength_range[1]`でなければならない。それ以外は`ValueError`を送出する。
+- 指定区間に該当する波長列が1つも無い場合は`ValueError`を送出する。
+- この列選択は、`edge_trim`による行処理、t/w方向smoothing、t/w方向規格化、間引き（Unique配列の生成を含む）およびflattenより前に適用するため、以降のすべての処理は列フィルタ後の波長列だけを対象とする。
 
 ### 前処理仕様
 
@@ -260,7 +271,7 @@ def apply_w_downsampling(
 ### 完了条件
 
 - 公開APIと公開される関数・クラスには型ヒントとNumPy形式のdocstringがある。
-- 正常系、入力検証、`Sequence`、Step行フィルタ、StepTime・ReverseStepTime列生成、edge_trimによる行処理、t/w方向smoothing、t/w方向規格化、t/w方向の間引き、並び順、LazyFrameの遅延実行、flatten結果、PCAのfit、PCAスコアの結合およびPCA成分のreshapeを対象とした自動テストがある。
+- 正常系、入力検証、`Sequence`、Step行フィルタ、StepTime・ReverseStepTime列生成、edge_trimによる行処理、wavelength_rangeによる列フィルタ、t/w方向smoothing、t/w方向規格化、t/w方向の間引き、並び順、LazyFrameの遅延実行、flatten結果、PCAのfit、PCAスコアの結合およびPCA成分のreshapeを対象とした自動テストがある。
 - t/w方向の間引きテストは、間引き間隔`1`、`2`、入力不正、および末尾が選択indexに該当しない場合を対象とする。
 - `tests/fixtures/real_subset`のParquetを使用し、複数ファイルを入力するend-to-endテストがある。
 - PCAのテストは、符号反転を許容しながら分散、部分空間、再構成結果またはreshape後の係数配置を検証する。

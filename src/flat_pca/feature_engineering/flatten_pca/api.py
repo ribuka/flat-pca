@@ -18,6 +18,7 @@ from ..preprocess import (
     apply_w_downsampling,
     apply_w_normalization,
     apply_w_smoothing,
+    apply_wavelength_range_filter,
     collect_unique_times,
     collect_unique_wavelengths,
     drop_sparse_feature_columns,
@@ -36,6 +37,7 @@ def flatten_pca(
     n_component: int | None = None,
     target_steps: list[int] | None = None,
     edge_trim: list[float, float] | None = None,
+    wavelength_range: tuple[float, float] | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
@@ -69,6 +71,10 @@ def flatten_pca(
         ``(edge_trim[0], edge_trim[1])`` StepTime/ReverseStepTime trim
         thresholds, or ``None`` to disable trimming. Used only when ``paths``
         is specified; ignored when ``flattened`` is specified.
+    wavelength_range : tuple[float, float] | None, default None
+        Inclusive wavelength interval of columns to keep, or ``None`` to keep
+        every wavelength column. Used only when ``paths`` is specified;
+        ignored when ``flattened`` is specified.
     t_smoothing_window : float | None, default None
         Positive time-direction smoothing half-window, or ``None``.
     w_smoothing_window : float | None, default None
@@ -128,6 +134,7 @@ def flatten_pca(
             paths,
             target_steps=target_steps,
             edge_trim=edge_trim,
+            wavelength_range=wavelength_range,
             t_smoothing_window=t_smoothing_window,
             w_smoothing_window=w_smoothing_window,
             t_normalization_range=t_normalization_range,
@@ -148,6 +155,7 @@ def preprocess_and_flatten(
     *,
     target_steps: list[int] | None = None,
     edge_trim: list[float, float] | None = None,
+    wavelength_range: tuple[float, float] | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
@@ -173,6 +181,14 @@ def preprocess_and_flatten(
         ``(edge_trim[0], edge_trim[1])`` StepTime/ReverseStepTime trim
         thresholds, or ``None`` to disable trimming. Applied immediately
         after StepTime/ReverseStepTime generation.
+    wavelength_range : tuple[float, float] | None, default None
+        Inclusive ``(lower, upper)`` wavelength interval of columns to keep,
+        or ``None`` to keep every wavelength column. Applied immediately
+        after StepTime/ReverseStepTime generation and before ``edge_trim``,
+        so every later stage (edge trimming, smoothing, normalization,
+        downsampling, and Unique-array collection) sees only the retained
+        wavelength columns. Raises ``ValueError`` if the range is malformed,
+        reversed, nonfinite, or matches no wavelength column.
     t_smoothing_window, w_smoothing_window : float | None, default None
         Positive smoothing half-windows, or ``None`` to disable each stage.
     t_normalization_range, w_normalization_range : tuple[float, float] | None, default None
@@ -240,7 +256,10 @@ def preprocess_and_flatten(
     step_time_inputs: list[tuple[Path, pl.LazyFrame]] = []
     for path, frame in filtered_inputs:
         with_step_time = add_step_time_columns(frame)
-        trimmed = apply_edge_trim(with_step_time, edge_trim)
+        wavelength_filtered = apply_wavelength_range_filter(
+            with_step_time, wavelength_range
+        )
+        trimmed = apply_edge_trim(wavelength_filtered, edge_trim)
         step_time_inputs.append((path, trimmed))
 
     frames = [frame for _, frame in step_time_inputs]

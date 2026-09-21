@@ -62,14 +62,17 @@ components: pl.DataFrame = reshape_pca_components(pca, flattened)
 
 ### 前処理を指定する例
 
-必要に応じて、`Step` によるフィルタ、セグメント端のトリム、時間・波長方向の平滑化と
-規格化を同時に指定できます。窓幅は半窓幅で、範囲の両端を含みます。単位はそれぞれ入力の
-`Time`(トリムは `StepTime`/`ReverseStepTime`)と波長列名の数値部分に合わせます。
+必要に応じて、`Step` によるフィルタ、セグメント端のトリム、波長範囲によるフィルタ、
+時間・波長方向の平滑化と規格化を同時に指定できます。窓幅は半窓幅で、範囲の両端を含みます。
+単位はそれぞれ入力の `Time`(トリムは `StepTime`/`ReverseStepTime`)と波長列名の数値部分に
+合わせます。`wavelength_range` を指定すると、その閉区間に含まれる波長列だけを残し、
+範囲外の波長列は以降の平滑化・規格化・間引きの対象から除きます。
 
 ```python
 preprocess_cfg = {
     "target_steps": [1],
     "edge_trim": [6.0, 1.0],
+    "wavelength_range": None,
     "t_smoothing_window": None,
     "w_smoothing_window": 1.0,
     "t_normalization_range": None,
