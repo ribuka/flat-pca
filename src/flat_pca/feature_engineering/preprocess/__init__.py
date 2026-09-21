@@ -12,7 +12,7 @@ from .smoothing import apply_t_smoothing, apply_w_smoothing
 from .sparse_columns import drop_sparse_feature_columns, validate_max_null_ratio
 from .step_time import add_step_time_columns
 from .trim import apply_edge_trim
-from .wavelength_filter import apply_wavelength_range_filter
+from .wavelength_filter import apply_wavelength_range_filter, validate_wavelength_range
 
 __all__ = [
     "add_step_time_columns",
@@ -29,4 +29,5 @@ __all__ = [
     "drop_sparse_feature_columns",
     "filter_target_steps",
     "validate_max_null_ratio",
+    "validate_wavelength_range",
 ]

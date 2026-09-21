@@ -248,6 +248,7 @@ def preprocess_and_flatten(
         paths,
         stem_uniqueness=stem_uniqueness,
         validate_metadata_uniqueness=validate_metadata_uniqueness,
+        wavelength_range=wavelength_range,
     )
     filtered_inputs: list[tuple[Path, pl.LazyFrame]] = [
         (path, filter_target_steps(frame, target_steps))
@@ -286,13 +287,28 @@ def preprocess_and_flatten(
         )
         prepared_inputs.append((path, prepared))
 
-    flattened = flatten_inputs(prepared_inputs)
-    assert isinstance(flattened, pl.LazyFrame)
     if materialize_once:
+        # Fail fast before collecting inputs and running the expensive
+        # flatten below; drop_sparse_feature_columns validates again for its
+        # independent callers.
+        validate_max_null_ratio(max_null_ratio)
+        # Collecting each file before flatten routes flatten_inputs through
+        # its eager DataFrame branch (dict-based per-combo lookups), which is
+        # far faster than its LazyFrame branch (one filter+first expression
+        # per wavelength-and-combo cell). materialize_once=True already
+        # collects the flatten result immediately afterward, so this does
+        # not add a new collection boundary, only moves it earlier.
+        collected_inputs: list[tuple[Path, pl.DataFrame]] = [
+            (path, frame.collect()) for path, frame in prepared_inputs
+        ]
+        flattened = flatten_inputs(collected_inputs)
+        assert isinstance(flattened, pl.DataFrame)
         return materialize_and_drop_sparse_feature_columns(
             flattened,
             max_null_ratio,
         )
+    flattened = flatten_inputs(prepared_inputs)
+    assert isinstance(flattened, pl.LazyFrame)
     return drop_sparse_feature_columns(flattened, max_null_ratio)
 
 
@@ -315,15 +331,17 @@ def materialize_flattened(flattened: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def materialize_and_drop_sparse_feature_columns(
-    flattened: pl.LazyFrame,
+    flattened: pl.DataFrame | pl.LazyFrame,
     max_null_ratio: float,
 ) -> pl.LazyFrame:
     """Materialize once, prune sparse columns, and cache the pruned result.
 
     Parameters
     ----------
-    flattened : pl.LazyFrame
-        Deferred flattened features before sparse-column pruning.
+    flattened : pl.DataFrame | pl.LazyFrame
+        Flattened features before sparse-column pruning. Already-materialized
+        input (as produced by ``flatten_inputs``'s eager DataFrame branch) is
+        used directly without a redundant ``.lazy().collect()`` round trip.
     max_null_ratio : float
         Inclusive maximum missing-value ratio for retained feature columns.
 
@@ -339,10 +357,10 @@ def materialize_and_drop_sparse_feature_columns(
     ``collect()``. This prevents an upstream re-execution and retains only
     the pruned feature set after this function returns.
     """
-    # Fail fast before materializing the expensive upstream flatten query.
+    # Fail fast before collecting an unmaterialized upstream flatten query.
     # The pruning stage validates again for its independent callers.
     validate_max_null_ratio(max_null_ratio)
-    materialized = flattened.collect()
+    materialized = flattened.collect() if isinstance(flattened, pl.LazyFrame) else flattened
     pruned = drop_sparse_feature_columns(materialized, max_null_ratio)
     assert isinstance(pruned, pl.DataFrame)
     cached = pruned.lazy()

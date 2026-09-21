@@ -50,3 +50,31 @@ def wavelength_columns(columns: list[str]) -> list[str]:
         Column names not reserved for metadata or StepTime columns.
     """
     return [column for column in columns if column not in NON_SPECTRAL_COLUMNS]
+
+
+def select_wavelength_columns_in_range(
+    columns: list[str],
+    wavelength_range: tuple[float, float],
+) -> list[str]:
+    """Return wavelength columns from a column list within an inclusive range.
+
+    Parameters
+    ----------
+    columns : list[str]
+        Complete input column names.
+    wavelength_range : tuple[float, float]
+        Already-validated, ordered, finite inclusive ``(lower, upper)``
+        wavelength bounds.
+
+    Returns
+    -------
+    list[str]
+        Wavelength columns from ``columns`` whose parsed numeric value falls
+        within ``wavelength_range``, in their existing relative order.
+    """
+    lower, upper = wavelength_range
+    return [
+        column
+        for column in wavelength_columns(columns)
+        if lower <= parse_wavelength(column) <= upper
+    ]

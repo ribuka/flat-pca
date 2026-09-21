@@ -81,7 +81,7 @@ def reshape_pca_components(
 - `w_normalization_range`はw方向規格化に用いる閉区間`(w1, w2)`を指定し、`None`の場合は適用しない。
 - `t_downsampling_stride`はt方向の間引き間隔を指定する。`1`の場合は間引かない。
 - `w_downsampling_stride`はw方向の間引き間隔を指定する。`1`の場合は間引かない。
-- `append_pca_scores`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、`source`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。
+- `append_pca_scores`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、`source`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。`flattened`に残る欠損値（異なる入力ファイル間の`(Step, Sequence, StepTime)`集合の差異に由来するものを含む）は、fit時と同じ`pca_model.impute_strategy`に従って処理する（`transform_pca`と同じ規則）。`"drop"`の場合、欠損が残る行は出力から除外されるため、戻り値の行数が`flattened`の行数より少なくなることがある。`"median"`の場合、特徴量列の値は補完後の値になる。欠損処理後に1行も残らない場合は`ValueError`を送出する。
 - `materialize_once`（既定値`True`）が`True`の場合、`preprocess_and_flatten`はflatten完了後に一度だけ`.collect().lazy()`を行い、結果をメモリ上の`pl.DataFrame`起点の`pl.LazyFrame`として返す。これにより、戻り値をPCAのfitやスコア付与などで再利用しても、Parquet読み込みからflattenまでのクエリが再実行されない。`False`の場合は未実行のflattenクエリをそのまま返す。いずれの場合も戻り値の型は`pl.LazyFrame`であり、flatten結果・列順は一致する。`flatten_pca`が`paths`を指定する場合、`materialize_once`は同じ意味で内部の`preprocess_and_flatten`へ伝播する。`flattened`を指定する場合、`materialize_once`は使用しない。
 - `reshape_pca_components`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、後述の座標へ展開した`pca_model.pca.components_`を`pl.DataFrame`として返す。
 
@@ -91,6 +91,7 @@ def reshape_pca_components(
 - 入力検証、共通のUnique配列の確定、PCAのfit・transformなど、結果値が必要な境界でのみ必要最小限のcollectを行う。前処理済みの全入力フレームを一括で`pl.DataFrame`へmaterializeしてはならない。
 - `preprocess_and_flatten`、`append_pca_scores`は呼び出し側がcollectの時点と実行方法を選べるよう、常に`pl.LazyFrame`を返す。
 - `preprocess_and_flatten`は既定（`materialize_once=True`）で、flatten完了後に一度だけcollectしメモリ上に固定した結果を`pl.LazyFrame`として返す。これはメモリ消費と引き換えに、戻り値を複数回collectしても前処理・flattenを再実行しないための挙動である。完全な遅延実行が必要な場合は`materialize_once=False`を指定する。
+- `materialize_once=True`の場合、内部の`flatten_inputs`は各入力ファイルを1つずつcollectしてから実行する（(波長列数 × ファイル間でunionした`(Step, Sequence, StepTime)`組み合わせ数)に比例した個別のlazy式を積み上げる方式は、実用的なファイル数・波長数の組み合わせで著しく遅いため使用しない）。そのため`materialize_once=True`では、`preprocess_and_flatten`の呼び出し自体でflatten対象ファイルの読み込みとflatten処理が完了し、以降collectを遅延できるのはsparse列の間引き以降の段のみとなる。`materialize_once=False`の場合はこの限りではなく、flattenを含め呼び出し側の最初の`.collect()`までファイルの読み込みを一切行わない。
 
 ### 入力要件
 
@@ -99,7 +100,7 @@ def reshape_pca_components(
 - `Time`列、`Step`列および`Sequence`列以外を波長列として扱う。
 - 波長列名は、有限な数値`v`を`f"{v:.1f}nm"`で表現した形式でなければならない。
 - スペクトル強度は数値型でなければならない。
-- null、NaNおよび無限大を含む入力は受け付けない。
+- null、NaNおよび無限大を含む入力は受け付けない。ただし`wavelength_range`が指定されている場合、この判定は`Time`・`Step`・`Sequence`列と、指定区間内の波長列のみを対象とし、区間外の波長列の値はこの判定の対象としない（区間外の列は後段の`wavelength_range`による列フィルタで削除されるため）。必須列の存在・数値型・波長列名フォーマット・ファイル間の波長集合一致など、値以外の要件は`wavelength_range`の指定に関わらず全波長列を対象に判定する。
 - 各ファイル内で`(Time, Step, Sequence)`の組み合わせは一意でなければならない。
 - すべてのファイルは、同一の波長集合および同一の`(Time, Step, Sequence)`集合を持たなければならない。
 - `source`列には正規化済み入力パスの`path.as_posix()`を使用する。正規化パスは`Path.resolve()`により一意であるため、`path.stem`の一意性は`source`列の一意性には必要としない。
@@ -142,6 +143,7 @@ def reshape_pca_components(
 - `wavelength_range[0]`および`wavelength_range[1]`は有限値でなければならず、`wavelength_range[0] <= wavelength_range[1]`でなければならない。それ以外は`ValueError`を送出する。
 - 指定区間に該当する波長列が1つも無い場合は`ValueError`を送出する。
 - この列選択は、`edge_trim`による行処理、t/w方向smoothing、t/w方向規格化、間引き（Unique配列の生成を含む）およびflattenより前に適用するため、以降のすべての処理は列フィルタ後の波長列だけを対象とする。
+- 「入力要件」のnull・NaN・無限大チェックは、この列選択の適用前（各ファイルのParquetを読み込んだ直後）に行うが、`wavelength_range`が指定されている場合はその判定範囲を`Time`・`Step`・`Sequence`列と区間内の波長列に限定する。区間外の波長列にnull・NaN・無限大が含まれていても、この列選択で削除される限りエラーにはならない。
 
 ### 前処理仕様
 

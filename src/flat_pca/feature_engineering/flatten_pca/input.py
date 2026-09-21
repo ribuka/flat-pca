@@ -11,7 +11,13 @@ import polars as pl
 
 from flat_pca.utils import get_schema_from_polars
 
-from .schema import METADATA_COLUMNS, parse_wavelength, wavelength_columns
+from ..preprocess.wavelength_filter import validate_wavelength_range
+from .schema import (
+    METADATA_COLUMNS,
+    parse_wavelength,
+    select_wavelength_columns_in_range,
+    wavelength_columns,
+)
 
 StemUniquenessCheck = Literal["skip", "warn", "error"]
 
@@ -51,6 +57,7 @@ def validate_frame(
     frame: pl.LazyFrame,
     *,
     validate_metadata_uniqueness: bool = False,
+    wavelength_range: tuple[float, float] | None = None,
 ) -> frozenset[str]:
     """Validate one input frame and return its cross-file comparison set.
 
@@ -62,6 +69,16 @@ def validate_frame(
         Lazily scanned Parquet contents to validate.
     validate_metadata_uniqueness : bool, default False
         Whether to reject duplicate ``(Time, Step, Sequence)`` tuples.
+    wavelength_range : tuple[float, float] | None, default None
+        Inclusive ``(lower, upper)`` wavelength interval that a later
+        ``apply_wavelength_range_filter`` call will keep, or ``None`` to keep
+        every wavelength column. When given, the null/NaN/infinite-value
+        check is limited to ``Time``, ``Step``, ``Sequence``, and wavelength
+        columns within this range, so values in wavelength columns outside
+        the requested range do not block processing. Schema checks (required
+        columns, numeric dtypes, wavelength-name format, and the returned
+        cross-file wavelength-set comparison) still cover every wavelength
+        column regardless of ``wavelength_range``.
 
     Returns
     -------
@@ -90,9 +107,17 @@ def validate_frame(
     if any(not schema[column].is_numeric() for column in spectra):
         raise ValueError(f"spectral columns must be numeric in {path}")
 
+    if wavelength_range is None:
+        value_check_columns = columns
+    else:
+        validated_range = validate_wavelength_range(wavelength_range)
+        value_check_columns = list(METADATA_COLUMNS) + select_wavelength_columns_in_range(
+            columns, validated_range
+        )
+
     invalid_expressions = [
         pl.col(column).is_null() | ~pl.col(column).cast(pl.Float64).is_finite()
-        for column in columns
+        for column in value_check_columns
     ]
     validation_expressions = [
         pl.any_horizontal(invalid_expressions).any().alias("has_invalid_value")
@@ -152,6 +177,7 @@ def load_and_validate_inputs(
     *,
     stem_uniqueness: StemUniquenessCheck = "skip",
     validate_metadata_uniqueness: bool = False,
+    wavelength_range: tuple[float, float] | None = None,
 ) -> list[tuple[Path, pl.LazyFrame]]:
     """Load and validate Flatten-PCA Parquet inputs deterministically.
 
@@ -168,6 +194,12 @@ def load_and_validate_inputs(
     validate_metadata_uniqueness : bool, default False
         Whether to reject duplicate ``(Time, Step, Sequence)`` tuples in each
         input file.
+    wavelength_range : tuple[float, float] | None, default None
+        Inclusive ``(lower, upper)`` wavelength interval that a later
+        ``apply_wavelength_range_filter`` call will keep, or ``None`` to keep
+        every wavelength column. Forwarded to ``validate_frame`` to limit the
+        null/NaN/infinite-value check to wavelength columns within this
+        range; see ``validate_frame`` for details.
 
     Returns
     -------
@@ -203,6 +235,7 @@ def load_and_validate_inputs(
             path,
             frame,
             validate_metadata_uniqueness=validate_metadata_uniqueness,
+            wavelength_range=wavelength_range,
         )
         if expected_wavelengths is None:
             expected_wavelengths = wavelengths

@@ -1,5 +1,6 @@
 """End-to-end tests for the public Flatten-PCA workflow."""
 
+import time
 from inspect import Parameter, signature
 from pathlib import Path
 
@@ -427,6 +428,70 @@ def test_append_pca_scores_rejects_feature_count_mismatch(
         append_pca_scores(pca, flattened.drop(final_feature))
 
 
+def _build_missing_combo_flattened(real_fixture_paths: list[Path]) -> pl.LazyFrame:
+    """Flatten three real fixtures where one is missing its last StepTime combo.
+
+    Bypasses ``preprocess_and_flatten``'s ``max_null_ratio`` column pruning
+    (by calling ``flatten_inputs`` directly, as
+    ``tests/feature_engineering/test_flatten_pca_flatten.py``'s
+    ``_build_union_gap_fixtures`` does) so the null cells produced by
+    flatten's normal cross-file union-and-null-fill behavior survive into the
+    returned frame, reproducing the missing values that reach
+    ``append_pca_scores`` in real usage. Two files stay complete so that
+    dropping the incomplete one still leaves more than one sample to fit.
+    """
+    path_a, path_b, path_c = real_fixture_paths[:3]
+    frame_a = _add_step_time_columns(_load_and_validate_inputs([path_a])[0][1]).collect()
+    frame_b = _add_step_time_columns(_load_and_validate_inputs([path_b])[0][1]).collect()
+    frame_c_full = _add_step_time_columns(
+        _load_and_validate_inputs([path_c])[0][1]
+    ).collect()
+    frame_c = frame_c_full.slice(0, frame_c_full.height - 1)
+    flattened = _flatten_inputs(
+        [(path_a, frame_a.lazy()), (path_b, frame_b.lazy()), (path_c, frame_c.lazy())]
+    )
+    assert isinstance(flattened, pl.LazyFrame)
+    return flattened
+
+
+def test_append_pca_scores_drops_rows_with_remaining_missing_values(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Regression test: flatten's union nulls no longer crash append_pca_scores.
+
+    Before the fix, ``append_pca_scores`` passed ``flattened``'s raw values
+    (including nulls left by ``flatten_inputs``'s cross-file union) directly
+    into ``sklearn``'s ``PCA.transform``, which raises ``ValueError: Input X
+    contains NaN``. Delegating to ``transform_pca`` applies the fitted
+    ``impute_strategy`` first, so with the default ``"drop"`` strategy the
+    row with remaining nulls is excluded instead of crashing.
+    """
+    flattened = _build_missing_combo_flattened(real_fixture_paths)
+    pca = flatten_pca(flattened=flattened, n_component=1, impute_strategy="drop")
+
+    result = append_pca_scores(pca, flattened).collect()
+
+    assert result.height == 2
+    assert result["source"].to_list() == [
+        real_fixture_paths[0].as_posix(),
+        real_fixture_paths[1].as_posix(),
+    ]
+    assert np.isfinite(result.select(pl.exclude("source")).to_numpy()).all()
+
+
+def test_append_pca_scores_fills_remaining_missing_values_with_median(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Fill remaining missing values with the fitted median instead of dropping rows."""
+    flattened = _build_missing_combo_flattened(real_fixture_paths)
+    pca = flatten_pca(flattened=flattened, n_component=1, impute_strategy="median")
+
+    result = append_pca_scores(pca, flattened).collect()
+
+    assert result.height == 3
+    assert np.isfinite(result.select(pl.exclude("source")).to_numpy()).all()
+
+
 def test_reshape_pca_components_places_real_flattened_features_on_sorted_axes(
     real_fixture_paths: list[Path],
 ) -> None:
@@ -756,11 +821,16 @@ def _instrument_flatten_execution_count(
     original_flatten_inputs = _api.flatten_inputs
 
     def count_flatten_inputs(
-        inputs: list[tuple[Path, pl.LazyFrame]],
-    ) -> pl.LazyFrame:
+        inputs: list[tuple[Path, pl.DataFrame]] | list[tuple[Path, pl.LazyFrame]],
+    ) -> pl.DataFrame | pl.LazyFrame:
         """Wrap the real flatten query with an execution counter."""
         flattened = original_flatten_inputs(inputs)
-        assert isinstance(flattened, pl.LazyFrame)
+        if isinstance(flattened, pl.DataFrame):
+            # preprocess_and_flatten's materialize_once=True branch passes
+            # already-collected DataFrame inputs, so flatten_inputs executes
+            # synchronously here rather than on a later .collect().
+            executions.append(None)
+            return flattened
 
         def count_batch(batch: pl.DataFrame) -> pl.DataFrame:
             """Record one executed input batch without altering its data."""
@@ -788,6 +858,45 @@ def test_preprocess_and_flatten_materializes_upstream_flatten_once(
     assert len(executions) == 1
     assert flattened.collect().height == 3
     assert len(executions) == 1
+
+
+def test_preprocess_and_flatten_stays_fast_with_many_wavelengths_and_combos(
+    tmp_path: Path,
+) -> None:
+    """Regression test guarding against the slow per-cell lazy flatten path.
+
+    Fully synthetic data: this must exercise a (wavelength count) x (unique
+    StepTime combo count) x (file count) scale far beyond what the real
+    fixture (6 files x 8 rows x 16 wavelength columns) can produce, since
+    only a combinatorial scale this large exposes the O(wavelengths x combos
+    x files) per-cell expression blowup this test guards against. Before the
+    fix, materialize_once=True (the default) always routed through that slow
+    LazyFrame flatten branch regardless of scale.
+    """
+    n_files = 30
+    n_wavelengths = 150
+    n_step_time = 400
+    rng = np.random.default_rng(0)
+    paths = []
+    for file_index in range(n_files):
+        data = {
+            "Time": np.arange(n_step_time, dtype=float),
+            "Step": np.ones(n_step_time, dtype=int),
+            "Sequence": np.ones(n_step_time, dtype=int),
+        }
+        for wavelength_index in range(n_wavelengths):
+            data[f"{649.9 + wavelength_index:.1f}nm"] = rng.random(n_step_time)
+        path = tmp_path / f"synthetic-{file_index}.parquet"
+        pl.DataFrame(data).write_parquet(path)
+        paths.append(path)
+
+    start = time.perf_counter()
+    flattened = preprocess_and_flatten(paths, max_null_ratio=1.0).collect()
+    elapsed = time.perf_counter() - start
+
+    assert flattened.height == n_files
+    assert flattened.width == 1 + n_wavelengths * n_step_time
+    assert elapsed < 30.0
 
 
 def test_preprocess_and_flatten_rejects_invalid_null_ratio_before_materializing(
