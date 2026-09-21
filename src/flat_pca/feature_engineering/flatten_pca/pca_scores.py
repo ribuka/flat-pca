@@ -7,7 +7,7 @@ from typing import Literal
 
 import polars as pl
 
-from ..pca import PcaModel, fit_pca
+from ..pca import PcaModel, fit_pca, transform_pca
 
 
 def fit_flattened_pca(
@@ -70,7 +70,13 @@ def append_pca_scores(
     pca_model: PcaModel,
     flattened: pl.LazyFrame,
 ) -> pl.LazyFrame:
-    """Append PCA scores to flattened features without changing row order.
+    """Append PCA scores to flattened features, applying the fitted impute strategy.
+
+    Delegates to ``transform_pca`` so that any missing values remaining in
+    ``flattened`` (for example from ``flatten_inputs`` filling a file's
+    missing ``(Step, Sequence, StepTime)`` combination with null) are handled
+    the same way they were at fit time, instead of being passed directly into
+    ``sklearn``'s ``PCA.transform``, which rejects null/NaN input.
 
     Parameters
     ----------
@@ -83,26 +89,22 @@ def append_pca_scores(
     -------
     pl.LazyFrame
         ``source``, flattened feature columns, and ``pca-1`` onward scores.
+        Feature-column values reflect ``pca_model.impute_strategy``: unchanged
+        for ``"drop"`` (rows with remaining missing values are excluded
+        instead), or filled with the fitted median for ``"median"``.
 
     Raises
     ------
     ValueError
-        If the PCA feature count differs from the flattened feature count.
+        If the PCA feature count differs from the flattened feature count, or
+        if no rows remain after missing-value handling.
     """
-    materialized = flattened.collect()
     feature_columns = [
-        column for column in materialized.columns if column != "source"
+        column for column in flattened.collect_schema().names() if column != "source"
     ]
     if pca_model.pca.n_features_in_ != len(feature_columns):
         raise ValueError(
             "PCA feature count does not match flattened feature count"
         )
 
-    scores = pca_model.pca.transform(materialized.select(feature_columns).to_numpy())
-    score_columns = {
-        f"pca-{index + 1}": scores[:, index]
-        for index in range(scores.shape[1])
-    }
-    return materialized.with_columns(
-        [pl.Series(name, values) for name, values in score_columns.items()]
-    ).lazy()
+    return transform_pca(flattened, pca_model)

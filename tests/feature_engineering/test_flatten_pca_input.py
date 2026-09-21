@@ -86,12 +86,14 @@ def test_load_passes_lazy_frames_to_validation(
         frame: pl.LazyFrame,
         *,
         validate_metadata_uniqueness: bool = False,
+        wavelength_range: tuple[float, float] | None = None,
     ) -> frozenset[str]:
         received_frames.append(frame)
         return original_validate_frame(
             path,
             frame,
             validate_metadata_uniqueness=validate_metadata_uniqueness,
+            wavelength_range=wavelength_range,
         )
 
     monkeypatch.setattr(_input, "validate_frame", record_frame)

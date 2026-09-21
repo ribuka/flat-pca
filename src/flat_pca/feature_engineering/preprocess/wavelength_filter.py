@@ -6,21 +6,16 @@ from math import isfinite
 
 import polars as pl
 
-from ..flatten_pca.schema import parse_wavelength, wavelength_columns
+from ..flatten_pca.schema import select_wavelength_columns_in_range, wavelength_columns
 
 
-def _validate_range(
-    value: tuple[float, float],
-    argument_name: str,
-) -> tuple[float, float]:
-    """Validate and coerce an inclusive wavelength interval.
+def validate_wavelength_range(value: tuple[float, float]) -> tuple[float, float]:
+    """Validate and coerce an inclusive ``wavelength_range`` interval.
 
     Parameters
     ----------
     value : tuple[float, float]
         Candidate lower and upper bounds.
-    argument_name : str
-        Public argument name used in validation messages.
 
     Returns
     -------
@@ -37,13 +32,13 @@ def _validate_range(
         or len(value) != 2
         or any(isinstance(bound, bool) for bound in value)
     ):
-        raise ValueError(f"{argument_name} must contain two finite bounds")
+        raise ValueError("wavelength_range must contain two finite bounds")
     try:
         lower, upper = (float(bound) for bound in value)
     except (TypeError, ValueError) as error:
-        raise ValueError(f"{argument_name} must contain two finite bounds") from error
+        raise ValueError("wavelength_range must contain two finite bounds") from error
     if not isfinite(lower) or not isfinite(upper) or lower > upper:
-        raise ValueError(f"{argument_name} must contain ordered finite bounds")
+        raise ValueError("wavelength_range must contain ordered finite bounds")
     return lower, upper
 
 
@@ -76,14 +71,12 @@ def apply_wavelength_range_filter(
     """
     if wavelength_range is None:
         return frame
-    lower, upper = _validate_range(wavelength_range, "wavelength_range")
+    validated_range = validate_wavelength_range(wavelength_range)
 
     columns = _column_names(frame)
     spectra = wavelength_columns(columns)
     non_spectral_columns = [column for column in columns if column not in spectra]
-    selected_columns = [
-        column for column in spectra if lower <= parse_wavelength(column) <= upper
-    ]
+    selected_columns = select_wavelength_columns_in_range(columns, validated_range)
     if not selected_columns:
         raise ValueError("wavelength_range matches no wavelength columns")
     return frame.select(*non_spectral_columns, *selected_columns)
