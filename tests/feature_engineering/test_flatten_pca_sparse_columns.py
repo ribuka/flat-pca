@@ -126,6 +126,24 @@ def test_drop_sparse_feature_columns_drops_columns_above_threshold(
     assert quarter_missing_column not in dropped.columns
 
 
+def test_drop_sparse_feature_columns_prunes_a_real_materialized_frame(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Prune a materialized frame derived from real Parquet fixtures."""
+    flattened, quarter_missing_column, half_missing_column = (
+        _build_mixed_sparsity_flattened(real_fixture_paths)
+    )
+
+    result = _drop_sparse_feature_columns(
+        flattened.collect(),
+        max_null_ratio=0.25,
+    )
+
+    assert isinstance(result, pl.DataFrame)
+    assert quarter_missing_column in result.columns
+    assert half_missing_column not in result.columns
+
+
 def test_drop_sparse_feature_columns_always_keeps_source(
     real_fixture_paths: list[Path],
 ) -> None:

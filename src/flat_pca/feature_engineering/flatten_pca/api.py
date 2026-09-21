@@ -316,12 +316,16 @@ def materialize_and_drop_sparse_feature_columns(
     Notes
     -----
     Sparse-column statistics are calculated from the already materialized
-    result. This prevents the expensive upstream Parquet and flatten query
-    from being run both for statistics and for the cached return value.
+    result, and the selected columns are rewrapped directly without a second
+    ``collect()``. This prevents an upstream re-execution and retains only
+    the pruned feature set after this function returns.
     """
     # Fail fast before materializing the expensive upstream flatten query.
     # The pruning stage validates again for its independent callers.
     validate_max_null_ratio(max_null_ratio)
-    materialized = materialize_flattened(flattened)
+    materialized = flattened.collect()
     pruned = drop_sparse_feature_columns(materialized, max_null_ratio)
-    return materialize_flattened(pruned)
+    assert isinstance(pruned, pl.DataFrame)
+    cached = pruned.lazy()
+    del materialized
+    return cached

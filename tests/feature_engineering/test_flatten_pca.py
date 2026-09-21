@@ -746,7 +746,10 @@ def _instrument_flatten_execution_count(
     Returns
     -------
     list[None]
-        One item for each executed flattened query batch.
+        One item for each executed flattened query batch. This test uses the
+        pinned Polars non-streaming engine, where the fixture query executes
+        as one batch; it deliberately counts batches rather than a public
+        Polars execution counter.
     """
     executions: list[None] = []
     original_flatten_inputs = _api.flatten_inputs

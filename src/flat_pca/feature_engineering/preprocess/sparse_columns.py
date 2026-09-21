@@ -27,9 +27,9 @@ def validate_max_null_ratio(max_null_ratio: float) -> None:
 
 
 def drop_sparse_feature_columns(
-    flattened: pl.LazyFrame,
+    flattened: pl.DataFrame | pl.LazyFrame,
     max_null_ratio: float,
-) -> pl.LazyFrame:
+) -> pl.DataFrame | pl.LazyFrame:
     """Drop flattened feature columns whose missing-value ratio is too high.
 
     Different input files may cover different (Step, Sequence, StepTime)
@@ -42,7 +42,7 @@ def drop_sparse_feature_columns(
 
     Parameters
     ----------
-    flattened : pl.LazyFrame
+    flattened : pl.DataFrame | pl.LazyFrame
         Flattened features with a ``source`` column plus one feature column
         per (wavelength, Step, Sequence, StepTime) combination.
     max_null_ratio : float
@@ -52,7 +52,7 @@ def drop_sparse_feature_columns(
 
     Returns
     -------
-    pl.LazyFrame
+    pl.DataFrame | pl.LazyFrame
         ``flattened`` restricted to columns whose missing ratio is at most
         ``max_null_ratio``. ``source`` has a 0.0 ratio and is always kept.
 
