@@ -153,15 +153,54 @@ def drop_list_type_columns_from_polars(
     return df.drop(drop_list)
 
 
-def drop_all_null_columns_from_polars(
-    lf: pl.LazyFrame,
-    include_nan_missing: bool = True,
-    threshold: float = 0.99,
-) -> pl.LazyFrame:
+def validate_missing_ratio_threshold(threshold: float) -> None:
+    """Validate a missing-value ratio threshold.
+
+    Parameters
+    ----------
+    threshold : float
+        Inclusive missing-value ratio threshold to validate.
+
+    Raises
+    ------
+    ValueError
+        If ``threshold`` is not between 0.0 and 1.0.
+    """
     if not 0.0 <= threshold <= 1.0:
         raise ValueError("threshold must be between 0.0 and 1.0")
 
-    schema = lf.collect_schema()
+
+def drop_all_null_columns_from_polars(
+    frame: pl.DataFrame | pl.LazyFrame,
+    include_nan_missing: bool = True,
+    threshold: float = 0.99,
+) -> pl.DataFrame | pl.LazyFrame:
+    """Drop columns whose missing-value ratio exceeds a threshold.
+
+    Parameters
+    ----------
+    frame : pl.DataFrame | pl.LazyFrame
+        Frame whose columns are evaluated for missing values.
+    include_nan_missing : bool, default True
+        Whether NaN values count as missing for floating-point columns.
+    threshold : float, default 0.99
+        Inclusive maximum missing-value ratio for retained columns.
+
+    Returns
+    -------
+    pl.DataFrame | pl.LazyFrame
+        ``frame`` restricted to columns at or below ``threshold``.
+
+    Raises
+    ------
+    ValueError
+        If ``threshold`` is not between 0.0 and 1.0.
+    """
+    validate_missing_ratio_threshold(threshold)
+
+    schema = (
+        frame.collect_schema() if isinstance(frame, pl.LazyFrame) else frame.schema
+    )
     missing_count_exprs = []
     for col_name, dtype in schema.items():
         is_missing = pl.col(col_name).is_null()
@@ -169,13 +208,15 @@ def drop_all_null_columns_from_polars(
             is_missing = is_missing | pl.col(col_name).is_nan()
         missing_count_exprs.append(is_missing.sum().alias(f"{col_name}_missing"))
 
-    stats = lf.select(
+    stats = frame.select(
         *missing_count_exprs,
         pl.len().alias("_n")
-    ).collect()
+    )
+    if isinstance(stats, pl.LazyFrame):
+        stats = stats.collect()
     n = stats[0, "_n"]  # ty:ignore[not-subscriptable]
     if n == 0:
-        return lf
+        return frame
 
     keep_cols = [
         col_name
@@ -183,7 +224,7 @@ def drop_all_null_columns_from_polars(
         if (stats[0, f"{col_name}_missing"] / n) <= threshold  # ty:ignore[unresolved-attribute, not-subscriptable]
     ]
 
-    return lf.select(keep_cols)
+    return frame.select(keep_cols)
 
 
 def safe_write_csv(

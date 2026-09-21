@@ -13,6 +13,7 @@ from flat_pca.feature_engineering import (
     preprocess_and_flatten,
     reshape_pca_components,
 )
+from flat_pca.feature_engineering.flatten_pca import api as _api
 from flat_pca.feature_engineering.flatten_pca import flatten_pca as package_flatten_pca
 from flat_pca.feature_engineering.flatten_pca import pca_scores
 from flat_pca.feature_engineering.flatten_pca.flatten import (
@@ -731,6 +732,75 @@ def test_preprocess_and_flatten_materialize_once_matches_deferred_result(
     assert isinstance(deferred, pl.LazyFrame)
     assert materialized.collect().equals(default.collect())
     assert materialized.collect().equals(deferred.collect())
+
+
+def _instrument_flatten_execution_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[None]:
+    """Wrap real flatten queries with a list recording each execution batch.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture used to replace the API module's flatten-query constructor.
+
+    Returns
+    -------
+    list[None]
+        One item for each executed flattened query batch. This test uses the
+        pinned Polars non-streaming engine, where the fixture query executes
+        as one batch; it deliberately counts batches rather than a public
+        Polars execution counter.
+    """
+    executions: list[None] = []
+    original_flatten_inputs = _api.flatten_inputs
+
+    def count_flatten_inputs(
+        inputs: list[tuple[Path, pl.LazyFrame]],
+    ) -> pl.LazyFrame:
+        """Wrap the real flatten query with an execution counter."""
+        flattened = original_flatten_inputs(inputs)
+        assert isinstance(flattened, pl.LazyFrame)
+
+        def count_batch(batch: pl.DataFrame) -> pl.DataFrame:
+            """Record one executed input batch without altering its data."""
+            executions.append(None)
+            return batch
+
+        return flattened.map_batches(
+            count_batch,
+            schema=flattened.collect_schema(),
+        )
+
+    monkeypatch.setattr(_api, "flatten_inputs", count_flatten_inputs)
+    return executions
+
+
+def test_preprocess_and_flatten_materializes_upstream_flatten_once(
+    real_fixture_paths: list[Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Materialize real-Parquet flatten inputs once before sparse pruning."""
+    executions = _instrument_flatten_execution_count(monkeypatch)
+
+    flattened = _api.preprocess_and_flatten(real_fixture_paths[:3])
+
+    assert len(executions) == 1
+    assert flattened.collect().height == 3
+    assert len(executions) == 1
+
+
+def test_preprocess_and_flatten_rejects_invalid_null_ratio_before_materializing(
+    real_fixture_paths: list[Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject invalid thresholds before executing real-Parquet flatten inputs."""
+    executions = _instrument_flatten_execution_count(monkeypatch)
+
+    with pytest.raises(ValueError, match="threshold must be between"):
+        _api.preprocess_and_flatten(real_fixture_paths[:3], max_null_ratio=1.5)
+
+    assert executions == []
 
 
 def test_materialize_once_default_decouples_result_from_source_files(

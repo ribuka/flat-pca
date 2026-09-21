@@ -4,13 +4,32 @@ from __future__ import annotations
 
 import polars as pl
 
-from ...utils.pl_snippets import drop_all_null_columns_from_polars
+from ...utils.pl_snippets import (
+    drop_all_null_columns_from_polars,
+    validate_missing_ratio_threshold,
+)
+
+
+def validate_max_null_ratio(max_null_ratio: float) -> None:
+    """Validate the public sparse-feature missing-value threshold.
+
+    Parameters
+    ----------
+    max_null_ratio : float
+        Inclusive maximum missing-value ratio for retained features.
+
+    Raises
+    ------
+    ValueError
+        If ``max_null_ratio`` is not between 0.0 and 1.0.
+    """
+    validate_missing_ratio_threshold(max_null_ratio)
 
 
 def drop_sparse_feature_columns(
-    flattened: pl.LazyFrame,
+    flattened: pl.DataFrame | pl.LazyFrame,
     max_null_ratio: float,
-) -> pl.LazyFrame:
+) -> pl.DataFrame | pl.LazyFrame:
     """Drop flattened feature columns whose missing-value ratio is too high.
 
     Different input files may cover different (Step, Sequence, StepTime)
@@ -23,7 +42,7 @@ def drop_sparse_feature_columns(
 
     Parameters
     ----------
-    flattened : pl.LazyFrame
+    flattened : pl.DataFrame | pl.LazyFrame
         Flattened features with a ``source`` column plus one feature column
         per (wavelength, Step, Sequence, StepTime) combination.
     max_null_ratio : float
@@ -33,14 +52,16 @@ def drop_sparse_feature_columns(
 
     Returns
     -------
-    pl.LazyFrame
+    pl.DataFrame | pl.LazyFrame
         ``flattened`` restricted to columns whose missing ratio is at most
         ``max_null_ratio``. ``source`` has a 0.0 ratio and is always kept.
 
     Raises
     ------
     ValueError
-        If ``max_null_ratio`` is not between 0.0 and 1.0.
+        If ``max_null_ratio`` is not between 0.0 and 1.0. Validated by
+        ``drop_all_null_columns_from_polars`` itself, so this function does
+        not duplicate the check.
     """
     return drop_all_null_columns_from_polars(
         flattened, include_nan_missing=True, threshold=max_null_ratio
