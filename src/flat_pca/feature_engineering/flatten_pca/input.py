@@ -47,8 +47,8 @@ def read_parquet(path: Path) -> pl.LazyFrame:
 def validate_frame(
     path: Path,
     frame: pl.DataFrame,
-) -> tuple[frozenset[str], frozenset[tuple[object, ...]]]:
-    """Validate one input frame and return its cross-file comparison sets.
+) -> frozenset[str]:
+    """Validate one input frame and return its cross-file comparison set.
 
     Parameters
     ----------
@@ -59,8 +59,8 @@ def validate_frame(
 
     Returns
     -------
-    tuple[frozenset[str], frozenset[tuple[object, ...]]]
-        Wavelength-column names and metadata-key tuples.
+    frozenset[str]
+        Wavelength-column names.
 
     Raises
     ------
@@ -99,7 +99,37 @@ def validate_frame(
     if metadata.is_duplicated().any():
         raise ValueError(f"input contains duplicate metadata keys: {path}")
 
-    return frozenset(spectra), frozenset(metadata.iter_rows())
+    return frozenset(spectra)
+
+
+def validate_metadata_alignment(
+    inputs: Sequence[tuple[Path, pl.DataFrame | pl.LazyFrame]],
+) -> None:
+    """Validate that Time, Step, and Sequence combinations match across inputs.
+
+    This check is independent of ``load_and_validate_inputs`` so it can be
+    run after row-filtering stages (for example ``filter_target_steps``),
+    comparing only the combinations that survive filtering.
+
+    Parameters
+    ----------
+    inputs : Sequence[tuple[Path, pl.DataFrame | pl.LazyFrame]]
+        Paths paired with frames to compare.
+
+    Raises
+    ------
+    ValueError
+        If the frames do not share an identical set of ``(Time, Step,
+        Sequence)`` tuples.
+    """
+    expected_metadata_keys: frozenset[tuple[object, ...]] | None = None
+    for _, frame in inputs:
+        collected = frame.collect() if isinstance(frame, pl.LazyFrame) else frame
+        metadata_keys = frozenset(collected.select(METADATA_COLUMNS).iter_rows())
+        if expected_metadata_keys is None:
+            expected_metadata_keys = metadata_keys
+        elif metadata_keys != expected_metadata_keys:
+            raise ValueError("input metadata-key sets must match")
 
 
 def load_and_validate_inputs(
@@ -148,19 +178,14 @@ def load_and_validate_inputs(
 
     loaded: list[tuple[Path, pl.LazyFrame]] = []
     expected_wavelengths: frozenset[str] | None = None
-    expected_metadata_keys: frozenset[tuple[object, ...]] | None = None
     for path in normalized_paths:
         frame = read_parquet(path)
         # Validation requires concrete values, but processing remains lazy.
-        wavelengths, metadata_keys = validate_frame(path, frame.collect())
+        wavelengths = validate_frame(path, frame.collect())
         if expected_wavelengths is None:
             expected_wavelengths = wavelengths
-            expected_metadata_keys = metadata_keys
-        else:
-            if wavelengths != expected_wavelengths:
-                raise ValueError("input wavelength sets must match")
-            if metadata_keys != expected_metadata_keys:
-                raise ValueError("input metadata-key sets must match")
+        elif wavelengths != expected_wavelengths:
+            raise ValueError("input wavelength sets must match")
         loaded.append((path, frame))
 
     return loaded

@@ -119,3 +119,88 @@ def test_flatten_sorts_step_and_sequence_and_rejects_name_collisions(
     )
     with pytest.raises(ValueError, match="duplicate flattened feature names"):
         _flatten_inputs([(path, collision)])
+
+
+def _build_union_gap_fixtures(
+    real_fixture_paths: list[Path],
+) -> tuple[Path, pl.DataFrame, Path, pl.DataFrame, str]:
+    """Derive two real-fixture frames where one is missing one metadata combo.
+
+    Returns
+    -------
+    tuple[Path, pl.DataFrame, Path, pl.DataFrame, str]
+        ``path_a``, the full frame, ``path_b``, a frame missing its last
+        ``(Step, Sequence, StepTime)`` row, and the formatted feature name
+        for the combination ``path_b`` lacks.
+    """
+    path_a, path_b = real_fixture_paths[0], real_fixture_paths[1]
+    frame_a = _add_step_time_columns(_load_and_validate_inputs([path_a])[0][1]).collect()
+    frame_b_full = _add_step_time_columns(_load_and_validate_inputs([path_b])[0][1]).collect()
+    frame_b = frame_b_full.slice(0, frame_b_full.height - 1)
+    removed = frame_b_full.select("Step", "Sequence", "StepTime").row(
+        frame_b_full.height - 1, named=True
+    )
+    wavelength = next(
+        column for column in frame_a.columns if column not in METADATA_COLUMNS
+    )
+    missing_column = (
+        f"{wavelength}_{int(removed['Step'])}_{int(removed['Sequence'])}"
+        f"_{float(removed['StepTime']):.2f}"
+    )
+    return path_a, frame_a, path_b, frame_b, missing_column
+
+
+def test_flatten_lazy_inputs_unions_metadata_grids_and_fills_null_gaps(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Union differing per-file metadata grids and null-fill missing combos."""
+    path_a, frame_a, path_b, frame_b, missing_column = _build_union_gap_fixtures(
+        real_fixture_paths
+    )
+
+    flattened = _flatten_inputs(
+        [(path_a, frame_a.lazy()), (path_b, frame_b.lazy())]
+    )
+    assert isinstance(flattened, pl.LazyFrame)
+    collected = flattened.collect()
+    row_by_source = {row["source"]: row for row in collected.iter_rows(named=True)}
+
+    wavelength_column_count = sum(
+        1 for column in frame_a.columns if column not in METADATA_COLUMNS
+    )
+
+    assert missing_column in collected.columns
+    assert row_by_source[path_a.as_posix()][missing_column] is not None
+    assert row_by_source[path_b.as_posix()][missing_column] is None
+    assert all(
+        value is not None
+        for key, value in row_by_source[path_a.as_posix()].items()
+        if key != "source"
+    )
+    # The removed row drops one (Step, Sequence, StepTime) combo entirely, so
+    # every wavelength column at that combo becomes null for path_b's row.
+    assert (
+        sum(
+            1
+            for key, value in row_by_source[path_b.as_posix()].items()
+            if key != "source" and value is None
+        )
+        == wavelength_column_count
+    )
+
+
+def test_flatten_eager_inputs_unions_metadata_grids_and_fills_null_gaps(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Union differing per-file metadata grids for eager DataFrame inputs too."""
+    path_a, frame_a, path_b, frame_b, missing_column = _build_union_gap_fixtures(
+        real_fixture_paths
+    )
+
+    flattened = _flatten_inputs([(path_a, frame_a), (path_b, frame_b)])
+    assert isinstance(flattened, pl.DataFrame)
+    row_by_source = {row["source"]: row for row in flattened.iter_rows(named=True)}
+
+    assert missing_column in flattened.columns
+    assert row_by_source[path_a.as_posix()][missing_column] is not None
+    assert row_by_source[path_b.as_posix()][missing_column] is None

@@ -60,8 +60,11 @@ def test_public_import_and_signature_are_stable(
         "w_normalization_range",
         "t_downsampling_stride",
         "w_downsampling_stride",
+        "max_null_ratio",
         "stem_uniqueness",
+        "validate_metadata_alignment",
         "materialize_once",
+        "impute_strategy",
     ]
     assert parameters["paths"].kind is Parameter.POSITIONAL_OR_KEYWORD
     for parameter in list(parameters.values())[1:]:
@@ -70,8 +73,11 @@ def test_public_import_and_signature_are_stable(
         assert parameters[name].default is None
     assert parameters["t_downsampling_stride"].default == 1
     assert parameters["w_downsampling_stride"].default == 1
+    assert parameters["max_null_ratio"].default == 0.1
     assert parameters["stem_uniqueness"].default == "skip"
+    assert parameters["validate_metadata_alignment"].default is False
     assert parameters["materialize_once"].default is True
+    assert parameters["impute_strategy"].default == "drop"
 
     result = flatten_pca(real_fixture_paths, n_component=1)
     assert isinstance(result, PcaModel)
@@ -543,6 +549,137 @@ def test_preprocess_and_flatten_rejects_real_fixture_schema_variant(
 
     with pytest.raises(ValueError, match="required columns"):
         preprocess_and_flatten([invalid_path])
+
+
+def _write_extra_step_variant(
+    frame: pl.DataFrame, baseline_path: Path, variant_path: Path
+) -> None:
+    """Write a baseline real-fixture frame and a variant with an extra Step row.
+
+    Parameters
+    ----------
+    frame : pl.DataFrame
+        Real-fixture-derived data shared by both written files.
+    baseline_path : Path
+        Destination for the unmodified frame.
+    variant_path : Path
+        Destination for the frame plus one row at a ``Step`` and ``Time``
+        combination absent from ``baseline_path``.
+    """
+    frame.write_parquet(baseline_path)
+    extra_step_row = frame.head(1).with_columns(
+        pl.lit(2).alias("Step"),
+        pl.lit(frame["Time"].max() + 100.0).alias("Time"),
+    )
+    pl.concat([frame, extra_step_row]).write_parquet(variant_path)
+
+
+def test_preprocess_and_flatten_skips_metadata_alignment_check_by_default(
+    real_fixture_paths: list[Path], tmp_path: Path
+) -> None:
+    """Flatten mismatched real-fixture-derived inputs by default, null-filling gaps."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    baseline = tmp_path / "baseline.parquet"
+    variant = tmp_path / "variant.parquet"
+    _write_extra_step_variant(frame, baseline, variant)
+    wavelength = next(
+        column for column in frame.columns if column not in METADATA_COLUMNS
+    )
+    extra_sequence = int(frame.head(1)["Sequence"].item())
+    extra_column = f"{wavelength}_2_{extra_sequence}_0.00"
+
+    # max_null_ratio=1.0 disables sparse-column pruning so this test isolates
+    # the union/null-fill behavior itself; see
+    # test_preprocess_and_flatten_prunes_sparse_columns_by_default for the
+    # default-threshold pruning behavior.
+    flattened = preprocess_and_flatten(
+        [baseline, variant], max_null_ratio=1.0
+    ).collect()
+    row_by_source = {row["source"]: row for row in flattened.iter_rows(named=True)}
+
+    assert flattened.height == 2
+    assert extra_column in flattened.columns
+    assert row_by_source[baseline.resolve().as_posix()][extra_column] is None
+    assert row_by_source[variant.resolve().as_posix()][extra_column] is not None
+
+
+def test_preprocess_and_flatten_prunes_sparse_columns_by_default(
+    real_fixture_paths: list[Path], tmp_path: Path
+) -> None:
+    """Drop a 50%-missing column under the default max_null_ratio threshold."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    baseline = tmp_path / "baseline.parquet"
+    variant = tmp_path / "variant.parquet"
+    _write_extra_step_variant(frame, baseline, variant)
+    wavelength = next(
+        column for column in frame.columns if column not in METADATA_COLUMNS
+    )
+    extra_sequence = int(frame.head(1)["Sequence"].item())
+    extra_column = f"{wavelength}_2_{extra_sequence}_0.00"
+
+    flattened = preprocess_and_flatten([baseline, variant]).collect()
+
+    assert flattened.height == 2
+    assert extra_column not in flattened.columns
+
+
+def test_flatten_pca_survives_per_file_unique_metadata_gaps(
+    real_fixture_paths: list[Path], tmp_path: Path
+) -> None:
+    """Fit PCA even when every file has its own unique missing metadata combo.
+
+    Reproduces the PR #4 review concern: with impute_strategy="drop" (the
+    default), any column with a null drops that entire row. Before
+    sparse-column pruning, giving each of 3 files its own unique missing
+    (Step, Sequence, StepTime) combination meant every row had at least one
+    null feature, so every row was dropped and PCA fitting raised "no rows
+    remain after missing-value handling". Sparse-column pruning removes
+    those per-file-unique columns (each 33% missing, above the default 0.1
+    threshold) before PCA fitting, so no nulls remain and all 3 rows
+    survive.
+    """
+    source_frames = [pl.read_parquet(path) for path in real_fixture_paths[:3]]
+    tail_start = source_frames[0].height - 3
+    paths = []
+    for offset, source_frame in enumerate(source_frames):
+        # Always keep row 0 (the minimum Time) so add_step_time_columns's
+        # per-segment StepTime origin stays identical across all 3 files;
+        # only ever drop a row from the tail. Using 3 distinct real
+        # fixtures (rather than 3 copies of one) keeps genuine spectral
+        # variance across samples for PCA to fit.
+        missing_index = tail_start + offset
+        trimmed = source_frame.filter(pl.int_range(pl.len()) != missing_index)
+        path = tmp_path / f"gap_{offset}.parquet"
+        trimmed.write_parquet(path)
+        paths.append(path)
+
+    pca = flatten_pca(paths, n_component=1)
+
+    assert isinstance(pca, PcaModel)
+    assert pca.pca.n_components_ == 1
+
+
+def test_preprocess_and_flatten_applies_target_steps_before_metadata_alignment_check(
+    real_fixture_paths: list[Path], tmp_path: Path
+) -> None:
+    """Filter Step rows before the opt-in Time/Step/Sequence alignment check."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    baseline = tmp_path / "baseline.parquet"
+    variant = tmp_path / "variant.parquet"
+    _write_extra_step_variant(frame, baseline, variant)
+
+    with pytest.raises(ValueError, match="metadata-key sets"):
+        preprocess_and_flatten(
+            [baseline, variant], validate_metadata_alignment=True
+        )
+
+    flattened = preprocess_and_flatten(
+        [baseline, variant],
+        target_steps=[1],
+        validate_metadata_alignment=True,
+    ).collect()
+
+    assert flattened.height == 2
 
 
 def test_preprocess_and_flatten_materialize_once_matches_deferred_result(

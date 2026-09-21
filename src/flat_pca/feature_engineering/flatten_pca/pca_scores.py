@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from numbers import Integral
+from typing import Literal
 
 import polars as pl
 
@@ -12,6 +13,7 @@ from ..pca import PcaModel, fit_pca
 def fit_flattened_pca(
     flattened: pl.LazyFrame,
     n_component: int | None,
+    impute_strategy: Literal["drop", "median"] = "drop",
 ) -> PcaModel:
     """Fit PCA from the non-source columns of flattened features.
 
@@ -21,6 +23,12 @@ def fit_flattened_pca(
         Flattened spectral features with a ``source`` column.
     n_component : int | None
         Requested number of components, or ``None`` for the matrix limit.
+    impute_strategy : {"drop", "median"}, default "drop"
+        Missing-value handling strategy forwarded to ``fit_pca``. ``"drop"``
+        discards any row (input file) with a null or NaN in any feature
+        column; ``"median"`` fills nulls/NaNs with each column's median
+        instead. Applies to whatever nulls remain after any upstream
+        column pruning (see ``drop_sparse_feature_columns``).
 
     Returns
     -------
@@ -52,7 +60,7 @@ def fit_flattened_pca(
         columns=feature_columns,
         n_component=n_component,
         max_n_component=None,
-        impute_strategy="drop",
+        impute_strategy=impute_strategy,
         outlier_strategy=None,
         scaling_strategy="none",
     )

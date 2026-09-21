@@ -9,6 +9,9 @@ import pytest
 from flat_pca.feature_engineering.flatten_pca.input import (
     load_and_validate_inputs as _load_and_validate_inputs,
 )
+from flat_pca.feature_engineering.flatten_pca.input import (
+    validate_metadata_alignment as _validate_metadata_alignment,
+)
 
 METADATA_COLUMNS = {"Time", "Step", "Sequence"}
 
@@ -210,10 +213,10 @@ def test_rejects_duplicate_keys(tmp_path: Path, real_fixture_paths: list[Path]) 
         _load_and_validate_inputs([path])
 
 
-def test_rejects_wavelength_and_key_mismatches_between_files(
+def test_rejects_wavelength_mismatches_between_files(
     tmp_path: Path, real_fixture_paths: list[Path]
 ) -> None:
-    """Reject mismatched wavelength and metadata-key sets across real variants."""
+    """Reject mismatched wavelength sets across real variants."""
     frame = pl.read_parquet(real_fixture_paths[0])
     wavelength = next(
         column for column in frame.columns if column not in METADATA_COLUMNS
@@ -223,6 +226,17 @@ def test_rejects_wavelength_and_key_mismatches_between_files(
         frame.drop(wavelength),
         tmp_path / "bad-wavelengths.parquet",
     )
+
+    with pytest.raises(ValueError, match="wavelength sets"):
+        _load_and_validate_inputs([baseline, bad_wavelengths])
+
+
+def test_allows_metadata_key_mismatches_between_files_by_default(
+    tmp_path: Path, real_fixture_paths: list[Path]
+) -> None:
+    """Load mismatched Time, Step, Sequence combinations without error by default."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    baseline = _write_variant(frame, tmp_path / "baseline.parquet")
     bad_keys = _write_variant(
         frame.with_columns(
             pl.when(pl.int_range(pl.len()) == 0)
@@ -233,7 +247,38 @@ def test_rejects_wavelength_and_key_mismatches_between_files(
         tmp_path / "bad-keys.parquet",
     )
 
-    with pytest.raises(ValueError, match="wavelength sets"):
-        _load_and_validate_inputs([baseline, bad_wavelengths])
+    loaded = _load_and_validate_inputs([baseline, bad_keys])
+
+    assert [path for path, _ in loaded] == sorted(
+        (baseline.resolve(), bad_keys.resolve()), key=str
+    )
+
+
+def test_validate_metadata_alignment_accepts_matching_real_fixtures(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Accept real fixture inputs that already share Time, Step, Sequence keys."""
+    loaded = _load_and_validate_inputs(real_fixture_paths)
+
+    _validate_metadata_alignment(loaded)
+
+
+def test_validate_metadata_alignment_rejects_mismatched_real_fixture_variant(
+    tmp_path: Path, real_fixture_paths: list[Path]
+) -> None:
+    """Reject a real-fixture-derived variant whose Time values were shifted."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    baseline = _write_variant(frame, tmp_path / "baseline.parquet")
+    bad_keys = _write_variant(
+        frame.with_columns(
+            pl.when(pl.int_range(pl.len()) == 0)
+            .then(pl.col("Time") + 1)
+            .otherwise(pl.col("Time"))
+            .alias("Time")
+        ),
+        tmp_path / "bad-keys.parquet",
+    )
+    loaded = _load_and_validate_inputs([baseline, bad_keys])
+
     with pytest.raises(ValueError, match="metadata-key sets"):
-        _load_and_validate_inputs([baseline, bad_keys])
+        _validate_metadata_alignment(loaded)
