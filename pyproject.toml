@@ -18,12 +18,14 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "wiggum",
     "ipykernel==7.3.0",
     "nbformat==5.11.1",
     "pylint==4.0.8",
     "pytest==9.1.1",
     "ruff==0.16.7",
+]
+wiggum = [
+    "wiggum",
 ]
 
 [tool.hatch.version]

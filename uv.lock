@@ -200,6 +200,8 @@ dev = [
     { name = "pylint" },
     { name = "pytest" },
     { name = "ruff" },
+]
+wiggum = [
     { name = "wiggum" },
 ]
 
@@ -219,8 +221,8 @@ dev = [
     { name = "pylint", specifier = "==4.0.8" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "ruff", specifier = "==0.16.7" },
-    { name = "wiggum", git = "https://github.com/ribuka/wiggum.git" },
 ]
+wiggum = [{ name = "wiggum", git = "https://github.com/ribuka/wiggum.git" }]
 
 [[package]]
 name = "iniconfig"
