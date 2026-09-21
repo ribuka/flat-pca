@@ -22,8 +22,8 @@ from ..preprocess import (
     collect_unique_wavelengths,
     drop_sparse_feature_columns,
     filter_target_steps,
+    validate_max_null_ratio,
 )
-from ..preprocess.sparse_columns import validate_max_null_ratio
 from .flatten import flatten_inputs
 from .input import StemUniquenessCheck, load_and_validate_inputs
 from .input import validate_metadata_alignment as _validate_metadata_alignment
@@ -182,10 +182,12 @@ def preprocess_and_flatten(
         Positive intervals in the shared sorted Time and wavelength arrays.
     max_null_ratio : float, default 0.1
         Upper bound (inclusive) on a flattened feature column's null-or-NaN
-        ratio for it to be kept; sparser columns are dropped. Applied once,
-        immediately after flattening and before ``materialize_once``
-        handling, so ``flatten_pca``, ``append_pca_scores``, and
-        ``reshape_pca_components`` all see the same pruned column set. Use
+        ratio for it to be kept; sparser columns are dropped. When
+        ``materialize_once=True``, flatten results are materialized before
+        pruning and the pruned result is then cached. When ``False``, the
+        existing deferred prune query is returned. In either case,
+        ``flatten_pca``, ``append_pca_scores``, and
+        ``reshape_pca_components`` see the same pruned column set. Use
         ``1.0`` to disable pruning (only an entirely null/NaN column would
         still be dropped). See ``drop_sparse_feature_columns``.
     stem_uniqueness : Literal["skip", "warn", "error"], default "skip"
@@ -317,6 +319,8 @@ def materialize_and_drop_sparse_feature_columns(
     result. This prevents the expensive upstream Parquet and flatten query
     from being run both for statistics and for the cached return value.
     """
+    # Fail fast before materializing the expensive upstream flatten query.
+    # The pruning stage validates again for its independent callers.
     validate_max_null_ratio(max_null_ratio)
     materialized = materialize_flattened(flattened)
     pruned = drop_sparse_feature_columns(materialized, max_null_ratio)
