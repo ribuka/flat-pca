@@ -94,16 +94,23 @@ def validate_frame(
         pl.col(column).is_null() | ~pl.col(column).cast(pl.Float64).is_finite()
         for column in columns
     ]
-    has_invalid_value = frame.select(
-        pl.any_horizontal(invalid_expressions).any()
-    ).collect().item()
+    validation_expressions = [
+        pl.any_horizontal(invalid_expressions).any().alias("has_invalid_value")
+    ]
+    if validate_metadata_uniqueness:
+        validation_expressions.append(
+            pl.struct(METADATA_COLUMNS)
+            .is_duplicated()
+            .any()
+            .alias("has_duplicate_metadata")
+        )
+    validation = frame.select(validation_expressions).collect()
+    has_invalid_value = validation["has_invalid_value"].item()
     if has_invalid_value:
         raise ValueError(f"input contains null, NaN, or infinite values: {path}")
 
     if validate_metadata_uniqueness:
-        has_duplicate_metadata = frame.select(
-            pl.struct(METADATA_COLUMNS).is_duplicated().any()
-        ).collect().item()
+        has_duplicate_metadata = validation["has_duplicate_metadata"].item()
         if has_duplicate_metadata:
             raise ValueError(f"input contains duplicate metadata keys: {path}")
 
