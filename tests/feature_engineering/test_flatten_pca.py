@@ -62,6 +62,7 @@ def test_public_import_and_signature_are_stable(
         "w_downsampling_stride",
         "max_null_ratio",
         "stem_uniqueness",
+        "validate_metadata_uniqueness",
         "validate_metadata_alignment",
         "materialize_once",
         "impute_strategy",
@@ -75,6 +76,7 @@ def test_public_import_and_signature_are_stable(
     assert parameters["w_downsampling_stride"].default == 1
     assert parameters["max_null_ratio"].default == 0.1
     assert parameters["stem_uniqueness"].default == "skip"
+    assert parameters["validate_metadata_uniqueness"].default is False
     assert parameters["validate_metadata_alignment"].default is False
     assert parameters["materialize_once"].default is True
     assert parameters["impute_strategy"].default == "drop"
@@ -104,6 +106,38 @@ def test_flatten_pca_accepts_exactly_one_real_fixture_input_source(
         flatten_pca(n_component=2)
     with pytest.raises(ValueError, match="exactly one"):
         flatten_pca(real_fixture_paths[:3], flattened=flattened, n_component=2)
+
+
+def test_public_api_optionally_rejects_duplicate_metadata_keys(
+    tmp_path: Path,
+    real_fixture_paths: list[Path],
+) -> None:
+    """Forward duplicate-key validation through both public path APIs."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    path = tmp_path / "duplicate-key.parquet"
+    pl.concat([frame, frame.head(1)]).write_parquet(path)
+
+    with pytest.raises(ValueError, match="duplicate metadata keys"):
+        preprocess_and_flatten([path], validate_metadata_uniqueness=True)
+    with pytest.raises(ValueError, match="duplicate metadata keys"):
+        flatten_pca([path], n_component=1, validate_metadata_uniqueness=True)
+
+
+def test_public_api_allows_duplicate_metadata_keys_by_default(
+    tmp_path: Path,
+    real_fixture_paths: list[Path],
+) -> None:
+    """Skip duplicate-key validation through public APIs by default."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    path = tmp_path / "duplicate-key.parquet"
+    pl.concat([frame, frame.head(1)]).write_parquet(path)
+
+    flattened = preprocess_and_flatten([path])
+    pca = flatten_pca([path, real_fixture_paths[1]], n_component=1)
+
+    assert isinstance(flattened, pl.LazyFrame)
+    assert flattened.collect().height == 1
+    assert isinstance(pca, PcaModel)
 
 
 def test_fit_flattened_pca_delegates_to_common_pca_configuration(

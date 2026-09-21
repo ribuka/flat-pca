@@ -44,6 +44,7 @@ def flatten_pca(
     w_downsampling_stride: int = 1,
     max_null_ratio: float = 0.1,
     stem_uniqueness: StemUniquenessCheck = "skip",
+    validate_metadata_uniqueness: bool = False,
     validate_metadata_alignment: bool = False,
     materialize_once: bool = True,
     impute_strategy: Literal["drop", "median"] = "drop",
@@ -88,6 +89,10 @@ def flatten_pca(
         How to handle duplicate ``Path.stem`` values across ``paths``. Used
         only when ``paths`` is specified; ignored when ``flattened`` is
         specified. See ``load_and_validate_inputs`` for details.
+    validate_metadata_uniqueness : bool, default False
+        Forwarded to ``preprocess_and_flatten`` when ``paths`` is specified;
+        ignored when ``flattened`` is specified. See
+        ``preprocess_and_flatten`` for details.
     validate_metadata_alignment : bool, default False
         Forwarded to ``preprocess_and_flatten`` when ``paths`` is specified;
         ignored when ``flattened`` is specified. See
@@ -131,6 +136,7 @@ def flatten_pca(
             w_downsampling_stride=w_downsampling_stride,
             max_null_ratio=max_null_ratio,
             stem_uniqueness=stem_uniqueness,
+            validate_metadata_uniqueness=validate_metadata_uniqueness,
             validate_metadata_alignment=validate_metadata_alignment,
             materialize_once=materialize_once,
         )
@@ -150,6 +156,7 @@ def preprocess_and_flatten(
     w_downsampling_stride: int = 1,
     max_null_ratio: float = 0.1,
     stem_uniqueness: StemUniquenessCheck = "skip",
+    validate_metadata_uniqueness: bool = False,
     validate_metadata_alignment: bool = False,
     materialize_once: bool = True,
 ) -> pl.LazyFrame:
@@ -183,6 +190,11 @@ def preprocess_and_flatten(
     stem_uniqueness : Literal["skip", "warn", "error"], default "skip"
         How to handle duplicate ``Path.stem`` values across ``paths``. See
         ``load_and_validate_inputs`` for details.
+    validate_metadata_uniqueness : bool, default False
+        If ``True``, reject duplicate ``(Time, Step, Sequence)`` tuples
+        within each input file. Skipped by default because input producers
+        already guarantee uniqueness. Applied before preprocessing; see
+        ``load_and_validate_inputs`` for details.
     validate_metadata_alignment : bool, default False
         If ``True``, require every input file to share an identical set of
         ``(Time, Step, Sequence)`` tuples after ``target_steps`` filtering,
@@ -213,7 +225,11 @@ def preprocess_and_flatten(
     pl.LazyFrame
         Deferred one-row-per-file flattened features with ``source`` first.
     """
-    loaded_inputs = load_and_validate_inputs(paths, stem_uniqueness=stem_uniqueness)
+    loaded_inputs = load_and_validate_inputs(
+        paths,
+        stem_uniqueness=stem_uniqueness,
+        validate_metadata_uniqueness=validate_metadata_uniqueness,
+    )
     filtered_inputs: list[tuple[Path, pl.LazyFrame]] = [
         (path, filter_target_steps(frame, target_steps))
         for path, frame in loaded_inputs
