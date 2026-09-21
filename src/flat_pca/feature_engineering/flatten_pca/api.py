@@ -23,6 +23,7 @@ from ..preprocess import (
     drop_sparse_feature_columns,
     filter_target_steps,
 )
+from ..preprocess.sparse_columns import validate_max_null_ratio
 from .flatten import flatten_inputs
 from .input import StemUniquenessCheck, load_and_validate_inputs
 from .input import validate_metadata_alignment as _validate_metadata_alignment
@@ -316,6 +317,7 @@ def materialize_and_drop_sparse_feature_columns(
     result. This prevents the expensive upstream Parquet and flatten query
     from being run both for statistics and for the cached return value.
     """
+    validate_max_null_ratio(max_null_ratio)
     materialized = materialize_flattened(flattened)
     pruned = drop_sparse_feature_columns(materialized, max_null_ratio)
     return materialize_flattened(pruned)

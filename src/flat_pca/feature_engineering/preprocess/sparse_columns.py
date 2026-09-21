@@ -4,7 +4,26 @@ from __future__ import annotations
 
 import polars as pl
 
-from ...utils.pl_snippets import drop_all_null_columns_from_polars
+from ...utils.pl_snippets import (
+    drop_all_null_columns_from_polars,
+    validate_missing_ratio_threshold,
+)
+
+
+def validate_max_null_ratio(max_null_ratio: float) -> None:
+    """Validate the public sparse-feature missing-value threshold.
+
+    Parameters
+    ----------
+    max_null_ratio : float
+        Inclusive maximum missing-value ratio for retained features.
+
+    Raises
+    ------
+    ValueError
+        If ``max_null_ratio`` is not between 0.0 and 1.0.
+    """
+    validate_missing_ratio_threshold(max_null_ratio)
 
 
 def drop_sparse_feature_columns(
@@ -42,6 +61,7 @@ def drop_sparse_feature_columns(
     ValueError
         If ``max_null_ratio`` is not between 0.0 and 1.0.
     """
+    validate_max_null_ratio(max_null_ratio)
     return drop_all_null_columns_from_polars(
         flattened, include_nan_missing=True, threshold=max_null_ratio
     )

@@ -769,6 +769,41 @@ def test_preprocess_and_flatten_materializes_upstream_flatten_once(
     assert calls == 1
 
 
+def test_preprocess_and_flatten_rejects_invalid_null_ratio_before_materializing(
+    real_fixture_paths: list[Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject invalid thresholds before executing real-Parquet flatten inputs."""
+    calls = 0
+    original_flatten_inputs = _api.flatten_inputs
+
+    def count_flatten_inputs(
+        inputs: list[tuple[Path, pl.LazyFrame]],
+    ) -> pl.LazyFrame:
+        """Wrap the real flatten query with an execution counter."""
+        nonlocal calls
+        flattened = original_flatten_inputs(inputs)
+        assert isinstance(flattened, pl.LazyFrame)
+
+        def count_batch(batch: pl.DataFrame) -> pl.DataFrame:
+            """Record one executed input batch without altering its data."""
+            nonlocal calls
+            calls += 1
+            return batch
+
+        return flattened.map_batches(
+            count_batch,
+            schema=flattened.collect_schema(),
+        )
+
+    monkeypatch.setattr(_api, "flatten_inputs", count_flatten_inputs)
+
+    with pytest.raises(ValueError, match="threshold must be between"):
+        _api.preprocess_and_flatten(real_fixture_paths[:3], max_null_ratio=1.5)
+
+    assert calls == 0
+
+
 def test_materialize_once_default_decouples_result_from_source_files(
     real_fixture_paths: list[Path], tmp_path: Path
 ) -> None:

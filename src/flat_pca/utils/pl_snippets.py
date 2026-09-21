@@ -153,13 +153,50 @@ def drop_list_type_columns_from_polars(
     return df.drop(drop_list)
 
 
+def validate_missing_ratio_threshold(threshold: float) -> None:
+    """Validate a missing-value ratio threshold.
+
+    Parameters
+    ----------
+    threshold : float
+        Inclusive missing-value ratio threshold to validate.
+
+    Raises
+    ------
+    ValueError
+        If ``threshold`` is not between 0.0 and 1.0.
+    """
+    if not 0.0 <= threshold <= 1.0:
+        raise ValueError("threshold must be between 0.0 and 1.0")
+
+
 def drop_all_null_columns_from_polars(
     lf: pl.LazyFrame,
     include_nan_missing: bool = True,
     threshold: float = 0.99,
 ) -> pl.LazyFrame:
-    if not 0.0 <= threshold <= 1.0:
-        raise ValueError("threshold must be between 0.0 and 1.0")
+    """Drop columns whose missing-value ratio exceeds a threshold.
+
+    Parameters
+    ----------
+    lf : pl.LazyFrame
+        Frame whose columns are evaluated for missing values.
+    include_nan_missing : bool, default True
+        Whether NaN values count as missing for floating-point columns.
+    threshold : float, default 0.99
+        Inclusive maximum missing-value ratio for retained columns.
+
+    Returns
+    -------
+    pl.LazyFrame
+        ``lf`` restricted to columns at or below ``threshold``.
+
+    Raises
+    ------
+    ValueError
+        If ``threshold`` is not between 0.0 and 1.0.
+    """
+    validate_missing_ratio_threshold(threshold)
 
     schema = lf.collect_schema()
     missing_count_exprs = []
