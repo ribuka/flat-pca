@@ -573,15 +573,24 @@ def _write_extra_step_variant(
 def test_preprocess_and_flatten_skips_metadata_alignment_check_by_default(
     real_fixture_paths: list[Path], tmp_path: Path
 ) -> None:
-    """Flatten real-fixture-derived inputs with mismatched keys by default."""
+    """Flatten mismatched real-fixture-derived inputs by default, null-filling gaps."""
     frame = pl.read_parquet(real_fixture_paths[0])
     baseline = tmp_path / "baseline.parquet"
     variant = tmp_path / "variant.parquet"
     _write_extra_step_variant(frame, baseline, variant)
+    wavelength = next(
+        column for column in frame.columns if column not in METADATA_COLUMNS
+    )
+    extra_sequence = int(frame.head(1)["Sequence"].item())
+    extra_column = f"{wavelength}_2_{extra_sequence}_0.00"
 
     flattened = preprocess_and_flatten([baseline, variant]).collect()
+    row_by_source = {row["source"]: row for row in flattened.iter_rows(named=True)}
 
     assert flattened.height == 2
+    assert extra_column in flattened.columns
+    assert row_by_source[baseline.resolve().as_posix()][extra_column] is None
+    assert row_by_source[variant.resolve().as_posix()][extra_column] is not None
 
 
 def test_preprocess_and_flatten_applies_target_steps_before_metadata_alignment_check(

@@ -7,6 +7,69 @@ import polars as pl
 
 from .schema import parse_wavelength, wavelength_columns
 
+FeatureSpec = tuple[str, int, int, float, str]
+
+
+def _collect_metadata_rows(
+    frame: pl.DataFrame | pl.LazyFrame,
+) -> list[tuple[int, int, float]]:
+    """Return one frame's own unique (Step, Sequence, StepTime) rows.
+
+    Parameters
+    ----------
+    frame : pl.DataFrame | pl.LazyFrame
+        Validated spectral frame to inspect.
+
+    Returns
+    -------
+    list[tuple[int, int, float]]
+        Unique ``(Step, Sequence, StepTime)`` rows present in ``frame``.
+    """
+    selected = frame.select("Step", "Sequence", "StepTime").unique()
+    collected = selected.collect() if isinstance(selected, pl.LazyFrame) else selected
+    return list(collected.iter_rows())
+
+
+def _build_feature_specs(
+    wavelength_columns_sorted: list[str],
+    frames: Sequence[pl.DataFrame | pl.LazyFrame],
+) -> list[FeatureSpec]:
+    """Build feature specs from the union of Step/Sequence/StepTime combinations.
+
+    Different input files may cover different ``(Step, Sequence, StepTime)``
+    combinations (for example, runs with different measurement-point
+    counts), so the feature set is the union across all frames rather than
+    any single frame's own combinations.
+
+    Parameters
+    ----------
+    wavelength_columns_sorted : list[str]
+        Wavelength column names ordered by numeric wavelength.
+    frames : Sequence[pl.DataFrame | pl.LazyFrame]
+        Validated spectral frames to union.
+
+    Returns
+    -------
+    list[FeatureSpec]
+        ``(column, step, sequence, step_time, name)`` tuples ordered by
+        numeric wavelength, then Step, Sequence, and StepTime.
+    """
+    metadata_keys: set[tuple[int, int, float]] = set()
+    for frame in frames:
+        metadata_keys.update(_collect_metadata_rows(frame))
+    metadata_rows = sorted(metadata_keys)
+    return [
+        (
+            column,
+            step,
+            sequence,
+            step_time,
+            f"{column}_{int(step)}_{int(sequence)}_{float(step_time):.2f}",
+        )
+        for column in wavelength_columns_sorted
+        for step, sequence, step_time in metadata_rows
+    ]
+
 
 def flatten_inputs(
     inputs: Sequence[tuple[Path, pl.DataFrame | pl.LazyFrame]],
@@ -23,13 +86,16 @@ def flatten_inputs(
     pl.DataFrame | pl.LazyFrame
         One row per input file, ordered by normalized path, with ``source``
         followed by spectral features ordered by numeric wavelength, Step,
-        Sequence, and StepTime.
+        Sequence, and StepTime. Features correspond to the union of
+        ``(Step, Sequence, StepTime)`` combinations across all input frames;
+        a frame lacking a particular combination contributes ``null`` for
+        the corresponding feature.
 
     Raises
     ------
     ValueError
-        If no inputs are provided, formatted feature names collide, or frames
-        do not produce the same ordered feature names.
+        If no inputs are provided, input frames mix ``pl.DataFrame`` and
+        ``pl.LazyFrame`` types, or formatted feature names collide.
     """
     if len(inputs) == 0:
         raise ValueError("inputs must contain at least one validated frame")
@@ -39,43 +105,39 @@ def flatten_inputs(
             raise ValueError("flatten inputs must use one frame type")
         return _flatten_lazy_inputs(inputs)  # type: ignore[arg-type]
 
-    rows: list[dict[str, object]] = []
-    expected_feature_names: list[str] | None = None
-    for path, frame in sorted(inputs, key=lambda item: str(item[0].resolve())):
-        spectra = sorted(
+    sorted_inputs = sorted(inputs, key=lambda item: str(item[0].resolve()))
+    wavelength_columns_sorted = [
+        column
+        for _, column in sorted(
             (
                 (parse_wavelength(column), column)
-                for column in wavelength_columns(frame.columns)
+                for column in wavelength_columns(sorted_inputs[0][1].columns)
             ),
             key=lambda item: item[0],
         )
-        sorted_frame = frame.sort("Step", "Sequence", "StepTime")
-        feature_names: list[str] = []
-        feature_values: list[object] = []
-        for _, wavelength_column in spectra:
-            for step, sequence, step_time, intensity in sorted_frame.select(
-                "Step",
-                "Sequence",
-                "StepTime",
-                wavelength_column,
-            ).iter_rows():
-                feature_names.append(
-                    f"{wavelength_column}_{int(step)}_{int(sequence)}_{float(step_time):.2f}"
-                )
-                feature_values.append(intensity)
+    ]
+    feature_specs = _build_feature_specs(
+        wavelength_columns_sorted, [frame for _, frame in sorted_inputs]
+    )
+    feature_names = [spec[-1] for spec in feature_specs]
+    if len(feature_names) != len(set(feature_names)):
+        raise ValueError("duplicate flattened feature names")
 
-        if len(feature_names) != len(set(feature_names)):
-            raise ValueError("duplicate flattened feature names")
-        if expected_feature_names is None:
-            expected_feature_names = feature_names
-        elif feature_names != expected_feature_names:
-            raise ValueError("input frames must produce matching flattened features")
-
+    rows: list[dict[str, object]] = []
+    for path, frame in sorted_inputs:
+        by_key = {
+            (row["Step"], row["Sequence"], row["StepTime"]): row
+            for row in frame.select(
+                "Step", "Sequence", "StepTime", *wavelength_columns_sorted
+            ).iter_rows(named=True)
+        }
         row: dict[str, object] = {"source": path.as_posix()}
-        row.update(zip(feature_names, feature_values, strict=True))
+        for column, step, sequence, step_time, name in feature_specs:
+            match = by_key.get((step, sequence, step_time))
+            row[name] = match[column] if match is not None else None
         rows.append(row)
 
-    return pl.DataFrame(rows).select("source", *expected_feature_names)
+    return pl.DataFrame(rows).select("source", *feature_names)
 
 
 def _flatten_lazy_inputs(
@@ -96,32 +158,20 @@ def _flatten_lazy_inputs(
     Raises
     ------
     ValueError
-        If formatted feature names collide or input feature layouts differ.
+        If formatted feature names collide.
     """
-    first_frame = inputs[0][1]
-    columns = first_frame.collect_schema().names()
-    spectra = sorted(
-        ((parse_wavelength(column), column) for column in wavelength_columns(columns)),
-        key=lambda item: item[0],
-    )
-    metadata_rows = list(
-        first_frame.select("Step", "Sequence", "StepTime")
-        .unique()
-        .sort("Step", "Sequence", "StepTime")
-        .collect()
-        .iter_rows()
-    )
-    feature_specs = [
-        (
-            column,
-            step,
-            sequence,
-            step_time,
-            f"{column}_{int(step)}_{int(sequence)}_{float(step_time):.2f}",
+    frames = [frame for _, frame in inputs]
+    wavelength_columns_sorted = [
+        column
+        for _, column in sorted(
+            (
+                (parse_wavelength(column), column)
+                for column in wavelength_columns(frames[0].collect_schema().names())
+            ),
+            key=lambda item: item[0],
         )
-        for _, column in spectra
-        for step, sequence, step_time in metadata_rows
     ]
+    feature_specs = _build_feature_specs(wavelength_columns_sorted, frames)
     feature_names = [spec[-1] for spec in feature_specs]
     if len(feature_names) != len(set(feature_names)):
         raise ValueError("duplicate flattened feature names")

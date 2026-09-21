@@ -162,13 +162,17 @@ def preprocess_and_flatten(
     validate_metadata_alignment : bool, default False
         If ``True``, require every input file to share an identical set of
         ``(Time, Step, Sequence)`` tuples after ``target_steps`` filtering,
-        raising ``ValueError`` on mismatch. Skipped by default. When skipped,
-        a mismatch is not guaranteed to raise downstream: the flattening
-        stage derives its feature layout from the first sorted input file, so
-        a later file missing a combination silently receives a null feature
-        value instead of an error, and a later file with an extra
-        combination has it silently dropped. Applied after ``target_steps``
-        filtering so files may freely differ outside the retained steps.
+        raising ``ValueError`` on mismatch. Skipped by default, because
+        differing ``(Step, Sequence, StepTime)`` coverage across input files
+        (for example, runs with different measurement-point counts) is an
+        expected case, not an error: the flattening stage builds its feature
+        set from the union of combinations across all input files, and a
+        file lacking a particular combination simply contributes ``null``
+        for that feature (see ``flatten_inputs``), which downstream PCA
+        fitting handles via its ``impute_strategy``. Enable this check only
+        when you want to enforce that inputs share an identical grid.
+        Applied after ``target_steps`` filtering so files may freely differ
+        outside the retained steps.
     materialize_once : bool, default True
         If ``True``, collect the flatten query exactly once and return the
         result as a ``LazyFrame`` backed by that in-memory ``DataFrame``, so
