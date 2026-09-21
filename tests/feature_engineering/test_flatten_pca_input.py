@@ -16,6 +16,7 @@ from flat_pca.feature_engineering.flatten_pca.input import (
 from flat_pca.feature_engineering.flatten_pca.input import (
     validate_metadata_alignment as _validate_metadata_alignment,
 )
+from flat_pca.feature_engineering.flatten_pca.schema import NON_SPECTRAL_COLUMNS
 
 METADATA_COLUMNS = {"Time", "Step", "Sequence"}
 
@@ -61,12 +62,14 @@ def test_validate_frame_accepts_a_real_lazy_frame(
 ) -> None:
     """Validate a lazily scanned real fixture without eager input conversion."""
     path = real_fixture_paths[0]
-    frame = pl.scan_parquet(path)
+    frame = pl.scan_parquet(path).with_columns(pl.lit(0).alias("StepTime"))
 
     wavelengths = _validate_frame(path, frame)
 
     assert wavelengths == frozenset(
-        column for column in frame.collect_schema() if column not in METADATA_COLUMNS
+        column
+        for column in frame.collect_schema()
+        if column not in NON_SPECTRAL_COLUMNS
     )
 
 

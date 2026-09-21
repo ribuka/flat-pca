@@ -123,6 +123,23 @@ def test_public_api_optionally_rejects_duplicate_metadata_keys(
         flatten_pca([path], n_component=1, validate_metadata_uniqueness=True)
 
 
+def test_public_api_allows_duplicate_metadata_keys_by_default(
+    tmp_path: Path,
+    real_fixture_paths: list[Path],
+) -> None:
+    """Skip duplicate-key validation through public APIs by default."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    path = tmp_path / "duplicate-key.parquet"
+    pl.concat([frame, frame.head(1)]).write_parquet(path)
+
+    flattened = preprocess_and_flatten([path])
+    pca = flatten_pca([path, real_fixture_paths[1]], n_component=1)
+
+    assert isinstance(flattened, pl.LazyFrame)
+    assert flattened.collect().height == 1
+    assert isinstance(pca, PcaModel)
+
+
 def test_fit_flattened_pca_delegates_to_common_pca_configuration(
     real_fixture_paths: list[Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
