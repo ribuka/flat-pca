@@ -59,9 +59,10 @@ def drop_sparse_feature_columns(
     Raises
     ------
     ValueError
-        If ``max_null_ratio`` is not between 0.0 and 1.0.
+        If ``max_null_ratio`` is not between 0.0 and 1.0. Validated by
+        ``drop_all_null_columns_from_polars`` itself, so this function does
+        not duplicate the check.
     """
-    validate_max_null_ratio(max_null_ratio)
     return drop_all_null_columns_from_polars(
         flattened, include_nan_missing=True, threshold=max_null_ratio
     )
