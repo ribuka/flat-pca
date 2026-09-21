@@ -12,6 +12,7 @@ from .smoothing import apply_t_smoothing, apply_w_smoothing
 from .sparse_columns import drop_sparse_feature_columns
 from .step_time import add_step_time_columns
 from .trim import apply_edge_trim
+from .wavelength_filter import apply_wavelength_range_filter
 
 __all__ = [
     "add_step_time_columns",
@@ -22,6 +23,7 @@ __all__ = [
     "apply_w_downsampling",
     "apply_w_normalization",
     "apply_w_smoothing",
+    "apply_wavelength_range_filter",
     "collect_unique_times",
     "collect_unique_wavelengths",
     "drop_sparse_feature_columns",
