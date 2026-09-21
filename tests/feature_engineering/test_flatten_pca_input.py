@@ -6,8 +6,12 @@ from pathlib import Path
 import polars as pl
 import pytest
 
+from flat_pca.feature_engineering.flatten_pca import input as _input
 from flat_pca.feature_engineering.flatten_pca.input import (
     load_and_validate_inputs as _load_and_validate_inputs,
+)
+from flat_pca.feature_engineering.flatten_pca.input import (
+    validate_frame as _validate_frame,
 )
 from flat_pca.feature_engineering.flatten_pca.input import (
     validate_metadata_alignment as _validate_metadata_alignment,
@@ -50,6 +54,49 @@ def test_loads_one_and_multiple_real_parquet_files_deterministically(
     assert single[0][1].collect().equals(fixture_frame)
     assert [path for path, _ in forward] == [path for path, _ in reverse]
     assert [path for path, _ in forward] == sorted(path.resolve() for path in paths[:3])
+
+
+def test_validate_frame_accepts_a_real_lazy_frame(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Validate a lazily scanned real fixture without eager input conversion."""
+    path = real_fixture_paths[0]
+    frame = pl.scan_parquet(path)
+
+    wavelengths = _validate_frame(path, frame)
+
+    assert wavelengths == frozenset(
+        column for column in frame.collect_schema() if column not in METADATA_COLUMNS
+    )
+
+
+def test_load_passes_lazy_frames_to_validation(
+    monkeypatch: pytest.MonkeyPatch,
+    real_fixture_paths: list[Path],
+) -> None:
+    """Pass lazily scanned real fixtures to frame validation."""
+    original_validate_frame = _input.validate_frame
+    received_frames: list[pl.LazyFrame] = []
+
+    def record_frame(
+        path: Path,
+        frame: pl.LazyFrame,
+        *,
+        validate_metadata_uniqueness: bool = False,
+    ) -> frozenset[str]:
+        received_frames.append(frame)
+        return original_validate_frame(
+            path,
+            frame,
+            validate_metadata_uniqueness=validate_metadata_uniqueness,
+        )
+
+    monkeypatch.setattr(_input, "validate_frame", record_frame)
+
+    _load_and_validate_inputs(real_fixture_paths[:2])
+
+    assert len(received_frames) == 2
+    assert all(isinstance(frame, pl.LazyFrame) for frame in received_frames)
 
 
 def test_rejects_empty_and_missing_paths(tmp_path: Path) -> None:
@@ -201,8 +248,25 @@ def test_rejects_null_nan_and_infinite_values(
         _load_and_validate_inputs([path])
 
 
-def test_rejects_duplicate_keys(tmp_path: Path, real_fixture_paths: list[Path]) -> None:
-    """Reject duplicate Time, Step, and Sequence tuples."""
+def test_allows_duplicate_keys_by_default(
+    tmp_path: Path, real_fixture_paths: list[Path]
+) -> None:
+    """Allow duplicate Time, Step, and Sequence tuples by default."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    path = _write_variant(
+        pl.concat([frame, frame.head(1)]),
+        tmp_path / "duplicate-key.parquet",
+    )
+
+    loaded = _load_and_validate_inputs([path])
+
+    assert loaded[0][0] == path.resolve()
+
+
+def test_rejects_duplicate_keys_when_requested(
+    tmp_path: Path, real_fixture_paths: list[Path]
+) -> None:
+    """Reject duplicate Time, Step, and Sequence tuples when requested."""
     frame = pl.read_parquet(real_fixture_paths[0])
     path = _write_variant(
         pl.concat([frame, frame.head(1)]),
@@ -210,7 +274,7 @@ def test_rejects_duplicate_keys(tmp_path: Path, real_fixture_paths: list[Path]) 
     )
 
     with pytest.raises(ValueError, match="duplicate metadata keys"):
-        _load_and_validate_inputs([path])
+        _load_and_validate_inputs([path], validate_metadata_uniqueness=True)
 
 
 def test_rejects_wavelength_mismatches_between_files(

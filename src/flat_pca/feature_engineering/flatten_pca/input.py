@@ -9,6 +9,8 @@ from typing import Literal
 
 import polars as pl
 
+from flat_pca.utils import get_schema_from_polars
+
 from .schema import METADATA_COLUMNS, parse_wavelength, wavelength_columns
 
 StemUniquenessCheck = Literal["skip", "warn", "error"]
@@ -46,7 +48,9 @@ def read_parquet(path: Path) -> pl.LazyFrame:
 
 def validate_frame(
     path: Path,
-    frame: pl.DataFrame,
+    frame: pl.LazyFrame,
+    *,
+    validate_metadata_uniqueness: bool = False,
 ) -> frozenset[str]:
     """Validate one input frame and return its cross-file comparison set.
 
@@ -54,8 +58,10 @@ def validate_frame(
     ----------
     path : Path
         Source path used in validation errors.
-    frame : pl.DataFrame
-        Parquet contents to validate.
+    frame : pl.LazyFrame
+        Lazily scanned Parquet contents to validate.
+    validate_metadata_uniqueness : bool, default False
+        Whether to reject duplicate ``(Time, Step, Sequence)`` tuples.
 
     Returns
     -------
@@ -67,17 +73,16 @@ def validate_frame(
     ValueError
         If the frame violates the Flatten-PCA input schema or value rules.
     """
-    missing_columns = [
-        column for column in METADATA_COLUMNS if column not in frame.columns
-    ]
+    schema = get_schema_from_polars(frame)
+    columns = list(schema)
+    missing_columns = [column for column in METADATA_COLUMNS if column not in schema]
     if missing_columns:
         raise ValueError(f"required columns missing in {path}: {missing_columns}")
 
-    schema = frame.schema
     if any(not schema[column].is_numeric() for column in METADATA_COLUMNS):
         raise ValueError(f"metadata columns must be numeric in {path}")
 
-    spectra = wavelength_columns(frame.columns)
+    spectra = wavelength_columns(columns)
     if not spectra:
         raise ValueError(f"at least one wavelength column is required in {path}")
     for column in spectra:
@@ -87,17 +92,20 @@ def validate_frame(
 
     invalid_expressions = [
         pl.col(column).is_null() | ~pl.col(column).cast(pl.Float64).is_finite()
-        for column in frame.columns
+        for column in columns
     ]
     has_invalid_value = frame.select(
         pl.any_horizontal(invalid_expressions).any()
-    ).item()
+    ).collect().item()
     if has_invalid_value:
         raise ValueError(f"input contains null, NaN, or infinite values: {path}")
 
-    metadata = frame.select(METADATA_COLUMNS)
-    if metadata.is_duplicated().any():
-        raise ValueError(f"input contains duplicate metadata keys: {path}")
+    if validate_metadata_uniqueness:
+        has_duplicate_metadata = frame.select(
+            pl.struct(METADATA_COLUMNS).is_duplicated().any()
+        ).collect().item()
+        if has_duplicate_metadata:
+            raise ValueError(f"input contains duplicate metadata keys: {path}")
 
     return frozenset(spectra)
 
@@ -136,6 +144,7 @@ def load_and_validate_inputs(
     paths: Sequence[str | Path],
     *,
     stem_uniqueness: StemUniquenessCheck = "skip",
+    validate_metadata_uniqueness: bool = False,
 ) -> list[tuple[Path, pl.LazyFrame]]:
     """Load and validate Flatten-PCA Parquet inputs deterministically.
 
@@ -149,6 +158,9 @@ def load_and_validate_inputs(
         continues, and ``"error"`` raises ``ValueError``. The ``source``
         column produced downstream is derived from the full normalized path,
         not the stem, so stem uniqueness is not required for correctness.
+    validate_metadata_uniqueness : bool, default False
+        Whether to reject duplicate ``(Time, Step, Sequence)`` tuples in each
+        input file.
 
     Returns
     -------
@@ -162,8 +174,8 @@ def load_and_validate_inputs(
         If an input path does not exist.
     ValueError
         If paths are empty, ``stem_uniqueness="error"`` and stems repeat, or
-        input data violates the schema, value, uniqueness, or cross-file
-        consistency requirements.
+        input data violates the schema, value, requested uniqueness, or
+        cross-file consistency requirements.
     """
     if isinstance(paths, (str, Path)) or len(paths) == 0:
         raise ValueError("paths must contain at least one input path")
@@ -180,8 +192,11 @@ def load_and_validate_inputs(
     expected_wavelengths: frozenset[str] | None = None
     for path in normalized_paths:
         frame = read_parquet(path)
-        # Validation requires concrete values, but processing remains lazy.
-        wavelengths = validate_frame(path, frame.collect())
+        wavelengths = validate_frame(
+            path,
+            frame,
+            validate_metadata_uniqueness=validate_metadata_uniqueness,
+        )
         if expected_wavelengths is None:
             expected_wavelengths = wavelengths
         elif wavelengths != expected_wavelengths:
