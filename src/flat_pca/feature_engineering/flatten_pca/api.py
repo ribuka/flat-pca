@@ -241,6 +241,12 @@ def preprocess_and_flatten(
         avoiding repeated computation. If ``False``, return the deferred,
         not-yet-executed flatten query as before, useful when full lazy
         execution is required. Either value returns a ``pl.LazyFrame``.
+        Note that ``t_normalization_range`` and ``w_normalization_range``
+        each collect every input file once while validating their reference
+        statistics, so specifying either one reads the input files and runs
+        the preprocessing up to normalization during this call even when
+        ``materialize_once`` is ``False``; only the stages from flatten
+        onward stay deferred.
 
     Returns
     -------
