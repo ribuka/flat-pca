@@ -9,15 +9,15 @@ from typing import Literal
 
 import polars as pl
 
-from flat_pca.utils import get_schema_from_polars
-
-from ..preprocess.wavelength_filter import validate_wavelength_range
-from .schema import (
+from flat_pca.spectral.schema import (
     METADATA_COLUMNS,
     parse_wavelength,
     select_wavelength_columns_in_range,
     wavelength_columns,
 )
+from flat_pca.utils import get_schema_from_polars
+
+from ..preprocess.wavelength_filter import validate_wavelength_range
 
 StemUniquenessCheck = Literal["skip", "warn", "error"]
 

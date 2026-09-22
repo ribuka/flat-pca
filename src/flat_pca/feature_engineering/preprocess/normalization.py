@@ -1,49 +1,12 @@
 """Time- and wavelength-direction normalization for Flatten-PCA."""
 
-from math import isfinite
-
 import numpy as np
 import polars as pl
 
-from ..flatten_pca.schema import parse_wavelength, wavelength_columns
+from flat_pca.spectral.schema import parse_wavelength, wavelength_columns
+from flat_pca.utils import get_columns_from_polars
 
-
-def _validate_range(
-    value: tuple[float, float],
-    argument_name: str,
-) -> tuple[float, float]:
-    """Validate and coerce an inclusive normalization interval.
-
-    Parameters
-    ----------
-    value : tuple[float, float]
-        Candidate lower and upper bounds.
-    argument_name : str
-        Public argument name used in validation messages.
-
-    Returns
-    -------
-    tuple[float, float]
-        Finite, ordered floating-point bounds.
-
-    Raises
-    ------
-    ValueError
-        If the candidate is malformed, nonfinite, or reversed.
-    """
-    if (
-        not isinstance(value, tuple)
-        or len(value) != 2
-        or any(isinstance(bound, bool) for bound in value)
-    ):
-        raise ValueError(f"{argument_name} must contain two finite bounds")
-    try:
-        lower, upper = (float(bound) for bound in value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(f"{argument_name} must contain two finite bounds") from error
-    if not isfinite(lower) or not isfinite(upper) or lower > upper:
-        raise ValueError(f"{argument_name} must contain ordered finite bounds")
-    return lower, upper
+from .ranges import validate_ordered_range
 
 
 def apply_t_normalization(
@@ -74,7 +37,7 @@ def apply_t_normalization(
     """
     if t_normalization_range is None:
         return frame
-    lower, upper = _validate_range(
+    lower, upper = validate_ordered_range(
         t_normalization_range,
         "t_normalization_range",
     )
@@ -166,16 +129,12 @@ def apply_w_normalization(
     """
     if w_normalization_range is None:
         return frame
-    lower, upper = _validate_range(
+    lower, upper = validate_ordered_range(
         w_normalization_range,
         "w_normalization_range",
     )
 
-    columns = (
-        frame.collect_schema().names()
-        if isinstance(frame, pl.LazyFrame)
-        else frame.columns
-    )
+    columns = get_columns_from_polars(frame)
     spectra = wavelength_columns(columns)
     wavelengths = np.asarray([parse_wavelength(column) for column in spectra])
     in_reference = (wavelengths >= lower) & (wavelengths <= upper)

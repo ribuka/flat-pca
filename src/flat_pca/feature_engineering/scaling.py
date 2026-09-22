@@ -1,3 +1,5 @@
+"""Column scaling strategies fitted and applied over Polars frames."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -27,9 +29,46 @@ class ScalingModel:
     scales: dict[str, float]
 
 
-def _collect_to_df(lf: pl.LazyFrame) -> pl.DataFrame:
-    obj = lf.collect()
-    return obj if isinstance(obj, pl.DataFrame) else obj.collect()
+def _center_and_scale_exprs(
+    columns: list[str],
+    strategy: ScalingStrategy,
+) -> list[pl.Expr]:
+    """Build the per-column center and scale aggregations of one strategy.
+
+    Parameters
+    ----------
+    columns : list[str]
+        Numeric columns to aggregate.
+    strategy : ScalingStrategy
+        Scaling strategy whose statistics are needed. ``"none"`` has no
+        statistics and must be handled by the caller.
+
+    Returns
+    -------
+    list[pl.Expr]
+        One ``{column}__center`` and one ``{column}__scale`` expression per
+        column.
+    """
+    if strategy == "z-score":
+        centers = [pl.col(column).mean() for column in columns]
+        scales = [pl.col(column).std() for column in columns]
+    elif strategy == "minmax":
+        centers = [pl.col(column).min() for column in columns]
+        scales = [pl.col(column).max() - pl.col(column).min() for column in columns]
+    else:
+        centers = [pl.col(column).median() for column in columns]
+        scales = [
+            pl.col(column).quantile(0.75) - pl.col(column).quantile(0.25)
+            for column in columns
+        ]
+
+    return [
+        center.alias(f"{column}__center")
+        for column, center in zip(columns, centers, strict=True)
+    ] + [
+        scale.alias(f"{column}__scale")
+        for column, scale in zip(columns, scales, strict=True)
+    ]
 
 
 def fit_scaler(
@@ -59,48 +98,21 @@ def fit_scaler(
     if strategy == "none":
         return ScalingModel(
             strategy=strategy,
-            centers={col: 0.0 for col in columns},
-            scales={col: 1.0 for col in columns},
-        )
-    if strategy == "z-score":
-        stats_df = _collect_to_df(
-            df.select(
-                [pl.col(col).mean().alias(f"{col}__center") for col in columns]
-                + [pl.col(col).std().alias(f"{col}__scale") for col in columns]
-            )
-        )
-    elif strategy == "minmax":
-        stats_df = _collect_to_df(
-            df.select(
-                [pl.col(col).min().alias(f"{col}__center") for col in columns]
-                + [
-                    (pl.col(col).max() - pl.col(col).min()).alias(f"{col}__scale")
-                    for col in columns
-                ]
-            )
-        )
-    else:
-        stats_df = _collect_to_df(
-            df.select(
-                [pl.col(col).median().alias(f"{col}__center") for col in columns]
-                + [
-                    (pl.col(col).quantile(0.75) - pl.col(col).quantile(0.25)).alias(
-                        f"{col}__scale"
-                    )
-                    for col in columns
-                ]
-            )
+            centers={column: 0.0 for column in columns},
+            scales={column: 1.0 for column in columns},
         )
 
-    row = stats_df.row(0, named=True)
+    row = df.select(_center_and_scale_exprs(columns, strategy)).collect().row(
+        0, named=True
+    )
     centers: dict[str, float] = {}
     scales: dict[str, float] = {}
-    for col in columns:
-        center_raw = row[f"{col}__center"]
-        scale_raw = row[f"{col}__scale"]
-        centers[col] = float(center_raw) if center_raw is not None else 0.0
+    for column in columns:
+        center_raw = row[f"{column}__center"]
+        scale_raw = row[f"{column}__scale"]
+        centers[column] = float(center_raw) if center_raw is not None else 0.0
         scale_value = float(scale_raw) if scale_raw is not None else 1.0
-        scales[col] = scale_value if scale_value != 0 else 1.0
+        scales[column] = scale_value if scale_value != 0 else 1.0
 
     return ScalingModel(strategy=strategy, centers=centers, scales=scales)
 
@@ -129,14 +141,15 @@ def apply_scaler(
     if not columns or scaling_model.strategy == "none":
         return df
 
-    exprs = [
-        (
-            (pl.col(col).cast(pl.Float64) - scaling_model.centers[col])
-            / scaling_model.scales[col]
-        ).alias(col)
-        for col in columns
-    ]
-    return df.with_columns(exprs)
+    return df.with_columns(
+        [
+            (
+                (pl.col(column).cast(pl.Float64) - scaling_model.centers[column])
+                / scaling_model.scales[column]
+            ).alias(column)
+            for column in columns
+        ]
+    )
 
 
 def zscore_standardize(

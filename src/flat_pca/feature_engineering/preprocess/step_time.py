@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import polars as pl
 
+from flat_pca.utils import get_columns_from_polars
+
 
 def add_step_time_columns(
     frame: pl.DataFrame | pl.LazyFrame,
@@ -29,11 +31,7 @@ def add_step_time_columns(
         Frame with ``StepTime`` and ``ReverseStepTime`` inserted immediately
         after ``Time``, sorted by ``Time`` ascending.
     """
-    columns = (
-        frame.collect_schema().names()
-        if isinstance(frame, pl.LazyFrame)
-        else frame.columns
-    )
+    columns = get_columns_from_polars(frame)
     time_index = columns.index("Time")
     ordered_columns = (
         columns[: time_index + 1]

@@ -16,7 +16,7 @@ from flat_pca.feature_engineering.flatten_pca.input import (
 from flat_pca.feature_engineering.flatten_pca.input import (
     validate_metadata_alignment as _validate_metadata_alignment,
 )
-from flat_pca.feature_engineering.flatten_pca.schema import NON_SPECTRAL_COLUMNS
+from flat_pca.spectral.schema import NON_SPECTRAL_COLUMNS
 
 METADATA_COLUMNS = {"Time", "Step", "Sequence"}
 

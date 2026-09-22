@@ -5,7 +5,8 @@ from math import isfinite
 import numpy as np
 import polars as pl
 
-from ..flatten_pca.schema import parse_wavelength, wavelength_columns
+from flat_pca.spectral.schema import parse_wavelength, wavelength_columns
+from flat_pca.utils import get_columns_from_polars
 
 
 def apply_t_smoothing(
@@ -126,11 +127,7 @@ def apply_w_smoothing(
     if isinstance(w_smoothing_window, bool) or not isfinite(window) or window <= 0:
         raise ValueError("w_smoothing_window must be finite and greater than 0")
 
-    columns = (
-        frame.collect_schema().names()
-        if isinstance(frame, pl.LazyFrame)
-        else frame.columns
-    )
+    columns = get_columns_from_polars(frame)
     spectra = wavelength_columns(columns)
     wavelengths = np.asarray([parse_wavelength(column) for column in spectra])
     if isinstance(frame, pl.LazyFrame):

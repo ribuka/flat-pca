@@ -1,9 +1,16 @@
+"""Spectral heatmap rendering."""
+
+from collections.abc import Collection
+
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import polars as pl
+from loguru import logger
 
-METADATA_COLUMNS = {"Time", "Step", "Sequence"}
+from flat_pca.spectral.schema import METADATA_COLUMNS as SPECTRAL_METADATA_COLUMNS
+
+METADATA_COLUMNS = frozenset(SPECTRAL_METADATA_COLUMNS)
 
 
 def _symmetric_color_range(z: np.ndarray, quantile: float) -> tuple[float, float]:
@@ -23,7 +30,7 @@ def create_heatmap(
     y_name: str = "Time",
     z_name: str = "intensity",
     strip_suffix: str | None = "nm",
-    metadata_columns: set[str] = METADATA_COLUMNS,
+    metadata_columns: Collection[str] = METADATA_COLUMNS,
     color_continuous_scale: str | None = None,
     range_color: tuple[float, float] | list[float] | None = None,
     symmetric_range_quantile: float = 0.995,
@@ -38,15 +45,12 @@ def create_heatmap(
         numeric wavelength with an optional ``"nm"`` suffix, or already
         long-format data containing ``x_name``, ``y_name``, and ``z_name``
         columns.
-
-    Returns
-    -------
-    go.Figure
-        Heatmap with wavelength on the x-axis and time on the y-axis.
-
-    metadata_columns : set[str], optional
-        Set of metadata columns to exclude from the spectral data, by default METADATA_COLUMNS
-        Time zero is displayed at the bottom.
+    x_name, y_name, z_name : str, optional
+        Long-format column names for wavelength, time, and intensity, by
+        default ``"wavelength"``, ``"Time"``, and ``"intensity"``.
+    metadata_columns : Collection[str], optional
+        Metadata columns to exclude from the spectral data, by default
+        ``METADATA_COLUMNS``.
     strip_suffix : str | None, optional
         Suffix to strip from ``x_name`` values before casting to float, by
         default ``"nm"``. If ``None``, the column is left as-is.
@@ -54,13 +58,22 @@ def create_heatmap(
         Plotly color scale name. If ``None`` (default), it is chosen
         automatically based on ``z_name``: ``"RdBu_r"`` when
         ``z_name == "coefficient"``, otherwise ``"Viridis"``.
+    range_color : tuple[float, float] | list[float] | None, optional
+        Explicit color-scale limits. If ``None`` (default), limits are
+        derived from the data.
     symmetric_range_quantile : float, optional
         Quantile of ``abs(z)`` used to derive a zero-centered
         ``range_color`` when ``z_name == "coefficient"`` and
         ``range_color`` is not explicitly set, by default ``0.995``.
+
+    Returns
+    -------
+    go.Figure
+        Heatmap with wavelength on the x-axis and time on the y-axis, with
+        time zero displayed at the bottom.
     """
     if {x_name, y_name, z_name}.issubset(spectra.columns):
-        print("Using long-format data as-is.")
+        logger.debug("Using long-format data as-is.")
         spectra_long = spectra
     else:
         x_columns = [c for c in spectra.columns if c not in metadata_columns]

@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import polars as pl
+import pytest
 
 from flat_pca.feature_engineering.preprocess import (
     add_step_time_columns,
@@ -76,3 +77,40 @@ def test_apply_edge_trim_nulls_non_meta_columns_when_requested(
 
     unchanged = apply_edge_trim(frame, None)
     assert unchanged.equals(frame)
+
+
+@pytest.mark.parametrize(
+    "edge_trim",
+    [
+        (5000.0,),
+        (5000.0, 5000.0, 5000.0),
+        (5000.0, float("nan")),
+        (5000.0, float("inf")),
+        (True, 5000.0),
+        "5000,5000",
+    ],
+)
+def test_apply_edge_trim_rejects_invalid_thresholds(
+    edge_trim: object, real_fixture_paths: list[Path]
+) -> None:
+    """Reject malformed, boolean, and nonfinite edge-trim thresholds."""
+    frame = _fixture_with_step_time(real_fixture_paths[0])
+
+    with pytest.raises(ValueError, match="edge_trim"):
+        apply_edge_trim(frame, edge_trim)  # type: ignore[arg-type]
+
+
+def test_apply_edge_trim_accepts_unordered_thresholds(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Accept thresholds whose second value is smaller than the first.
+
+    The two thresholds apply to different columns, so ordering between them
+    carries no meaning and must not be rejected.
+    """
+    frame = _fixture_with_step_time(real_fixture_paths[0])
+
+    trimmed = apply_edge_trim(frame, [5000.0, 0.0])
+
+    assert trimmed.height <= frame.height
+    assert trimmed.get_column("StepTime").min() >= 5000.0
