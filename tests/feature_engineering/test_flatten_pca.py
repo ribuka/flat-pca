@@ -914,16 +914,30 @@ def _instrument_t_smoothing_execution_count(
 
 
 @pytest.mark.parametrize("materialize_once", [True, False])
+@pytest.mark.parametrize(
+    "normalization",
+    [
+        {"t_normalization_range": (0.0, 4.0)},
+        {"w_normalization_range": (350.0, 850.0)},
+        {
+            "t_normalization_range": (0.0, 4.0),
+            "w_normalization_range": (350.0, 850.0),
+        },
+    ],
+    ids=["t", "w", "t_and_w"],
+)
 def test_preprocess_and_flatten_runs_upstream_once_with_normalization(
     real_fixture_paths: list[Path],
     monkeypatch: pytest.MonkeyPatch,
+    normalization: dict[str, tuple[float, float]],
     materialize_once: bool,
 ) -> None:
     """Keep the upstream execution count unchanged when normalization is enabled.
 
     Normalization used to ``collect()`` inside its LazyFrame branch purely to
     validate reference means, which re-ran every preceding stage on the later
-    ``collect()``.
+    ``collect()``. Each direction is measured on its own so that reintroducing
+    the extra collect in either branch fails this test.
     """
     paths = real_fixture_paths[:3]
 
@@ -939,9 +953,8 @@ def test_preprocess_and_flatten_runs_upstream_once_with_normalization(
     preprocess_and_flatten(
         paths,
         t_smoothing_window=0.5,
-        t_normalization_range=(0.0, 4.0),
-        w_normalization_range=(350.0, 850.0),
         materialize_once=materialize_once,
+        **normalization,
     ).collect()
 
     # Normalization collects each file once and reuses that result, so the
