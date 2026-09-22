@@ -85,7 +85,7 @@ fig.show()
 
 # 特定の主成分の係数を、波長 × 時間 のヒートマップとして表示する (long 形式)
 component_heatmap = create_heatmap(
-    components.filter(pl.col("component") == 0).drop("component"),
+    components.filter(pl.col("component") == 1).drop("component"),
     x_name="wavelength",
     y_name="StepTime",
     z_name="coefficient",

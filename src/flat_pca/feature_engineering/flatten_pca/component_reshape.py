@@ -54,7 +54,7 @@ def reshape_pca_components(
     if len(coordinate_set) != len(coordinates) or len(coordinates) != expected_count:
         raise ValueError("flattened features must form a coordinate Cartesian product")
 
-    component_columns = [str(index) for index in range(components.shape[0])]
+    component_columns = [str(index) for index in range(1, components.shape[0] + 1)]
     table = pl.DataFrame(
         {
             "wavelength": [coordinate[0] for coordinate in coordinates],
