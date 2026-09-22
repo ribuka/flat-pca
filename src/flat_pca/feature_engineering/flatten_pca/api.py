@@ -24,7 +24,7 @@ from ..preprocess import (
     filter_target_steps,
     validate_max_null_ratio,
 )
-from .flatten import flatten_inputs
+from .flatten import flatten_and_prune_inputs, flatten_inputs
 from .input import StemUniquenessCheck, load_and_validate_inputs
 from .input import (
     validate_metadata_alignment as validate_alignment_across_inputs,
@@ -212,9 +212,10 @@ def preprocess_and_flatten(
     max_null_ratio : float, default 0.1
         Upper bound (inclusive) on a flattened feature column's null-or-NaN
         ratio for it to be kept; sparser columns are dropped. When
-        ``materialize_once=True``, flatten results are materialized before
-        pruning and the pruned result is then cached. When ``False``, the
-        existing deferred prune query is returned. In either case,
+        ``materialize_once=True``, pruning is fused into flattening, so only
+        the retained columns are materialized and that result is cached.
+        When ``False``, the existing deferred prune query is returned. In
+        either case,
         ``flatten_pca``, ``append_pca_scores``, and
         ``reshape_pca_components`` see the same pruned column set. Use
         ``1.0`` to disable pruning (only an entirely null/NaN column would
@@ -312,24 +313,20 @@ def preprocess_and_flatten(
 
     if materialize_once:
         # Fail fast before collecting inputs and running the expensive
-        # flatten below; drop_sparse_feature_columns validates again for its
+        # flatten below; flatten_and_prune_inputs validates again for its
         # independent callers.
         validate_max_null_ratio(max_null_ratio)
-        # Collecting each file before flatten routes flatten_inputs through
-        # its eager DataFrame branch (dict-based per-combo lookups), which is
-        # far faster than its LazyFrame branch (one filter+first expression
-        # per wavelength-and-combo cell). materialize_once=True already
-        # collects the flatten result immediately afterward, so this does
-        # not add a new collection boundary, only moves it earlier.
+        # Collecting each file before flatten routes flattening through the
+        # NumPy feature-matrix path, which is far faster than the LazyFrame
+        # branch (one filter+first expression per wavelength-and-combo
+        # cell). materialize_once=True already collects the flatten result
+        # immediately afterward, so this does not add a new collection
+        # boundary, only moves it earlier. Pruning is fused into the same
+        # pass so sparse columns never reach polars.
         collected_inputs: list[tuple[Path, pl.DataFrame]] = [
             (path, frame.collect()) for path, frame in prepared_inputs
         ]
-        flattened = flatten_inputs(collected_inputs)
-        assert isinstance(flattened, pl.DataFrame)
-        return materialize_and_drop_sparse_feature_columns(
-            flattened,
-            max_null_ratio,
-        )
+        return flatten_and_prune_inputs(collected_inputs, max_null_ratio).lazy()
     flattened = flatten_inputs(prepared_inputs)
     assert isinstance(flattened, pl.LazyFrame)
     return drop_sparse_feature_columns(flattened, max_null_ratio)

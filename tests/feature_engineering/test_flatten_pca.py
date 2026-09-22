@@ -824,47 +824,36 @@ def test_preprocess_and_flatten_materialize_once_matches_deferred_result(
 def _instrument_flatten_execution_count(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[None]:
-    """Wrap real flatten queries with a list recording each execution batch.
+    """Wrap the real fused flatten-and-prune stage with an execution counter.
 
     Parameters
     ----------
     monkeypatch : pytest.MonkeyPatch
-        Fixture used to replace the API module's flatten-query constructor.
+        Fixture used to replace the API module's flatten stage.
 
     Returns
     -------
     list[None]
-        One item for each executed flattened query batch. This test uses the
-        pinned Polars non-streaming engine, where the fixture query executes
-        as one batch; it deliberately counts batches rather than a public
-        Polars execution counter.
+        One item for each executed flatten. ``preprocess_and_flatten``'s
+        ``materialize_once=True`` branch passes already-collected
+        ``DataFrame`` inputs, so the flatten runs synchronously inside the
+        wrapper rather than on a later ``.collect()``.
     """
     executions: list[None] = []
-    original_flatten_inputs = _api.flatten_inputs
+    original_flatten_and_prune_inputs = _api.flatten_and_prune_inputs
 
-    def count_flatten_inputs(
-        inputs: list[tuple[Path, pl.DataFrame]] | list[tuple[Path, pl.LazyFrame]],
-    ) -> pl.DataFrame | pl.LazyFrame:
-        """Wrap the real flatten query with an execution counter."""
-        flattened = original_flatten_inputs(inputs)
-        if isinstance(flattened, pl.DataFrame):
-            # preprocess_and_flatten's materialize_once=True branch passes
-            # already-collected DataFrame inputs, so flatten_inputs executes
-            # synchronously here rather than on a later .collect().
-            executions.append(None)
-            return flattened
+    def count_flatten_and_prune_inputs(
+        inputs: list[tuple[Path, pl.DataFrame]],
+        max_null_ratio: float,
+    ) -> pl.DataFrame:
+        """Wrap the real fused flatten with an execution counter."""
+        flattened = original_flatten_and_prune_inputs(inputs, max_null_ratio)
+        executions.append(None)
+        return flattened
 
-        def count_batch(batch: pl.DataFrame) -> pl.DataFrame:
-            """Record one executed input batch without altering its data."""
-            executions.append(None)
-            return batch
-
-        return flattened.map_batches(
-            count_batch,
-            schema=flattened.collect_schema(),
-        )
-
-    monkeypatch.setattr(_api, "flatten_inputs", count_flatten_inputs)
+    monkeypatch.setattr(
+        _api, "flatten_and_prune_inputs", count_flatten_and_prune_inputs
+    )
     return executions
 
 
