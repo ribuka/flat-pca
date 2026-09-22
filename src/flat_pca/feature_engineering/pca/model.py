@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import cast
 
 import polars as pl
 from sklearn.decomposition import PCA
@@ -18,6 +18,7 @@ from sklearn.decomposition import PCA
 from ..outlier import OutlierStrategy
 from ..scaling import ScalingModel
 from .analysis import component_coefficients, feature_contribution_ranking
+from .impute import ImputeStrategy
 from .serialization import build_transform_payload, parse_transform_payload
 
 
@@ -31,10 +32,17 @@ class PcaModel:
         Feature columns expected by the model.
     n_component : int
         Number of fitted principal components.
-    impute_strategy : {"drop", "median"}
+    impute_strategy : {"drop", "median", "kmeans"}
         Missing-value handling strategy.
     impute_values : dict[str, float]
         Per-column values used for median imputation.
+    impute_kmeans_n_clusters : int | None
+        Fitted cluster count used for kmeans imputation, or ``None`` unless
+        ``impute_strategy`` is ``"kmeans"``.
+    impute_kmeans_centroids : list[dict[str, float]]
+        Fitted cluster centroids used for kmeans imputation (one
+        column-to-value mapping per cluster), empty unless
+        ``impute_strategy`` is ``"kmeans"``.
     outlier_strategy : OutlierStrategy
         Fitted outlier-handling strategy.
     iqr_multiplier : float
@@ -57,8 +65,10 @@ class PcaModel:
 
     columns: tuple[str, ...]
     n_component: int
-    impute_strategy: Literal["drop", "median"]
+    impute_strategy: ImputeStrategy
     impute_values: dict[str, float]
+    impute_kmeans_n_clusters: int | None
+    impute_kmeans_centroids: list[dict[str, float]]
     outlier_strategy: OutlierStrategy
     iqr_multiplier: float
     outlier_lower_bounds: dict[str, float]

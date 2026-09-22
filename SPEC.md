@@ -81,7 +81,7 @@ def reshape_pca_components(
 - `w_normalization_range`はw方向規格化に用いる閉区間`(w1, w2)`を指定し、`None`の場合は適用しない。
 - `t_downsampling_stride`はt方向の間引き間隔を指定する。`1`の場合は間引かない。
 - `w_downsampling_stride`はw方向の間引き間隔を指定する。`1`の場合は間引かない。
-- `append_pca_scores`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、`source`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。`flattened`に残る欠損値（異なる入力ファイル間の`(Step, Sequence, StepTime)`集合の差異に由来するものを含む）は、fit時と同じ`pca_model.impute_strategy`に従って処理する（`transform_pca`と同じ規則）。`"drop"`の場合、欠損が残る行は出力から除外されるため、戻り値の行数が`flattened`の行数より少なくなることがある。`"median"`の場合、特徴量列の値は補完後の値になる。欠損処理後に1行も残らない場合は`ValueError`を送出する。
+- `append_pca_scores`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、`source`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。`flattened`に残る欠損値（異なる入力ファイル間の`(Step, Sequence, StepTime)`集合の差異に由来するものを含む）は、fit時と同じ`pca_model.impute_strategy`に従って処理する（`transform_pca`と同じ規則）。`"drop"`の場合、欠損が残る行は出力から除外されるため、戻り値の行数が`flattened`の行数より少なくなることがある。`"median"`の場合、特徴量列の値は補完後の値になる。`"kmeans"`の場合、特徴量列の値はfit時に得たクラスタ中心を用いた補完後の値になる（詳細は「欠損値補完仕様」を参照）。欠損処理後に1行も残らない場合は`ValueError`を送出する。
 - `materialize_once`（既定値`True`）が`True`の場合、`preprocess_and_flatten`はflatten完了後に一度だけ`.collect().lazy()`を行い、結果をメモリ上の`pl.DataFrame`起点の`pl.LazyFrame`として返す。これにより、戻り値をPCAのfitやスコア付与などで再利用しても、Parquet読み込みからflattenまでのクエリが再実行されない。`False`の場合は未実行のflattenクエリをそのまま返す。いずれの場合も戻り値の型は`pl.LazyFrame`であり、flatten結果・列順は一致する。`flatten_pca`が`paths`を指定する場合、`materialize_once`は同じ意味で内部の`preprocess_and_flatten`へ伝播する。`flattened`を指定する場合、`materialize_once`は使用しない。
 - `reshape_pca_components`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、後述の座標へ展開した`pca_model.pca.components_`を`pl.DataFrame`として返す。
 
@@ -246,7 +246,7 @@ def apply_w_downsampling(
 - PCAの入力には`source`を除くすべてのflatten特徴量列を使用する。
 - `flatten_pca`は`fit_pca`でPCAをfitし、そのfit済み`PcaModel`を返す。
 - `fit_flattened_pca`は、PCAのfitに`src/flat_pca/feature_engineering/pca.py`の`fit_pca`を使用しなければならない。`sklearn.decomposition.PCA`を直接生成・fitしてはならない。
-- `fit_flattened_pca`は`fit_pca`に、flatten特徴量列、`impute_strategy="drop"`、`outlier_strategy=None`、`scaling_strategy="none"`および`max_n_component=None`を指定し、返却された`PcaModel`をそのまま返す。
+- `fit_flattened_pca`は`fit_pca`に、flatten特徴量列、`impute_strategy`（既定値`"drop"`）、`impute_kmeans_n_clusters`（既定値`None`）、`outlier_strategy=None`、`scaling_strategy="none"`および`max_n_component=None`を指定し、返却された`PcaModel`をそのまま返す。`impute_strategy`および`impute_kmeans_n_clusters`は公開APIの`flatten_pca`から`fit_flattened_pca`を経てそのまま`fit_pca`へ転送される。
 - `scaling_strategy="none"`相当とし、PCA前の中心化および尺度変換は行わない。
 - 平均中心化は`sklearn.decomposition.PCA`内部の処理に任せ、分散による標準化は行わない。
 - `n_component`には公開APIで受け取った値を指定し、追加の上限は設けない。
@@ -254,6 +254,21 @@ def apply_w_downsampling(
 - PCA solverはscikit-learnのデフォルトである`svd_solver="auto"`を使用する。
 - `append_pca_scores`は、flatten特徴量を`pca_model.pca.transform`へ渡して得たスコアを、入力の行順を維持して追加する。`pca_model.pca.n_features_in_`と特徴量列数が異なる場合は`ValueError`を送出する。
 - PCA成分の符号は一意に定まらないため、テストでは主成分やスコアの符号そのものを固定値と単純比較しない。
+
+### 欠損値補完仕様
+
+- `fit_pca`の`impute_strategy`は`"drop"`、`"median"`または`"kmeans"`のいずれかとする。それ以外は`ValueError`を送出する。
+- `impute_kmeans_n_clusters`は`impute_strategy="kmeans"`のときのみ指定できる整数（またはこの場合に限り`None`）とする。`impute_strategy`が`"kmeans"`以外のときに`None`でない値を指定した場合、または`bool`を含む0以下の値を指定した場合は`ValueError`を送出する。
+- `"drop"`および`"median"`の挙動は従来通りとする。`"drop"`は`columns`のいずれかにnullまたはNaNを含む行を除外する。`"median"`はfit時に算出した列ごとの中央値でnullおよびNaNを埋める。
+- `"kmeans"`は次の手順で欠損値を補完する。
+  1. `columns`にnullまたはNaNを1つも含まない行を「完全行」、1つ以上含む行を「欠損行」とする。
+  2. fit時、完全行が0件の場合は`ValueError`を送出する。
+  3. クラスタ数は、`impute_kmeans_n_clusters`（`None`の場合は既定値8）を、完全行数を超えないよう`min(値, 完全行数)`にクリップして決定する。
+  4. 完全行の`columns`（スケーリング前の生値）に対し、決定的な`random_state`を固定した`sklearn.cluster.KMeans`をfitし、`cluster_centers_`をクラスタ中心として得る。
+  5. 各欠損行について、欠損していない列のみを用いた二乗ユークリッド距離（部分距離）が最小のクラスタ中心を選び、そのクラスタ中心の値で欠損列を埋める。完全行の値は変更しない。
+  6. 出力の行順および行数は入力と同じとする。
+- `transform_pca`（`append_pca_scores`を含む）が`impute_strategy="kmeans"`の`pca_model`を用いて欠損値を補完する場合、fit時に得たクラスタ中心をそのまま再利用し、再fitは行わない。上記5の手順のみを適用する。
+- `PcaModel`は`impute_kmeans_n_clusters`（fit時に確定したクラスタ数、`"kmeans"`以外では`None`）と`impute_kmeans_centroids`（クラスタごとの列→値マッピングのリスト、`"kmeans"`以外では空リスト）を保持する。`to_transform_payload`・`from_transform_payload`・`to_transform_json`・`from_transform_json`はこれらを含めて往復可能とする。
 
 ### PCA成分のreshape仕様
 

@@ -7,13 +7,14 @@ container at run time and the two modules stay free of a circular import.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from sklearn.decomposition import PCA
 
 from ..outlier import OutlierStrategy
 from ..scaling import ScalingModel, ScalingStrategy
+from .impute import ImputeStrategy
 
 if TYPE_CHECKING:
     from .model import PcaModel
@@ -55,6 +56,31 @@ def _float_map(
     return {column: float(value) for column, value in raw.items()}
 
 
+def _kmeans_centroids(payload: dict[str, object]) -> list[dict[str, float]]:
+    """Read the ``impute_kmeans_centroids`` entry as per-cluster float maps.
+
+    Parameters
+    ----------
+    payload : dict[str, object]
+        Serialized state to read from.
+
+    Returns
+    -------
+    list[dict[str, float]]
+        One column-to-float mapping per cluster centroid. Empty if the
+        entry is missing, which keeps payloads written before kmeans
+        imputation existed readable.
+    """
+    raw = cast(
+        list[dict[str, float]],
+        payload.get("impute_kmeans_centroids", []),
+    )
+    return [
+        {column: float(value) for column, value in centroid.items()}
+        for centroid in raw
+    ]
+
+
 def _float_array(payload: dict[str, object], key: str) -> np.ndarray:
     """Read one payload entry as a floating-point array.
 
@@ -91,6 +117,8 @@ def build_transform_payload(model: PcaModel) -> dict[str, object]:
         "n_component": model.n_component,
         "impute_strategy": model.impute_strategy,
         "impute_values": model.impute_values,
+        "impute_kmeans_n_clusters": model.impute_kmeans_n_clusters,
+        "impute_kmeans_centroids": model.impute_kmeans_centroids,
         "outlier_strategy": model.outlier_strategy,
         "iqr_multiplier": model.iqr_multiplier,
         "outlier_lower_bounds": model.outlier_lower_bounds,
@@ -188,10 +216,16 @@ def parse_transform_payload(payload: dict[str, object]) -> dict[str, object]:
         "columns": tuple(cast(list[str], payload["columns"])),
         "n_component": n_component,
         "impute_strategy": cast(
-            Literal["drop", "median"],
+            ImputeStrategy,
             payload["impute_strategy"],
         ),
         "impute_values": _float_map(payload, "impute_values", required=True),
+        "impute_kmeans_n_clusters": (
+            int(cast(int, payload["impute_kmeans_n_clusters"]))
+            if payload.get("impute_kmeans_n_clusters") is not None
+            else None
+        ),
+        "impute_kmeans_centroids": _kmeans_centroids(payload),
         "outlier_strategy": cast(OutlierStrategy, raw_outlier_strategy),
         "iqr_multiplier": float(payload.get("iqr_multiplier", 1.5)),
         "outlier_lower_bounds": _float_map(payload, "outlier_lower_bounds"),

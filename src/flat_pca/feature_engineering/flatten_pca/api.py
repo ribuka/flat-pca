@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Literal
 
 import polars as pl
 
-from ..pca import PcaModel
+from ..pca import ImputeStrategy, PcaModel
 from ..preprocess import (
     add_step_time_columns,
     apply_edge_trim,
@@ -52,7 +51,8 @@ def flatten_pca(
     validate_metadata_uniqueness: bool = False,
     validate_metadata_alignment: bool = False,
     materialize_once: bool = True,
-    impute_strategy: Literal["drop", "median"] = "drop",
+    impute_strategy: ImputeStrategy = "drop",
+    impute_kmeans_n_clusters: int | None = None,
 ) -> PcaModel:
     """Preprocess, flatten, and fit PCA across spectral Parquet files.
 
@@ -111,12 +111,16 @@ def flatten_pca(
         Forwarded to ``preprocess_and_flatten`` when ``paths`` is specified;
         ignored when ``flattened`` is specified. See
         ``preprocess_and_flatten`` for details.
-    impute_strategy : {"drop", "median"}, default "drop"
+    impute_strategy : {"drop", "median", "kmeans"}, default "drop"
         Missing-value handling forwarded to PCA fitting for any nulls that
         remain after ``max_null_ratio`` pruning. ``"drop"`` discards rows
         with any remaining null; ``"median"`` imputes with each column's
-        median instead. Applies whether ``paths`` or ``flattened`` is
-        specified.
+        median instead; ``"kmeans"`` imputes from the nearest cluster
+        centroid fitted on rows with no missing values. Applies whether
+        ``paths`` or ``flattened`` is specified.
+    impute_kmeans_n_clusters : int | None, default None
+        Requested cluster count for ``impute_strategy="kmeans"``, forwarded
+        to PCA fitting. Must be ``None`` for any other strategy.
 
     Returns
     -------
@@ -151,7 +155,12 @@ def flatten_pca(
             validate_metadata_alignment=validate_metadata_alignment,
             materialize_once=materialize_once,
         )
-    return fit_flattened_pca(flattened, n_component, impute_strategy=impute_strategy)
+    return fit_flattened_pca(
+        flattened,
+        n_component,
+        impute_strategy=impute_strategy,
+        impute_kmeans_n_clusters=impute_kmeans_n_clusters,
+    )
 
 
 def preprocess_and_flatten(

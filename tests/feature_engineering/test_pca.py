@@ -6,6 +6,7 @@ import polars.testing
 import pytest
 
 from flat_pca.feature_engineering.pca import PcaModel, fit_pca, transform_pca
+from flat_pca.feature_engineering.pca.impute import DEFAULT_KMEANS_N_CLUSTERS
 
 
 def test_none_scaling_leaves_centering_to_sklearn_pca() -> None:
@@ -197,3 +198,243 @@ class TestTransformPayloadRoundTrip:
             restored.get_feature_contribution_ranking(),
             fitted_model.get_feature_contribution_ranking(),
         )
+
+
+class TestKmeansImputeStrategy:
+    """Tests for ``impute_strategy="kmeans"`` in ``fit_pca``/``transform_pca``."""
+
+    @staticmethod
+    def _frame_with_missing_values() -> pl.DataFrame:
+        """Return a frame with two well-separated clusters and one gap.
+
+        Returns
+        -------
+        pl.DataFrame
+            Six rows over ``feature_a``/``feature_b``, with one row missing
+            ``feature_a``.
+        """
+        return pl.DataFrame(
+            {
+                "feature_a": [0.0, 0.0, 0.1, 10.0, 10.0, None],
+                "feature_b": [0.0, 0.1, 0.0, 10.0, 9.9, 0.05],
+            }
+        )
+
+    def test_fits_and_fills_missing_values_with_nearest_centroid(self) -> None:
+        """Fit kmeans imputation and fill the missing feature from its cluster."""
+        frame = self._frame_with_missing_values()
+
+        model = fit_pca(
+            frame.lazy(),
+            ["feature_a", "feature_b"],
+            n_component=1,
+            max_n_component=None,
+            impute_strategy="kmeans",
+            impute_kmeans_n_clusters=2,
+            scaling_strategy="none",
+        )
+
+        assert model.impute_strategy == "kmeans"
+        assert model.impute_kmeans_n_clusters == 2
+        assert len(model.impute_kmeans_centroids) == 2
+        assert model.impute_values == {}
+
+        result = transform_pca(frame.lazy(), model).collect()
+        assert result.height == 6
+        assert result["feature_a"][5] == pytest.approx(0.0, abs=1.0)
+
+    def test_uses_default_cluster_count_when_unset(self) -> None:
+        """Fall back to the module default cluster count when unset."""
+        frame = pl.DataFrame(
+            {
+                "feature_a": list(range(20)),
+                "feature_b": list(range(20)),
+            }
+        ).with_columns(pl.all().cast(pl.Float64))
+
+        model = fit_pca(
+            frame.lazy(),
+            ["feature_a", "feature_b"],
+            n_component=1,
+            max_n_component=None,
+            impute_strategy="kmeans",
+            scaling_strategy="none",
+        )
+
+        assert model.impute_kmeans_n_clusters == DEFAULT_KMEANS_N_CLUSTERS
+
+    def test_clips_cluster_count_to_complete_row_count(self) -> None:
+        """Clip the requested cluster count to the available complete rows."""
+        frame = pl.DataFrame(
+            {
+                "feature_a": [1.0, 2.0, None],
+                "feature_b": [1.0, 2.0, 3.0],
+            }
+        )
+
+        model = fit_pca(
+            frame.lazy(),
+            ["feature_a", "feature_b"],
+            n_component=1,
+            max_n_component=None,
+            impute_strategy="kmeans",
+            impute_kmeans_n_clusters=10,
+            scaling_strategy="none",
+        )
+
+        assert model.impute_kmeans_n_clusters == 2
+
+    def test_transform_reuses_fitted_centroids_without_refitting(self) -> None:
+        """Fill a transform-time gap from the fitted centroids, not a refit."""
+        frame = self._frame_with_missing_values()
+        model = fit_pca(
+            frame.lazy(),
+            ["feature_a", "feature_b"],
+            n_component=1,
+            max_n_component=None,
+            impute_strategy="kmeans",
+            impute_kmeans_n_clusters=2,
+            scaling_strategy="none",
+        )
+
+        new_frame = pl.DataFrame(
+            {"feature_a": [None], "feature_b": [9.95]}
+        )
+        result = transform_pca(new_frame.lazy(), model).collect()
+
+        assert result["feature_a"][0] == pytest.approx(10.0, abs=1.0)
+
+    def test_rejects_all_missing_rows(self) -> None:
+        """Reject fitting when every row has a missing feature value."""
+        frame = pl.DataFrame({"feature_a": [None, 1.0], "feature_b": [1.0, None]})
+
+        with pytest.raises(ValueError, match="at least one row"):
+            fit_pca(
+                frame.lazy(),
+                ["feature_a", "feature_b"],
+                n_component=1,
+                max_n_component=None,
+                impute_strategy="kmeans",
+                scaling_strategy="none",
+            )
+
+    @pytest.mark.parametrize("n_clusters", [0, -1, True, "2", 1.5])
+    def test_rejects_invalid_cluster_count(self, n_clusters: object) -> None:
+        """Reject a non-positive, boolean, or non-integer cluster count."""
+        frame = self._frame_with_missing_values()
+
+        with pytest.raises(ValueError, match="impute_kmeans_n_clusters"):
+            fit_pca(
+                frame.lazy(),
+                ["feature_a", "feature_b"],
+                n_component=1,
+                max_n_component=None,
+                impute_strategy="kmeans",
+                impute_kmeans_n_clusters=n_clusters,  # type: ignore[arg-type]
+                scaling_strategy="none",
+            )
+
+    def test_impute_kmeans_n_clusters_is_keyword_only(self) -> None:
+        """Reject a positional ``impute_kmeans_n_clusters`` call.
+
+        ``impute_kmeans_n_clusters`` is keyword-only precisely so that it
+        can be added without shifting the meaning of any existing
+        positional ``fit_pca`` argument (for example ``outlier_strategy``,
+        which sits at the same position ``impute_kmeans_n_clusters`` would
+        otherwise occupy).
+        """
+        with pytest.raises(TypeError):
+            fit_pca(  # type: ignore[misc]
+                pl.DataFrame({"a": [1.0]}).lazy(),
+                ["a"],
+                1,
+                None,
+                "drop",
+                None,
+                1.5,
+                "none",
+                2,
+            )
+
+    def test_existing_positional_call_still_works(self) -> None:
+        """Preserve the pre-kmeans positional argument order of ``fit_pca``.
+
+        Regression test: a caller using the documented positional order up
+        to ``scaling_strategy`` must keep working unchanged after adding
+        ``impute_kmeans_n_clusters``.
+        """
+        frame = pl.DataFrame(
+            {"feature_a": [1.0, 2.0, 3.0], "feature_b": [3.0, 2.0, 1.0]}
+        )
+
+        model = fit_pca(
+            frame.lazy(),
+            ["feature_a", "feature_b"],
+            1,
+            None,
+            "median",
+            "winsorize",
+            1.5,
+            "none",
+        )
+
+        assert model.impute_strategy == "median"
+        assert model.outlier_strategy == "winsorize"
+
+    def test_rejects_cluster_count_with_non_kmeans_strategy(self) -> None:
+        """Reject specifying a cluster count outside kmeans imputation."""
+        frame = self._frame_with_missing_values()
+
+        with pytest.raises(ValueError, match="impute_kmeans_n_clusters"):
+            fit_pca(
+                frame.lazy(),
+                ["feature_a", "feature_b"],
+                n_component=1,
+                max_n_component=None,
+                impute_strategy="median",
+                impute_kmeans_n_clusters=2,
+                scaling_strategy="none",
+            )
+
+    def test_payload_round_trip_reproduces_kmeans_transform(self) -> None:
+        """Restore a kmeans-fitted model from its payload and reproduce fills."""
+        frame = self._frame_with_missing_values()
+        model = fit_pca(
+            frame.lazy(),
+            ["feature_a", "feature_b"],
+            n_component=1,
+            max_n_component=None,
+            impute_strategy="kmeans",
+            impute_kmeans_n_clusters=2,
+            scaling_strategy="none",
+        )
+        expected = transform_pca(frame.lazy(), model).collect()
+
+        restored = PcaModel.from_transform_payload(model.to_transform_payload())
+        actual = transform_pca(frame.lazy(), restored).collect()
+
+        assert restored.impute_kmeans_n_clusters == model.impute_kmeans_n_clusters
+        assert restored.impute_kmeans_centroids == model.impute_kmeans_centroids
+        assert actual.equals(expected)
+
+    def test_payload_without_kmeans_keys_restores_as_unused(self) -> None:
+        """Restore a payload written before kmeans imputation existed."""
+        frame = pl.DataFrame(
+            {"feature_a": [1.0, 2.0, 3.0], "feature_b": [3.0, 2.0, 1.0]}
+        )
+        model = fit_pca(
+            frame.lazy(),
+            ["feature_a", "feature_b"],
+            n_component=1,
+            max_n_component=None,
+            impute_strategy="median",
+            scaling_strategy="none",
+        )
+        payload = model.to_transform_payload()
+        del payload["impute_kmeans_n_clusters"]
+        del payload["impute_kmeans_centroids"]
+
+        restored = PcaModel.from_transform_payload(payload)
+
+        assert restored.impute_kmeans_n_clusters is None
+        assert restored.impute_kmeans_centroids == []
