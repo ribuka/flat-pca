@@ -14,20 +14,25 @@
 #     omitted or altered by whatever produced the comment body.
 #
 # Usage:
-#   scripts/post_pr_comment.sh <pr-number> <body-file>
+#   scripts/post_pr_comment.sh <pr-number> <body-file> <agent>
 #
 # <body-file> is the path to a text file containing the Markdown comment
 # body. Use "-" to read the body from stdin instead.
+#
+# <agent> identifies which CLI agent produced the comment. It must be
+# either "codex" or "claude"; the script records it in the footer itself
+# so the caller cannot misreport which agent actually ran.
 
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
-    echo "usage: $0 <pr-number> <body-file>" >&2
+if [ "$#" -ne 3 ]; then
+    echo "usage: $0 <pr-number> <body-file> <codex|claude>" >&2
     exit 1
 fi
 
 pr_number=$1
 body_file=$2
+agent=$3
 
 if ! [[ "$pr_number" =~ ^[0-9]+$ ]]; then
     echo "error: <pr-number> must be a positive integer, got: $pr_number" >&2
@@ -38,6 +43,15 @@ if [ "$body_file" != "-" ] && [ ! -f "$body_file" ]; then
     echo "error: body file not found: $body_file" >&2
     exit 1
 fi
+
+case "$agent" in
+    codex) agent_label="Codex" ;;
+    claude) agent_label="Claude" ;;
+    *)
+        echo "error: <agent> must be 'codex' or 'claude', got: $agent" >&2
+        exit 1
+        ;;
+esac
 
 repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
 
@@ -54,6 +68,6 @@ else
     cat "$body_file" >"$comment_file"
 fi
 
-printf '\n\n_Posted via `scripts/post_pr_comment.sh`_\n' >>"$comment_file"
+printf '\n\n_Reviewed by %s. Posted via `scripts/post_pr_comment.sh`._\n' "$agent_label" >>"$comment_file"
 
 gh pr comment "$pr_number" --repo "$repo" --body-file "$comment_file"
