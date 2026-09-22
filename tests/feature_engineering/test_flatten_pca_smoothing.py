@@ -170,22 +170,30 @@ def test_w_smoothing_lazyframe_matches_eager_with_shuffled_columns(
 
 @pytest.mark.parametrize(
     "window",
-    [1.0, 0.01, 1_000_000.0],
+    [0.1, 0.01, 1_000_000.0],
     ids=["equals-grid-spacing", "self-only", "covers-all"],
 )
 def test_w_smoothing_lazyframe_matches_eager_at_window_boundaries(
     window: float,
 ) -> None:
-    """Match the eager result at window widths equal to, below, and above the grid."""
+    """Match the eager result at window widths equal to, below, and above the grid.
+
+    The grid spacing (0.1) is not exactly representable in binary floating
+    point, so the ``equals-grid-spacing`` case exercises the boundary
+    correction in ``_wavelength_window_indices``: comparing against the
+    rounded ``center - window`` / ``center + window`` used by
+    ``np.searchsorted`` can disagree with the direct ``abs(a - b) <= window``
+    comparison the eager branch and callers rely on.
+    """
     frame = pl.DataFrame(
         {
             "Time": [0.0],
             "Step": [0],
             "Sequence": [0],
             "300.0nm": [1.0],
-            "301.0nm": [2.0],
-            "302.0nm": [3.0],
-            "303.0nm": [4.0],
+            "300.1nm": [2.0],
+            "300.2nm": [3.0],
+            "300.3nm": [4.0],
         }
     )
 
