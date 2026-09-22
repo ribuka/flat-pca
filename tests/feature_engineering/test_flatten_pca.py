@@ -27,6 +27,7 @@ from flat_pca.feature_engineering.pca import PcaModel, fit_and_transform_pca
 from flat_pca.feature_engineering.preprocess import (
     add_step_time_columns as _add_step_time_columns,
 )
+from flat_pca.feature_engineering.preprocess import smoothing as _smoothing
 from flat_pca.feature_engineering.preprocess.normalization import (
     apply_t_normalization as _apply_t_normalization,
 )
@@ -879,6 +880,78 @@ def test_preprocess_and_flatten_materializes_upstream_flatten_once(
     assert len(executions) == 1
     assert flattened.collect().height == 3
     assert len(executions) == 1
+
+
+def _instrument_t_smoothing_execution_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[None]:
+    """Wrap the real Time-smoothing stage with a list recording each execution.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture used to replace the smoothing module's eager implementation.
+
+    Returns
+    -------
+    list[None]
+        One item for each executed Time-smoothing batch. ``apply_t_smoothing``
+        defers to this implementation through ``map_batches``, so the item
+        count equals how many times the upstream lazy query actually ran.
+    """
+    executions: list[None] = []
+    original_apply_t_smoothing_eager = _smoothing._apply_t_smoothing_eager
+
+    def count_apply_t_smoothing_eager(frame: pl.DataFrame, window: float) -> pl.DataFrame:
+        """Record one executed smoothing batch without altering its data."""
+        executions.append(None)
+        return original_apply_t_smoothing_eager(frame, window)
+
+    monkeypatch.setattr(
+        _smoothing, "_apply_t_smoothing_eager", count_apply_t_smoothing_eager
+    )
+    return executions
+
+
+@pytest.mark.parametrize("materialize_once", [True, False])
+def test_preprocess_and_flatten_runs_upstream_once_with_normalization(
+    real_fixture_paths: list[Path],
+    monkeypatch: pytest.MonkeyPatch,
+    materialize_once: bool,
+) -> None:
+    """Keep the upstream execution count unchanged when normalization is enabled.
+
+    Normalization used to ``collect()`` inside its LazyFrame branch purely to
+    validate reference means, which re-ran every preceding stage on the later
+    ``collect()``.
+    """
+    paths = real_fixture_paths[:3]
+
+    disabled = _instrument_t_smoothing_execution_count(monkeypatch)
+    preprocess_and_flatten(
+        paths,
+        t_smoothing_window=0.5,
+        materialize_once=materialize_once,
+    ).collect()
+    disabled_executions = len(disabled)
+
+    enabled = _instrument_t_smoothing_execution_count(monkeypatch)
+    preprocess_and_flatten(
+        paths,
+        t_smoothing_window=0.5,
+        t_normalization_range=(0.0, 4.0),
+        w_normalization_range=(350.0, 850.0),
+        materialize_once=materialize_once,
+    ).collect()
+
+    # Normalization collects each file once and reuses that result, so the
+    # upstream pipeline runs exactly once per input and never more often than
+    # with normalization disabled. The disabled baseline itself differs
+    # between the materialize_once branches, since the deferred branch lets
+    # the flatten stage rescan each per-file query.
+    assert disabled_executions > 0
+    assert len(enabled) == len(paths)
+    assert len(enabled) <= disabled_executions
 
 
 def test_preprocess_and_flatten_stays_fast_with_many_wavelengths_and_combos(

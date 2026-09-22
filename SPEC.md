@@ -89,6 +89,7 @@ def reshape_pca_components(
 
 - `preprocess_and_flatten`では、Parquetの読み込みに`pl.scan_parquet`を使用し、前処理、間引きおよびflattenの列演算を可能な限り`pl.LazyFrame`のまま構成する。
 - 入力検証、共通のUnique配列の確定、PCAのfit・transformなど、結果値が必要な境界でのみ必要最小限のcollectを行う。前処理済みの全入力フレームを一括で`pl.DataFrame`へmaterializeしてはならない。
+- t/w方向規格化は、参照区間から算出した統計値の検証に実値を必要とするため、`pl.LazyFrame`を受け取った場合は入力ファイル単位で一度だけcollectし、結果を`.lazy()`で包み直して返す。検証のためだけにcollectしたうえで未実行のクエリを返すと、呼び出し側のcollectで規格化より前段の処理がもう一度実行されるため、これを行ってはならない。
 - `preprocess_and_flatten`、`append_pca_scores`は呼び出し側がcollectの時点と実行方法を選べるよう、常に`pl.LazyFrame`を返す。
 - `preprocess_and_flatten`は既定（`materialize_once=True`）で、flatten完了後に一度だけcollectしメモリ上に固定した結果を`pl.LazyFrame`として返す。これはメモリ消費と引き換えに、戻り値を複数回collectしても前処理・flattenを再実行しないための挙動である。完全な遅延実行が必要な場合は`materialize_once=False`を指定する。
 - `materialize_once=True`の場合、内部の`flatten_inputs`は各入力ファイルを1つずつcollectしてから実行する（(波長列数 × ファイル間でunionした`(Step, Sequence, StepTime)`組み合わせ数)に比例した個別のlazy式を積み上げる方式は、実用的なファイル数・波長数の組み合わせで著しく遅いため使用しない）。そのため`materialize_once=True`では、`preprocess_and_flatten`の呼び出し自体でflatten対象ファイルの読み込みとflatten処理が完了し、以降collectを遅延できるのはsparse列の間引き以降の段のみとなる。`materialize_once=False`の場合はこの限りではなく、flattenを含め呼び出し側の最初の`.collect()`までファイルの読み込みを一切行わない。

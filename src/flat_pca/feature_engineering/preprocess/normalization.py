@@ -25,15 +25,24 @@ def apply_t_normalization(
 
     Returns
     -------
-    pl.DataFrame
+    pl.DataFrame | pl.LazyFrame
         Input rows and metadata with intensities divided by the reference mean
-        for each Step, Sequence, and wavelength.
+        for each Step, Sequence, and wavelength. A ``pl.LazyFrame`` input
+        returns a ``pl.LazyFrame``.
 
     Raises
     ------
     ValueError
         If the range is malformed, reversed, or nonfinite; a metadata group has
         no reference observations; or a reference mean is zero or nonfinite.
+
+    Notes
+    -----
+    A ``pl.LazyFrame`` input is collected exactly once and the result is
+    rewrapped with ``.lazy()``, so the upstream query runs a single time.
+    Validating the reference means requires materialized values, and returning
+    a still-deferred query on top of that validation would re-run every
+    preceding stage on the caller's own ``collect()``.
     """
     if t_normalization_range is None:
         return frame
@@ -43,31 +52,9 @@ def apply_t_normalization(
     )
 
     if isinstance(frame, pl.LazyFrame):
-        spectra = wavelength_columns(frame.collect_schema().names())
-        reference_means = [
-            pl.when(pl.col("Time").is_between(lower, upper))
-            .then(pl.col(column))
-            .mean()
-            .over("Step", "Sequence")
-            .alias(column)
-            for column in spectra
-        ]
-        invalid = frame.select(
-            pl.any_horizontal(
-                mean.is_null()
-                | ~mean.cast(pl.Float64).is_finite()
-                | (mean == 0)
-                for mean in reference_means
-            ).any()
-        ).collect().item()
-        if invalid:
-            raise ValueError(
-                "t_normalization_range reference mean must be finite and nonzero"
-            )
-        return frame.with_columns(
-            (pl.col(column) / mean).alias(column)
-            for column, mean in zip(spectra, reference_means, strict=True)
-        )
+        normalized = apply_t_normalization(frame.collect(), t_normalization_range)
+        assert isinstance(normalized, pl.DataFrame)
+        return normalized.lazy()
 
     spectra = wavelength_columns(frame.columns)
     source_values = frame.select(spectra).to_numpy().astype(float, copy=False)
@@ -117,15 +104,22 @@ def apply_w_normalization(
 
     Returns
     -------
-    pl.DataFrame
+    pl.DataFrame | pl.LazyFrame
         Input rows and metadata with each row's intensities divided by its
-        reference-wavelength mean.
+        reference-wavelength mean. A ``pl.LazyFrame`` input returns a
+        ``pl.LazyFrame``.
 
     Raises
     ------
     ValueError
         If the range is malformed, reversed, or nonfinite; the interval has no
         wavelengths; or a row's reference mean is zero or nonfinite.
+
+    Notes
+    -----
+    A ``pl.LazyFrame`` input is collected exactly once and the result is
+    rewrapped with ``.lazy()``, for the same reason as in
+    ``apply_t_normalization``.
     """
     if w_normalization_range is None:
         return frame
@@ -142,25 +136,9 @@ def apply_w_normalization(
         raise ValueError("w_normalization_range reference interval is empty")
 
     if isinstance(frame, pl.LazyFrame):
-        reference_mean = pl.mean_horizontal(
-            *[
-                pl.col(column)
-                for column, included in zip(spectra, in_reference, strict=True)
-                if included
-            ]
-        )
-        invalid = frame.select(
-            (reference_mean.is_null()
-            | ~reference_mean.cast(pl.Float64).is_finite()
-            | (reference_mean == 0)).any()
-        ).collect().item()
-        if invalid:
-            raise ValueError(
-                "w_normalization_range reference mean must be finite and nonzero"
-            )
-        return frame.with_columns(
-            (pl.col(column) / reference_mean).alias(column) for column in spectra
-        )
+        normalized = apply_w_normalization(frame.collect(), w_normalization_range)
+        assert isinstance(normalized, pl.DataFrame)
+        return normalized.lazy()
 
     source_values = frame.select(spectra).to_numpy().astype(float, copy=False)
     reference_mean = source_values[:, in_reference].mean(axis=1)

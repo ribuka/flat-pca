@@ -231,3 +231,93 @@ def test_w_normalization_rejects_empty_or_zero_mean_reference(
         _apply_w_normalization(zero_reference, reference_range)
     with pytest.raises(ValueError, match="reference mean"):
         _apply_w_normalization(nonfinite_reference, reference_range)
+
+
+def test_t_normalization_lazy_matches_eager_result(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Return a LazyFrame whose collected rows match the DataFrame branch."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    times = sorted(frame["Time"].unique().to_list())
+    reference_range = (times[1], times[-2])
+
+    lazy_normalized = _apply_t_normalization(frame.lazy(), reference_range)
+    eager_normalized = _apply_t_normalization(frame, reference_range)
+
+    assert isinstance(lazy_normalized, pl.LazyFrame)
+    assert isinstance(eager_normalized, pl.DataFrame)
+    assert lazy_normalized.collect().equals(eager_normalized)
+
+
+def test_t_normalization_lazy_rejects_empty_or_zero_mean_reference(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Reject invalid t-normalization references on the LazyFrame branch too."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    wavelength = next(
+        column for column in frame.columns if column not in METADATA_COLUMNS
+    )
+    zero_reference = frame.with_columns(
+        pl.when(pl.col("Time") == pl.col("Time").min())
+        .then(0.0)
+        .otherwise(pl.col(wavelength))
+        .alias(wavelength)
+    )
+    nonfinite_reference = frame.with_columns(
+        pl.when(pl.col("Time") == pl.col("Time").min())
+        .then(float("inf"))
+        .otherwise(pl.col(wavelength))
+        .alias(wavelength)
+    )
+
+    with pytest.raises(ValueError, match="reference interval"):
+        _apply_t_normalization(frame.lazy(), (-2.0, -1.0))
+    with pytest.raises(ValueError, match="reference mean"):
+        _apply_t_normalization(zero_reference.lazy(), (0.0, 0.0))
+    with pytest.raises(ValueError, match="reference mean"):
+        _apply_t_normalization(nonfinite_reference.lazy(), (0.0, 0.0))
+
+
+def test_w_normalization_lazy_matches_eager_result(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Return a LazyFrame whose collected rows match the DataFrame branch."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    wavelengths = [
+        float(column.removesuffix("nm"))
+        for column in frame.columns
+        if column not in METADATA_COLUMNS
+    ]
+    reference_range = (wavelengths[1], wavelengths[-2])
+
+    lazy_normalized = _apply_w_normalization(frame.lazy(), reference_range)
+    eager_normalized = _apply_w_normalization(frame, reference_range)
+
+    assert isinstance(lazy_normalized, pl.LazyFrame)
+    assert isinstance(eager_normalized, pl.DataFrame)
+    assert lazy_normalized.collect().equals(eager_normalized)
+
+
+def test_w_normalization_lazy_rejects_empty_or_zero_mean_reference(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Reject invalid w-normalization references on the LazyFrame branch too."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    wavelength_columns = [
+        column for column in frame.columns if column not in METADATA_COLUMNS
+    ]
+    wavelengths = [float(column.removesuffix("nm")) for column in wavelength_columns]
+    reference_range = (wavelengths[0], wavelengths[1])
+    zero_reference = frame.with_columns(
+        pl.lit(0.0).alias(column) for column in wavelength_columns[:2]
+    )
+    nonfinite_reference = frame.with_columns(
+        pl.lit(float("inf")).alias(column) for column in wavelength_columns[:2]
+    )
+
+    with pytest.raises(ValueError, match="reference interval"):
+        _apply_w_normalization(frame.lazy(), (-2.0, -1.0))
+    with pytest.raises(ValueError, match="reference mean"):
+        _apply_w_normalization(zero_reference.lazy(), reference_range)
+    with pytest.raises(ValueError, match="reference mean"):
+        _apply_w_normalization(nonfinite_reference.lazy(), reference_range)
