@@ -91,6 +91,61 @@ def _apply_t_smoothing_eager(frame: pl.DataFrame, window: float) -> pl.DataFrame
     )
 
 
+def _wavelength_window_indices(
+    wavelengths: np.ndarray, window: float
+) -> list[np.ndarray]:
+    """Find, for each wavelength column, the columns within its closed window.
+
+    Replaces an all-pairs scan (O(W^2) distance comparisons) with a sorted
+    binary search (O(W log W)), which matters because building this LazyFrame
+    expression runs once per input file. Wavelengths are one-dimensional real
+    coordinates and the window predicate is a distance threshold, so the
+    columns within any window always form one contiguous run once the
+    wavelengths are sorted.
+
+    Parameters
+    ----------
+    wavelengths : np.ndarray
+        Wavelength (nm) parsed from each spectral column, in column order.
+    window : float
+        Positive finite half-window width in the same units as `wavelengths`.
+
+    Returns
+    -------
+    list[np.ndarray]
+        For each column index (matching `wavelengths` order), the indices of
+        columns whose wavelength lies within the closed window, sorted back
+        into original column order.
+    """
+    order = np.argsort(wavelengths, kind="stable")
+    sorted_wavelengths = wavelengths[order]
+    size = sorted_wavelengths.size
+
+    lower = np.searchsorted(sorted_wavelengths, sorted_wavelengths - window, side="left")
+    upper = np.searchsorted(sorted_wavelengths, sorted_wavelengths + window, side="right")
+
+    # `searchsorted` compares against the rounded values `center - window` and
+    # `center + window`, which can round differently than the direct
+    # `abs(a - b) <= window` comparison the eager branch and callers rely on
+    # (notably when `window` equals the sampling grid spacing). Correct each
+    # boundary by at most one element against that direct comparison.
+    result: list[np.ndarray] = [np.empty(0, dtype=int)] * size
+    for position in range(size):
+        center = sorted_wavelengths[position]
+        low = int(lower[position])
+        high = int(upper[position])
+        if low > 0 and abs(sorted_wavelengths[low - 1] - center) <= window:
+            low -= 1
+        elif low < high and abs(sorted_wavelengths[low] - center) > window:
+            low += 1
+        if high < size and abs(sorted_wavelengths[high] - center) <= window:
+            high += 1
+        elif high > low and abs(sorted_wavelengths[high - 1] - center) > window:
+            high -= 1
+        result[order[position]] = np.sort(order[low:high])
+    return result
+
+
 def apply_w_smoothing(
     frame: pl.DataFrame | pl.LazyFrame,
     w_smoothing_window: float | None,
@@ -131,15 +186,12 @@ def apply_w_smoothing(
     spectra = wavelength_columns(columns)
     wavelengths = np.asarray([parse_wavelength(column) for column in spectra])
     if isinstance(frame, pl.LazyFrame):
+        window_indices = _wavelength_window_indices(wavelengths, window)
         return frame.with_columns(
             pl.mean_horizontal(
-                *[
-                    pl.col(column)
-                    for index, column in enumerate(spectra)
-                    if abs(wavelengths[index] - wavelength) <= window
-                ]
+                *(pl.col(spectra[index]) for index in indices)
             ).alias(target)
-            for target, wavelength in zip(spectra, wavelengths, strict=True)
+            for target, indices in zip(spectra, window_indices, strict=True)
         )
     source_values = frame.select(spectra).to_numpy().astype(float, copy=False)
     smoothed_values = source_values.copy()
