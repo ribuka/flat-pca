@@ -190,6 +190,72 @@ def test_flatten_and_prune_keeps_the_last_duplicate_metadata_row(
     assert fused.row(0)[1] == 20.0
 
 
+def _single_wavelength_frame(
+    wavelength_values: pl.Series,
+) -> pl.DataFrame:
+    """Build a two-combination frame carrying one wavelength column.
+
+    Parameters
+    ----------
+    wavelength_values : pl.Series
+        Two spectral values named after a canonical wavelength column.
+
+    Returns
+    -------
+    pl.DataFrame
+        Frame with the metadata columns flattening requires plus
+        ``wavelength_values``.
+    """
+    return pl.DataFrame(
+        {
+            "Time": [0.0, 1.0],
+            "StepTime": [0.0, 1.0],
+            "ReverseStepTime": [1.0, 0.0],
+            "Step": [1, 1],
+            "Sequence": [1, 1],
+        }
+    ).with_columns(wavelength_values)
+
+
+def test_flatten_keeps_integer_spectral_dtype_and_exact_values(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Route integer wavelength columns around the lossy float64 matrix.
+
+    A ``float64`` feature matrix silently rounds integers wider than 53
+    bits, so integer inputs must keep the row-dict flattening that preserves
+    both the ``Int64`` dtype and the exact value.
+    """
+    beyond_float64_precision = 2**53 + 1
+    frame = _single_wavelength_frame(
+        pl.Series("649.9nm", [beyond_float64_precision, 1], dtype=pl.Int64)
+    )
+    inputs = [(real_fixture_paths[0], frame)]
+
+    flattened = _flatten_inputs(inputs)
+    fused = _flatten_and_prune_inputs(inputs, 0.0)
+
+    assert isinstance(flattened, pl.DataFrame)
+    assert flattened.equals(fused)
+    assert fused.dtypes[1:] == [pl.Int64, pl.Int64]
+    assert fused.row(0)[1] == beyond_float64_precision
+
+
+def test_flatten_widens_float32_spectral_columns_to_float64(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Widen Float32 inputs exactly as the row-dict flattening always did."""
+    frame = _single_wavelength_frame(
+        pl.Series("649.9nm", [1.5, 2.5], dtype=pl.Float32)
+    )
+    inputs = [(real_fixture_paths[0], frame)]
+
+    fused = _flatten_and_prune_inputs(inputs, 0.0)
+
+    assert fused.dtypes[1:] == [pl.Float64, pl.Float64]
+    assert fused.row(0)[1:] == (1.5, 2.5)
+
+
 def test_flatten_and_prune_rejects_invalid_arguments(
     real_fixture_paths: list[Path],
 ) -> None:

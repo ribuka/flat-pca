@@ -12,6 +12,7 @@ from flat_pca.spectral.schema import (
     wavelength_columns,
 )
 
+from ..preprocess.sparse_columns import drop_sparse_feature_columns
 from .feature_matrix import (
     MetadataKey,
     build_feature_matrix,
@@ -210,8 +211,11 @@ def flatten_inputs(
 
     Notes
     -----
-    Materialized inputs are flattened through a NumPy feature matrix, so
-    feature columns are ``Float64`` regardless of the input spectral dtype.
+    Materialized inputs whose wavelength columns are all floating point are
+    flattened through a ``float64`` NumPy feature matrix, which widens
+    ``Float32`` to ``Float64`` exactly as the row-dict flattening did. Any
+    other numeric wavelength dtype (integer or decimal) keeps the row-dict
+    path, so its flattened dtype and values are unchanged.
     """
     if len(inputs) == 0:
         raise ValueError("inputs must contain at least one validated frame")
@@ -226,6 +230,8 @@ def flatten_inputs(
         sorted_inputs[0][1].columns,
         [frame for _, frame in sorted_inputs],
     )
+    if not _has_float_spectral_columns(sorted_inputs, layout):
+        return _flatten_rows_eager(sorted_inputs, layout)
     matrix = build_feature_matrix(
         [frame for _, frame in sorted_inputs],
         layout.wavelength_columns_sorted,
@@ -267,6 +273,13 @@ def flatten_and_prune_inputs(
         followed by the retained spectral features. Column order matches
         ``flatten_inputs``; missing combinations are polars nulls.
 
+    See Also
+    --------
+    flatten_inputs : Flattening without pruning, including the dtype rules
+        this function shares. Non-floating wavelength dtypes take the
+        row-dict path and are pruned afterwards by
+        ``drop_sparse_feature_columns``.
+
     Raises
     ------
     ValueError
@@ -284,6 +297,12 @@ def flatten_and_prune_inputs(
         sorted_inputs[0][1].columns,
         [frame for _, frame in sorted_inputs],
     )
+    if not _has_float_spectral_columns(sorted_inputs, layout):
+        pruned = drop_sparse_feature_columns(
+            _flatten_rows_eager(sorted_inputs, layout), max_null_ratio
+        )
+        assert isinstance(pruned, pl.DataFrame)
+        return pruned
     matrix = build_feature_matrix(
         [frame for _, frame in sorted_inputs],
         layout.wavelength_columns_sorted,
@@ -298,6 +317,81 @@ def flatten_and_prune_inputs(
         [path.as_posix() for path, _ in sorted_inputs],
         dense_names,
     )
+
+
+def _has_float_spectral_columns(
+    inputs: Sequence[tuple[Path, pl.DataFrame]],
+    layout: FlattenLayout,
+) -> bool:
+    """Report whether every input's wavelength columns are floating point.
+
+    The NumPy feature matrix is ``float64``, which reproduces the row-dict
+    flattening exactly for ``Float32`` and ``Float64`` inputs but not for
+    integer or decimal ones: those would change the flattened dtype and, for
+    integers beyond 53 bits, the values themselves.
+
+    Parameters
+    ----------
+    inputs : Sequence[tuple[Path, pl.DataFrame]]
+        Input paths paired with materialized spectral frames.
+    layout : FlattenLayout
+        Resolved column layout naming the wavelength columns to inspect.
+
+    Returns
+    -------
+    bool
+        ``True`` when every wavelength column of every input frame has a
+        floating-point dtype.
+    """
+    for _, frame in inputs:
+        schema = frame.schema
+        if any(
+            not schema[column].is_float()
+            for column in layout.wavelength_columns_sorted
+        ):
+            return False
+    return True
+
+
+def _flatten_rows_eager(
+    inputs: Sequence[tuple[Path, pl.DataFrame]],
+    layout: FlattenLayout,
+) -> pl.DataFrame:
+    """Flatten materialized inputs one Python row dict at a time.
+
+    Kept as the fallback for wavelength columns the ``float64`` feature
+    matrix cannot represent losslessly, so those inputs keep the dtype and
+    the exact values they had before the NumPy path existed.
+
+    Parameters
+    ----------
+    inputs : Sequence[tuple[Path, pl.DataFrame]]
+        Input paths paired with materialized spectral frames, already sorted
+        by normalized path.
+    layout : FlattenLayout
+        Resolved column layout for the flattened features.
+
+    Returns
+    -------
+    pl.DataFrame
+        One row per input, with ``source`` followed by the features. A
+        combination an input lacks contributes ``None``; a repeated
+        combination keeps the frame's last row.
+    """
+    rows: list[dict[str, object]] = []
+    for path, frame in inputs:
+        by_key = {
+            (row["Step"], row["Sequence"], row["StepTime"]): row
+            for row in frame.select(
+                "Step", "Sequence", "StepTime", *layout.wavelength_columns_sorted
+            ).iter_rows(named=True)
+        }
+        row: dict[str, object] = {SOURCE_COLUMN: path.as_posix()}
+        for column, step, sequence, step_time, name in layout.feature_specs:
+            match = by_key.get((step, sequence, step_time))
+            row[name] = match[column] if match is not None else None
+        rows.append(row)
+    return pl.DataFrame(rows).select(SOURCE_COLUMN, *layout.feature_names)
 
 
 def _sort_eager_inputs(
