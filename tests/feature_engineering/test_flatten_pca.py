@@ -69,6 +69,7 @@ def test_public_import_and_signature_are_stable(
         "validate_metadata_alignment",
         "materialize_once",
         "impute_strategy",
+        "impute_kmeans_n_clusters",
     ]
     assert parameters["paths"].kind is Parameter.POSITIONAL_OR_KEYWORD
     for parameter in list(parameters.values())[1:]:
@@ -83,6 +84,7 @@ def test_public_import_and_signature_are_stable(
     assert parameters["validate_metadata_alignment"].default is False
     assert parameters["materialize_once"].default is True
     assert parameters["impute_strategy"].default == "drop"
+    assert parameters["impute_kmeans_n_clusters"].default is None
 
     result = flatten_pca(real_fixture_paths, n_component=1)
     assert isinstance(result, PcaModel)
@@ -490,6 +492,25 @@ def test_append_pca_scores_fills_remaining_missing_values_with_median(
 
     assert result.height == 3
     assert np.isfinite(result.select(pl.exclude("source")).to_numpy()).all()
+
+
+def test_append_pca_scores_fills_remaining_missing_values_with_kmeans(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Fill remaining missing values from the nearest fitted cluster centroid."""
+    flattened = _build_missing_combo_flattened(real_fixture_paths)
+    pca = flatten_pca(
+        flattened=flattened,
+        n_component=1,
+        impute_strategy="kmeans",
+        impute_kmeans_n_clusters=2,
+    )
+
+    result = append_pca_scores(pca, flattened).collect()
+
+    assert result.height == 3
+    assert np.isfinite(result.select(pl.exclude("source")).to_numpy()).all()
+    assert result["source"].to_list() == flattened.collect()["source"].to_list()
 
 
 def test_reshape_pca_components_places_real_flattened_features_on_sorted_axes(

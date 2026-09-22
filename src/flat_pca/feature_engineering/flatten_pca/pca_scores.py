@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 from numbers import Integral
-from typing import Literal
 
 import polars as pl
 
 from flat_pca.spectral.schema import flattened_feature_columns
 
-from ..pca import PcaModel, fit_pca, transform_pca
+from ..pca import ImputeStrategy, PcaModel, fit_pca, transform_pca
 
 
 def fit_flattened_pca(
     flattened: pl.LazyFrame,
     n_component: int | None,
-    impute_strategy: Literal["drop", "median"] = "drop",
+    impute_strategy: ImputeStrategy = "drop",
+    impute_kmeans_n_clusters: int | None = None,
 ) -> PcaModel:
     """Fit PCA from the non-source columns of flattened features.
 
@@ -25,12 +25,17 @@ def fit_flattened_pca(
         Flattened spectral features with a ``source`` column.
     n_component : int | None
         Requested number of components, or ``None`` for the matrix limit.
-    impute_strategy : {"drop", "median"}, default "drop"
+    impute_strategy : {"drop", "median", "kmeans"}, default "drop"
         Missing-value handling strategy forwarded to ``fit_pca``. ``"drop"``
         discards any row (input file) with a null or NaN in any feature
         column; ``"median"`` fills nulls/NaNs with each column's median
-        instead. Applies to whatever nulls remain after any upstream
-        column pruning (see ``drop_sparse_feature_columns``).
+        instead; ``"kmeans"`` fills them from the nearest cluster centroid
+        fitted on rows with no missing values. Applies to whatever nulls
+        remain after any upstream column pruning (see
+        ``drop_sparse_feature_columns``).
+    impute_kmeans_n_clusters : int | None, default None
+        Requested cluster count for ``impute_strategy="kmeans"``, forwarded
+        to ``fit_pca``. Must be ``None`` for any other strategy.
 
     Returns
     -------
@@ -59,6 +64,7 @@ def fit_flattened_pca(
         n_component=n_component,
         max_n_component=None,
         impute_strategy=impute_strategy,
+        impute_kmeans_n_clusters=impute_kmeans_n_clusters,
         outlier_strategy=None,
         scaling_strategy="none",
     )
