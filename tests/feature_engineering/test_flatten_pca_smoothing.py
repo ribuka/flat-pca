@@ -135,6 +135,74 @@ def test_w_smoothing_uses_closed_real_wavelength_windows_on_real_fixture(
     assert smoothed.shape == frame.shape
 
 
+def test_w_smoothing_lazyframe_matches_eager_on_real_fixture(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Match the eager result on a real, non-equally-spaced wavelength grid."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    wavelength_values = sorted(
+        float(column.removesuffix("nm"))
+        for column in frame.columns
+        if column not in METADATA_COLUMNS
+    )
+    window = min(right - left for left, right in pairwise(wavelength_values))
+
+    eager = _apply_w_smoothing(frame, window)
+    lazy = _apply_w_smoothing(frame.lazy(), window).collect()
+
+    assert lazy.equals(eager)
+
+
+def test_w_smoothing_lazyframe_matches_eager_with_shuffled_columns(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Match the eager result when wavelength columns are not sorted by wavelength."""
+    frame = pl.read_parquet(real_fixture_paths[0])
+    metadata = [column for column in frame.columns if column in METADATA_COLUMNS]
+    spectra = [column for column in frame.columns if column not in METADATA_COLUMNS]
+    frame = frame.select(metadata + list(reversed(spectra)))
+
+    eager = _apply_w_smoothing(frame, 200.0)
+    lazy = _apply_w_smoothing(frame.lazy(), 200.0).collect()
+
+    assert lazy.equals(eager)
+
+
+@pytest.mark.parametrize(
+    "window",
+    [0.1, 0.01, 1_000_000.0],
+    ids=["equals-grid-spacing", "self-only", "covers-all"],
+)
+def test_w_smoothing_lazyframe_matches_eager_at_window_boundaries(
+    window: float,
+) -> None:
+    """Match the eager result at window widths equal to, below, and above the grid.
+
+    The grid spacing (0.1) is not exactly representable in binary floating
+    point, so the ``equals-grid-spacing`` case exercises the boundary
+    correction in ``_wavelength_window_indices``: comparing against the
+    rounded ``center - window`` / ``center + window`` used by
+    ``np.searchsorted`` can disagree with the direct ``abs(a - b) <= window``
+    comparison the eager branch and callers rely on.
+    """
+    frame = pl.DataFrame(
+        {
+            "Time": [0.0],
+            "Step": [0],
+            "Sequence": [0],
+            "300.0nm": [1.0],
+            "300.1nm": [2.0],
+            "300.2nm": [3.0],
+            "300.3nm": [4.0],
+        }
+    )
+
+    eager = _apply_w_smoothing(frame, window)
+    lazy = _apply_w_smoothing(frame.lazy(), window).collect()
+
+    assert lazy.equals(eager)
+
+
 def test_w_smoothing_none_preserves_real_fixture(
     real_fixture_paths: list[Path],
 ) -> None:
