@@ -539,7 +539,7 @@ def test_reshape_pca_components_places_real_flattened_features_on_sorted_axes(
             pl.Series("coefficient", pca.pca.components_[component_index, :])
         ).sort(sort_keys)
         actual = (
-            reshaped.filter(pl.col("component") == component_index)
+            reshaped.filter(pl.col("component") == component_index + 1)
             .select(["wavelength", "Step", "Sequence", "StepTime", "coefficient"])
             .sort(sort_keys)
         )
