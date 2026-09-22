@@ -318,9 +318,9 @@ class TestKmeansImputeStrategy:
                 scaling_strategy="none",
             )
 
-    @pytest.mark.parametrize("n_clusters", [0, -1, True])
-    def test_rejects_invalid_cluster_count(self, n_clusters: int) -> None:
-        """Reject a non-positive or boolean cluster count."""
+    @pytest.mark.parametrize("n_clusters", [0, -1, True, "2", 1.5])
+    def test_rejects_invalid_cluster_count(self, n_clusters: object) -> None:
+        """Reject a non-positive, boolean, or non-integer cluster count."""
         frame = self._frame_with_missing_values()
 
         with pytest.raises(ValueError, match="impute_kmeans_n_clusters"):
@@ -330,9 +330,56 @@ class TestKmeansImputeStrategy:
                 n_component=1,
                 max_n_component=None,
                 impute_strategy="kmeans",
-                impute_kmeans_n_clusters=n_clusters,
+                impute_kmeans_n_clusters=n_clusters,  # type: ignore[arg-type]
                 scaling_strategy="none",
             )
+
+    def test_impute_kmeans_n_clusters_is_keyword_only(self) -> None:
+        """Reject a positional ``impute_kmeans_n_clusters`` call.
+
+        ``impute_kmeans_n_clusters`` is keyword-only precisely so that it
+        can be added without shifting the meaning of any existing
+        positional ``fit_pca`` argument (for example ``outlier_strategy``,
+        which sits at the same position ``impute_kmeans_n_clusters`` would
+        otherwise occupy).
+        """
+        with pytest.raises(TypeError):
+            fit_pca(  # type: ignore[misc]
+                pl.DataFrame({"a": [1.0]}).lazy(),
+                ["a"],
+                1,
+                None,
+                "drop",
+                None,
+                1.5,
+                "none",
+                2,
+            )
+
+    def test_existing_positional_call_still_works(self) -> None:
+        """Preserve the pre-kmeans positional argument order of ``fit_pca``.
+
+        Regression test: a caller using the documented positional order up
+        to ``scaling_strategy`` must keep working unchanged after adding
+        ``impute_kmeans_n_clusters``.
+        """
+        frame = pl.DataFrame(
+            {"feature_a": [1.0, 2.0, 3.0], "feature_b": [3.0, 2.0, 1.0]}
+        )
+
+        model = fit_pca(
+            frame.lazy(),
+            ["feature_a", "feature_b"],
+            1,
+            None,
+            "median",
+            "winsorize",
+            1.5,
+            "none",
+        )
+
+        assert model.impute_strategy == "median"
+        assert model.outlier_strategy == "winsorize"
 
     def test_rejects_cluster_count_with_non_kmeans_strategy(self) -> None:
         """Reject specifying a cluster count outside kmeans imputation."""

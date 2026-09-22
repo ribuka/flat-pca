@@ -94,7 +94,11 @@ def _validate_fit_args(
                 "impute_kmeans_n_clusters must be None unless "
                 "impute_strategy is 'kmeans'"
             )
-        if isinstance(impute_kmeans_n_clusters, bool) or impute_kmeans_n_clusters <= 0:
+        if (
+            isinstance(impute_kmeans_n_clusters, bool)
+            or not isinstance(impute_kmeans_n_clusters, int)
+            or impute_kmeans_n_clusters <= 0
+        ):
             raise ValueError("impute_kmeans_n_clusters must be a positive integer")
     if outlier_strategy not in {None, "winsorize", "drop"}:
         raise ValueError("outlier_strategy must be None, 'winsorize', or 'drop'")
@@ -174,10 +178,11 @@ def fit_pca(
     n_component: int | None = None,
     max_n_component: int | None = 100,
     impute_strategy: ImputeStrategy = "drop",
-    impute_kmeans_n_clusters: int | None = None,
     outlier_strategy: OutlierStrategy = None,
     iqr_multiplier: float = 1.5,
     scaling_strategy: ScalingStrategy = "robust",
+    *,
+    impute_kmeans_n_clusters: int | None = None,
 ) -> PcaModel:
     """Fit a PCA model with the configured preprocessing pipeline.
 
@@ -195,16 +200,17 @@ def fit_pca(
         Missing-value handling strategy. ``"kmeans"`` fills each missing
         value from the nearest cluster centroid fitted on rows with no
         missing values; see ``impute.fit_kmeans_impute``.
-    impute_kmeans_n_clusters : int | None, default None
-        Requested cluster count for ``impute_strategy="kmeans"``, or
-        ``None`` to use ``impute.DEFAULT_KMEANS_N_CLUSTERS``. Must be
-        ``None`` for any other strategy.
     outlier_strategy : OutlierStrategy, default None
         Optional outlier handling performed before scaling.
     iqr_multiplier : float, default 1.5
         Positive multiplier used to calculate IQR outlier bounds.
     scaling_strategy : ScalingStrategy, default "robust"
         Scaling applied before PCA fitting.
+    impute_kmeans_n_clusters : int | None, default None
+        Requested cluster count for ``impute_strategy="kmeans"``, or
+        ``None`` to use ``impute.DEFAULT_KMEANS_N_CLUSTERS``. Must be
+        ``None`` for any other strategy. Keyword-only so it can be added
+        without disturbing existing positional ``fit_pca`` calls.
 
     Returns
     -------
@@ -399,10 +405,11 @@ def fit_and_transform_pca(
     n_component: int | None = None,
     max_n_component: int | None = 100,
     impute_strategy: ImputeStrategy = "drop",
-    impute_kmeans_n_clusters: int | None = None,
     outlier_strategy: OutlierStrategy = None,
     iqr_multiplier: float = 1.5,
     scaling_strategy: ScalingStrategy = "robust",
+    *,
+    impute_kmeans_n_clusters: int | None = None,
 ) -> pl.LazyFrame:
     """Fit and apply PCA in one call.
 
@@ -418,16 +425,18 @@ def fit_and_transform_pca(
         Additional component-count cap, or ``None`` for no cap.
     impute_strategy : {"drop", "median", "kmeans"}, default "drop"
         Missing-value handling strategy.
-    impute_kmeans_n_clusters : int | None, default None
-        Requested cluster count for ``impute_strategy="kmeans"``, or
-        ``None`` to use ``impute.DEFAULT_KMEANS_N_CLUSTERS``. Must be
-        ``None`` for any other strategy.
     outlier_strategy : OutlierStrategy, default None
         Optional outlier handling performed before scaling.
     iqr_multiplier : float, default 1.5
         Positive multiplier used to calculate IQR outlier bounds.
     scaling_strategy : ScalingStrategy, default "robust"
         Scaling applied before PCA fitting.
+    impute_kmeans_n_clusters : int | None, default None
+        Requested cluster count for ``impute_strategy="kmeans"``, or
+        ``None`` to use ``impute.DEFAULT_KMEANS_N_CLUSTERS``. Must be
+        ``None`` for any other strategy. Keyword-only so it can be added
+        without disturbing existing positional ``fit_and_transform_pca``
+        calls.
 
     Returns
     -------
