@@ -27,7 +27,9 @@ from ..preprocess import (
 )
 from .flatten import flatten_inputs
 from .input import StemUniquenessCheck, load_and_validate_inputs
-from .input import validate_metadata_alignment as _validate_metadata_alignment
+from .input import (
+    validate_metadata_alignment as validate_alignment_across_inputs,
+)
 from .pca_scores import fit_flattened_pca
 
 
@@ -37,7 +39,7 @@ def flatten_pca(
     flattened: pl.LazyFrame | None = None,
     n_component: int | None = None,
     target_steps: list[int] | None = None,
-    edge_trim: list[float, float] | None = None,
+    edge_trim: Sequence[float] | None = None,
     wavelength_range: tuple[float, float] | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
@@ -68,10 +70,11 @@ def flatten_pca(
     target_steps : list[int] | None, default None
         ``Step`` values to keep, or ``None`` to keep every row. Used only
         when ``paths`` is specified; ignored when ``flattened`` is specified.
-    edge_trim : list[float, float] | None, default None
-        ``(edge_trim[0], edge_trim[1])`` StepTime/ReverseStepTime trim
-        thresholds, or ``None`` to disable trimming. Used only when ``paths``
-        is specified; ignored when ``flattened`` is specified.
+    edge_trim : Sequence[float] | None, default None
+        Two finite StepTime/ReverseStepTime trim thresholds, as a ``tuple``
+        or ``list``, or ``None`` to disable trimming. Used only when
+        ``paths`` is specified; ignored when ``flattened`` is specified. See
+        ``apply_edge_trim`` for details.
     wavelength_range : tuple[float, float] | None, default None
         Inclusive wavelength interval of columns to keep, or ``None`` to keep
         every wavelength column. Used only when ``paths`` is specified;
@@ -155,7 +158,7 @@ def preprocess_and_flatten(
     paths: Sequence[str | Path],
     *,
     target_steps: list[int] | None = None,
-    edge_trim: list[float, float] | None = None,
+    edge_trim: Sequence[float] | None = None,
     wavelength_range: tuple[float, float] | None = None,
     t_smoothing_window: float | None = None,
     w_smoothing_window: float | None = None,
@@ -178,10 +181,11 @@ def preprocess_and_flatten(
     target_steps : list[int] | None, default None
         ``Step`` values to keep, or ``None`` to keep every row. Applied after
         input validation and before StepTime/ReverseStepTime generation.
-    edge_trim : list[float, float] | None, default None
-        ``(edge_trim[0], edge_trim[1])`` StepTime/ReverseStepTime trim
-        thresholds, or ``None`` to disable trimming. Applied immediately
-        after StepTime/ReverseStepTime generation.
+    edge_trim : Sequence[float] | None, default None
+        Two finite StepTime/ReverseStepTime trim thresholds, as a ``tuple``
+        or ``list``, or ``None`` to disable trimming. Applied immediately
+        after StepTime/ReverseStepTime generation. See ``apply_edge_trim``
+        for details.
     wavelength_range : tuple[float, float] | None, default None
         Inclusive ``(lower, upper)`` wavelength interval of columns to keep,
         or ``None`` to keep every wavelength column. Applied immediately
@@ -217,19 +221,9 @@ def preprocess_and_flatten(
     validate_metadata_alignment : bool, default False
         If ``True``, require every input file to share an identical set of
         ``(Time, Step, Sequence)`` tuples after ``target_steps`` filtering,
-        raising ``ValueError`` on mismatch. Skipped by default, because
-        differing ``(Step, Sequence, StepTime)`` coverage across input files
-        (for example, runs with different measurement-point counts) is an
-        expected case, not an error: the flattening stage builds its feature
-        set from the union of combinations across all input files, and a
-        file lacking a particular combination simply contributes ``null``
-        for that feature (see ``flatten_inputs``). Columns that are mostly
-        missing across inputs are then pruned by ``max_null_ratio`` before
-        this function returns, and any remaining nulls are handled by
-        downstream PCA fitting's ``impute_strategy``. Enable this check only
-        when you want to enforce that inputs share an identical grid.
-        Applied after ``target_steps`` filtering so files may freely differ
-        outside the retained steps.
+        raising ``ValueError`` on mismatch. Applied after ``target_steps``
+        filtering, so files may freely differ outside the retained steps.
+        Skipped by default; see the Notes section for why.
     materialize_once : bool, default True
         If ``True``, collect the flatten query exactly once and return the
         result as a ``LazyFrame`` backed by that in-memory ``DataFrame``, so
@@ -243,6 +237,20 @@ def preprocess_and_flatten(
     -------
     pl.LazyFrame
         Deferred one-row-per-file flattened features with ``source`` first.
+
+    Notes
+    -----
+    ``validate_metadata_alignment`` is disabled by default because differing
+    ``(Step, Sequence, StepTime)`` coverage across input files -- for
+    example, runs with different measurement-point counts -- is an expected
+    case rather than an error. The flattening stage builds its feature set
+    from the union of combinations across all input files, so a file lacking
+    a particular combination simply contributes ``null`` for the
+    corresponding feature (see ``flatten_inputs``). Columns that are mostly
+    missing across inputs are then pruned by ``max_null_ratio`` before this
+    function returns, and any remaining nulls are handled by downstream PCA
+    fitting's ``impute_strategy``. Enable the check only when inputs are
+    required to share an identical grid.
     """
     loaded_inputs = load_and_validate_inputs(
         paths,
@@ -255,7 +263,7 @@ def preprocess_and_flatten(
         for path, frame in loaded_inputs
     ]
     if validate_metadata_alignment:
-        _validate_metadata_alignment(filtered_inputs)
+        validate_alignment_across_inputs(filtered_inputs)
 
     step_time_inputs: list[tuple[Path, pl.LazyFrame]] = []
     for path, frame in filtered_inputs:

@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Literal
 
 import polars as pl
 
-from ..flatten_pca.schema import wavelength_columns
+from flat_pca.spectral.schema import wavelength_columns
+from flat_pca.utils import get_columns_from_polars
+
+from .ranges import validate_finite_bounds
 
 
 def apply_edge_trim(
     frame: pl.DataFrame | pl.LazyFrame,
-    edge_trim: list[float, float] | None,
+    edge_trim: Sequence[float] | None,
     action: Literal["drop", "null"] = "drop",
 ) -> pl.DataFrame | pl.LazyFrame:
     """Drop or null rows near a segment's start or end.
@@ -20,11 +24,12 @@ def apply_edge_trim(
     ----------
     frame : pl.DataFrame | pl.LazyFrame
         Frame containing ``StepTime`` and ``ReverseStepTime`` columns.
-    edge_trim : list[float, float] | None
-        ``(edge_trim[0], edge_trim[1])`` thresholds. Rows with ``StepTime``
-        less than ``edge_trim[0]`` or ``ReverseStepTime`` less than
-        ``edge_trim[1]`` are trimmed. If ``None``, the frame is returned
-        unchanged.
+    edge_trim : Sequence[float] | None
+        Two finite thresholds, as a ``tuple`` or ``list``. Rows with
+        ``StepTime`` less than ``edge_trim[0]`` or ``ReverseStepTime`` less
+        than ``edge_trim[1]`` are trimmed. The two thresholds are
+        independent, so they need not be ordered. If ``None``, the frame is
+        returned unchanged.
     action : {"drop", "null"}, default "drop"
         ``"drop"`` removes trimmed rows. ``"null"`` overwrites every
         non-meta column in trimmed rows with ``None`` while preserving meta
@@ -40,28 +45,23 @@ def apply_edge_trim(
     Raises
     ------
     ValueError
-        If ``action`` is not ``"drop"`` or ``"null"``.
+        If ``action`` is not ``"drop"`` or ``"null"``, or if ``edge_trim`` is
+        not a pair of finite thresholds.
     """
     if action not in {"drop", "null"}:
         raise ValueError("action must be either 'drop' or 'null'")
     if edge_trim is None:
         return frame
-    start_threshold, end_threshold = edge_trim
+    start_threshold, end_threshold = validate_finite_bounds(edge_trim, "edge_trim")
 
-    columns = (
-        frame.collect_schema().names()
-        if isinstance(frame, pl.LazyFrame)
-        else frame.columns
-    )
+    columns = get_columns_from_polars(frame)
     spectra = wavelength_columns(columns)
     condition = (pl.col("StepTime") < start_threshold) | (
         pl.col("ReverseStepTime") < end_threshold
     )
     if action == "drop":
         return frame.filter(~condition)
-    if action == "null":
-        return frame.with_columns(
-            pl.when(condition).then(None).otherwise(pl.col(column)).alias(column)
-            for column in spectra
-        )
-    raise AssertionError("validated action must be 'drop' or 'null'")
+    return frame.with_columns(
+        pl.when(condition).then(None).otherwise(pl.col(column)).alias(column)
+        for column in spectra
+    )

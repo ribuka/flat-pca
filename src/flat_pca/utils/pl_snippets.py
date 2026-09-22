@@ -1,3 +1,5 @@
+"""Polars helpers shared by the workflow modules and analysis notebooks."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,7 +13,18 @@ HOW = Literal["left", "right", "outer", "full", "inner"]
 
 
 def _normalize_join_how(how: HOW) -> Literal["left", "right", "full", "inner"]:
-    # Polars deprecated how="outer" in favor of how="full".
+    """Translate a join strategy to the name current Polars accepts.
+
+    Parameters
+    ----------
+    how : HOW
+        Requested join strategy, possibly the deprecated ``"outer"``.
+
+    Returns
+    -------
+    Literal["left", "right", "full", "inner"]
+        Equivalent strategy name, with ``"outer"`` mapped to ``"full"``.
+    """
     return "full" if how == "outer" else how
 
 
@@ -19,12 +32,37 @@ def _join_polars_with_indicator(
     left: pl.DataFrame | pl.LazyFrame,
     right: pl.DataFrame | pl.LazyFrame,
     on: list[str] | None = None,
-    left_on: list[str] | None = None,
-    right_on: list[str] | None = None,
+    left_on: str | list[str] | None = None,
+    right_on: str | list[str] | None = None,
     how: HOW = "left",
     indicator: str | bool = "_merge",
 ) -> pl.DataFrame | pl.LazyFrame:
-    """Join two Polars frames and optionally add a merge-origin indicator."""
+    """Join two Polars frames and optionally add a merge-origin indicator.
+
+    Parameters
+    ----------
+    left, right : pl.DataFrame | pl.LazyFrame
+        Frames to join. Both must be of the same kind.
+    on : list[str] | None, default None
+        Shared key columns. Takes precedence over ``left_on``/``right_on``.
+    left_on, right_on : str | list[str] | None, default None
+        Per-side key columns, used when ``on`` is empty or ``None``.
+    how : HOW, default "left"
+        Join strategy; ``"outer"`` is accepted as a synonym of ``"full"``.
+    indicator : str | bool, default "_merge"
+        Name of the merge-origin column holding ``"both"``, ``"left_only"``,
+        or ``"right_only"``. Pass ``False`` to omit the column.
+
+    Returns
+    -------
+    pl.DataFrame | pl.LazyFrame
+        Joined frame, of the same kind as the inputs.
+
+    Raises
+    ------
+    ValueError
+        If neither ``on`` nor both of ``left_on`` and ``right_on`` is given.
+    """
     left = left.with_columns(pl.lit(True).alias("in_left"))
     right = right.with_columns(pl.lit(True).alias("in_right"))
     how = _normalize_join_how(how)
@@ -41,7 +79,7 @@ def _join_polars_with_indicator(
         pl.col("in_right").fill_null(False),
     ])
 
-    if indicator != False:
+    if indicator is not False:
         out = out.with_columns([
             pl.when(pl.col("in_left") & pl.col("in_right")).then(pl.lit("both"))
             .when(pl.col("in_left")).then(pl.lit("left_only"))
@@ -65,7 +103,38 @@ def my_merge(
     indicator: str | bool = "_merge",
     show_result: bool = True,
 ) -> pl.DataFrame | pl.LazyFrame:
-    """Merge two same-kind Polars frames with optional column selection."""
+    """Merge two same-kind Polars frames with optional column selection.
+
+    Parameters
+    ----------
+    left, right : pl.DataFrame | pl.LazyFrame
+        Frames to merge. Both must be of the same kind.
+    addons : list[str] | None, default None
+        Columns to take from ``right``. If ``None``, every column is taken.
+    on : list[str] | None, default None
+        Shared key columns, defaulting to ``["ID"]``.
+    left_on, right_on : str | None, default None
+        Per-side key columns, used when ``on`` is empty.
+    how : Literal["left", "right", "outer", "full", "inner"], default "left"
+        Join strategy; ``"outer"`` is accepted as a synonym of ``"full"``.
+    indicator : str | bool, default "_merge"
+        Name of the merge-origin column, or ``False`` to omit it.
+    show_result : bool, default True
+        Whether to print the shape change and the merge-origin counts, which
+        is intended for interactive notebook use.
+
+    Returns
+    -------
+    pl.DataFrame | pl.LazyFrame
+        Merged frame, of the same kind as the inputs.
+
+    Raises
+    ------
+    TypeError
+        If ``left`` and ``right`` are not of the same kind.
+    ValueError
+        If ``on`` is empty and ``left_on``/``right_on`` are not both given.
+    """
     if on is None:
         on = ["ID"]
 
@@ -103,7 +172,7 @@ def my_merge(
 
         if show_result:
             print(f"{_shape} -> {get_shape_from_polars(left)}")
-            if indicator != False:
+            if indicator is not False:
                 print(get_value_counts_from_polars(
                     left, alias=indicator,
                 ))
@@ -116,6 +185,27 @@ def get_value_counts_from_polars(
     alias: str | bool,
     sort: bool = True,
 ) -> pl.DataFrame:
+    """Count occurrences of each distinct value in one column.
+
+    Parameters
+    ----------
+    df : pl.DataFrame | pl.LazyFrame
+        Frame containing the column to summarize.
+    alias : str | bool
+        Name of the column to count.
+    sort : bool, default True
+        Whether to sort the result by descending count.
+
+    Returns
+    -------
+    pl.DataFrame
+        Distinct values with their ``count``.
+
+    Raises
+    ------
+    TypeError
+        If ``df`` is neither a ``pl.DataFrame`` nor a ``pl.LazyFrame``.
+    """
     if isinstance(df, pl.LazyFrame):
         # vc = df.collect()[alias].value_counts()
         vc = df.select(alias).collect()[alias].value_counts()  # ty:ignore[not-subscriptable, unresolved-attribute]
@@ -130,7 +220,28 @@ def get_value_counts_from_polars(
 
 def get_shape_from_polars(
     df: pl.DataFrame | pl.LazyFrame
-) -> tuple:
+) -> tuple[int, int]:
+    """Return a frame's row and column counts.
+
+    For a ``LazyFrame`` the row count is obtained from a ``pl.len()``
+    aggregation and the column count from the resolved schema, so the frame
+    itself is never materialized.
+
+    Parameters
+    ----------
+    df : pl.DataFrame | pl.LazyFrame
+        Frame to measure.
+
+    Returns
+    -------
+    tuple[int, int]
+        Number of rows and number of columns.
+
+    Raises
+    ------
+    TypeError
+        If ``df`` is neither a ``pl.DataFrame`` nor a ``pl.LazyFrame``.
+    """
     if isinstance(df, pl.DataFrame):
         return df.shape
     elif isinstance(df, pl.LazyFrame):
@@ -144,8 +255,22 @@ def get_shape_from_polars(
 def drop_list_type_columns_from_polars(
     df: pl.DataFrame | pl.LazyFrame
 ) -> pl.DataFrame | pl.LazyFrame:
+    """Drop every List-typed column, which most writers cannot serialize.
+
+    Parameters
+    ----------
+    df : pl.DataFrame | pl.LazyFrame
+        Frame to inspect.
+
+    Returns
+    -------
+    pl.DataFrame | pl.LazyFrame
+        ``df`` without its List-typed columns. The dropped names are printed
+        so notebook callers can see what was removed.
+    """
     drop_list = [
-        c for c, dtype in zip(df.columns, df.dtypes)
+        column
+        for column, dtype in get_schema_from_polars(df).items()
         if dtype == pl.datatypes.List
     ]
     print(f"{drop_list = }")
@@ -230,12 +355,38 @@ def drop_all_null_columns_from_polars(
 def safe_write_csv(
     df: pl.DataFrame, file_path: str | Path
 ) -> None:
+    """Write a frame to CSV after dropping columns CSV cannot represent.
+
+    Parameters
+    ----------
+    df : pl.DataFrame
+        Frame to write. List-typed columns are dropped first.
+    file_path : str | Path
+        Destination CSV path.
+    """
     df = drop_list_type_columns_from_polars(df)  # ty:ignore[invalid-assignment]
     df.write_csv(file_path)
     print(f"Written csv to {file_path}")
 
 
-def get_columns_from_polars(df) -> list:
+def get_columns_from_polars(df: pl.DataFrame | pl.LazyFrame) -> list[str]:
+    """Return column names without materializing a LazyFrame.
+
+    Parameters
+    ----------
+    df : pl.DataFrame | pl.LazyFrame
+        Frame whose schema supplies the column names.
+
+    Returns
+    -------
+    list[str]
+        Frame column names in their existing order.
+
+    Raises
+    ------
+    TypeError
+        If ``df`` is neither a ``pl.DataFrame`` nor a ``pl.LazyFrame``.
+    """
     if isinstance(df, pl.DataFrame):
         return df.columns
     if isinstance(df, pl.LazyFrame):
@@ -247,7 +398,26 @@ def get_schema_from_polars(
     df: pl.DataFrame | pl.LazyFrame,
     args: list[str] | None = None,
 ) -> dict[str, pl.DataType]:
-    """Return the schema of a Polars frame, optionally limited to columns."""
+    """Return the schema of a Polars frame, optionally limited to columns.
+
+    Parameters
+    ----------
+    df : pl.DataFrame | pl.LazyFrame
+        Frame whose schema is resolved. A ``LazyFrame`` is not materialized.
+    args : list[str] | None, default None
+        Columns to restrict the schema to. If ``None`` or empty, the full
+        schema is returned.
+
+    Returns
+    -------
+    dict[str, pl.DataType]
+        Column names mapped to their dtypes.
+
+    Raises
+    ------
+    TypeError
+        If ``df`` is neither a ``pl.DataFrame`` nor a ``pl.LazyFrame``.
+    """
     if args:
         df = df.select(args)
     if isinstance(df, pl.LazyFrame):
@@ -261,7 +431,21 @@ def get_numeric_args(
     df: pl.DataFrame,
     args: list[str] | None = None,
 ) -> list[str]:
-    """Return numeric column names from a DataFrame."""
+    """Return numeric column names from a DataFrame.
+
+    Parameters
+    ----------
+    df : pl.DataFrame
+        Frame whose schema is inspected.
+    args : list[str] | None, default None
+        Candidate column names. If ``None`` or empty, every column is
+        considered.
+
+    Returns
+    -------
+    list[str]
+        Names of the candidate columns with a numeric dtype.
+    """
     if not args:
         args = get_columns_from_polars(df)
     numeric_types = [pl.Float32, pl.Float64, pl.Int8, pl.Int16, pl.Int32, pl.Int64]
@@ -277,6 +461,28 @@ def get_unique_values_from_polars(
     alias: str,
     sort: bool = True,
 ) -> list[str]:
+    """Return one column's distinct non-null values.
+
+    Parameters
+    ----------
+    df : pl.DataFrame | pl.LazyFrame
+        Frame containing the column.
+    alias : str
+        Name of the column to read.
+    sort : bool, default True
+        Whether to sort the values with ``natural_keys``, so that embedded
+        numbers order numerically rather than lexicographically.
+
+    Returns
+    -------
+    list[str]
+        Distinct values of the column.
+
+    Raises
+    ------
+    TypeError
+        If ``df`` is neither a ``pl.DataFrame`` nor a ``pl.LazyFrame``.
+    """
     if isinstance(df, pl.LazyFrame):
         uniques = df.select(pl.col(alias).drop_nulls().unique()).collect().to_series().to_list()
     elif isinstance(df, pl.DataFrame):

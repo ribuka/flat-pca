@@ -7,6 +7,8 @@ from typing import Literal
 
 import polars as pl
 
+from flat_pca.spectral.schema import flattened_feature_columns
+
 from ..pca import PcaModel, fit_pca, transform_pca
 
 
@@ -40,11 +42,7 @@ def fit_flattened_pca(
     ValueError
         If ``n_component`` is not an integer in the permitted range.
     """
-    feature_columns = [
-        column
-        for column in flattened.collect_schema().names()
-        if column != "source"
-    ]
+    feature_columns = flattened_feature_columns(flattened.collect_schema().names())
     if isinstance(n_component, bool) or (
         n_component is not None and not isinstance(n_component, Integral)
     ):
@@ -99,9 +97,7 @@ def append_pca_scores(
         If the PCA feature count differs from the flattened feature count, or
         if no rows remain after missing-value handling.
     """
-    feature_columns = [
-        column for column in flattened.collect_schema().names() if column != "source"
-    ]
+    feature_columns = flattened_feature_columns(flattened.collect_schema().names())
     if pca_model.pca.n_features_in_ != len(feature_columns):
         raise ValueError(
             "PCA feature count does not match flattened feature count"

@@ -7,7 +7,8 @@ from numbers import Integral
 
 import polars as pl
 
-from ..flatten_pca.schema import parse_wavelength, wavelength_columns
+from flat_pca.spectral.schema import parse_wavelength, wavelength_columns
+from flat_pca.utils import get_columns_from_polars
 
 
 def collect_unique_times(
@@ -58,7 +59,7 @@ def collect_unique_wavelengths(
         {
             parse_wavelength(column)
             for frame in frames
-            for column in wavelength_columns(_column_names(frame))
+            for column in wavelength_columns(get_columns_from_polars(frame))
         }
     )
 
@@ -126,7 +127,7 @@ def apply_w_downsampling(
     if isinstance(stride, bool) or not isinstance(stride, Integral) or stride < 1:
         raise ValueError("w_downsampling_stride must be an integer of at least 1")
 
-    columns = _column_names(frame)
+    columns = get_columns_from_polars(frame)
     spectra = wavelength_columns(columns)
     non_spectral_columns = [column for column in columns if column not in spectra]
     wavelength_to_column = {
@@ -137,21 +138,3 @@ def apply_w_downsampling(
         for wavelength in unique_wavelengths[:: int(stride)]
     ]
     return frame.select(*non_spectral_columns, *selected_columns)
-
-
-def _column_names(frame: pl.DataFrame | pl.LazyFrame) -> list[str]:
-    """Return column names without materializing a LazyFrame.
-
-    Parameters
-    ----------
-    frame : pl.DataFrame | pl.LazyFrame
-        Spectral frame whose schema supplies the column names.
-
-    Returns
-    -------
-    list[str]
-        Frame column names in their existing order.
-    """
-    if isinstance(frame, pl.LazyFrame):
-        return frame.collect_schema().names()
-    return frame.columns

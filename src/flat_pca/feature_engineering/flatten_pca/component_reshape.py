@@ -7,8 +7,9 @@ import re
 import numpy as np
 import polars as pl
 
+from flat_pca.spectral.schema import flattened_feature_columns, parse_wavelength
+
 from ..pca import PcaModel
-from .schema import parse_wavelength
 
 _FEATURE_NAME_PATTERN = re.compile(
     r"(?P<wavelength>[^_]+)_(?P<step>-?\d+)_(?P<sequence>-?\d+)_(?P<time>-?\d+\.\d{2})"
@@ -41,11 +42,7 @@ def reshape_pca_components(
         features are not a coordinate Cartesian product, or feature counts do
         not match.
     """
-    feature_columns = [
-        column
-        for column in flattened.collect_schema().names()
-        if column != "source"
-    ]
+    feature_columns = flattened_feature_columns(flattened.collect_schema().names())
     components = _validated_components(pca_model, len(feature_columns))
     coordinates = [_parse_feature_coordinate(column) for column in feature_columns]
     wavelengths = sorted({coordinate[0] for coordinate in coordinates})

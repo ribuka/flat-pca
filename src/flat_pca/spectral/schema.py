@@ -1,7 +1,8 @@
-"""Shared spectral schema definitions for the Flatten-PCA workflow."""
+"""Spectral column conventions shared across the flat-pca workflows."""
 
 from math import isfinite
 
+SOURCE_COLUMN = "source"
 METADATA_COLUMNS = ("Time", "Step", "Sequence")
 STEP_TIME_COLUMNS = ("StepTime", "ReverseStepTime")
 NON_SPECTRAL_COLUMNS = METADATA_COLUMNS + STEP_TIME_COLUMNS
@@ -78,3 +79,20 @@ def select_wavelength_columns_in_range(
         for column in wavelength_columns(columns)
         if lower <= parse_wavelength(column) <= upper
     ]
+
+
+def flattened_feature_columns(columns: list[str]) -> list[str]:
+    """Return the feature columns of a flattened frame.
+
+    Parameters
+    ----------
+    columns : list[str]
+        Complete column names of a flattened frame, including
+        ``SOURCE_COLUMN``.
+
+    Returns
+    -------
+    list[str]
+        Column names other than ``SOURCE_COLUMN``, in their existing order.
+    """
+    return [column for column in columns if column != SOURCE_COLUMN]

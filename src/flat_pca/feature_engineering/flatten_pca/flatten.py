@@ -5,7 +5,11 @@ from pathlib import Path
 
 import polars as pl
 
-from .schema import parse_wavelength, wavelength_columns
+from flat_pca.spectral.schema import (
+    SOURCE_COLUMN,
+    parse_wavelength,
+    wavelength_columns,
+)
 
 FeatureSpec = tuple[str, int, int, float, str]
 
@@ -71,6 +75,63 @@ def _build_feature_specs(
     ]
 
 
+def _sorted_wavelength_columns(columns: list[str]) -> list[str]:
+    """Order a frame's wavelength columns by their numeric wavelength.
+
+    Parameters
+    ----------
+    columns : list[str]
+        Complete column names of one validated spectral frame.
+
+    Returns
+    -------
+    list[str]
+        Wavelength column names in ascending numeric order.
+    """
+    return [
+        column
+        for _, column in sorted(
+            (
+                (parse_wavelength(column), column)
+                for column in wavelength_columns(columns)
+            ),
+            key=lambda item: item[0],
+        )
+    ]
+
+
+def _prepare_flatten_layout(
+    columns: list[str],
+    frames: Sequence[pl.DataFrame | pl.LazyFrame],
+) -> tuple[list[str], list[FeatureSpec], list[str]]:
+    """Resolve the column layout shared by both flattening strategies.
+
+    Parameters
+    ----------
+    columns : list[str]
+        Complete column names of the first input frame, which every input
+        shares by validation.
+    frames : Sequence[pl.DataFrame | pl.LazyFrame]
+        Validated spectral frames whose metadata combinations are unioned.
+
+    Returns
+    -------
+    tuple[list[str], list[FeatureSpec], list[str]]
+        Sorted wavelength columns, feature specs, and feature names.
+
+    Raises
+    ------
+    ValueError
+        If formatted feature names collide.
+    """
+    wavelength_columns_sorted = _sorted_wavelength_columns(columns)
+    feature_specs = _build_feature_specs(wavelength_columns_sorted, frames)
+    feature_names = [spec[-1] for spec in feature_specs]
+    if len(feature_names) != len(set(feature_names)):
+        raise ValueError("duplicate flattened feature names")
+    return wavelength_columns_sorted, feature_specs, feature_names
+
+
 def flatten_inputs(
     inputs: Sequence[tuple[Path, pl.DataFrame | pl.LazyFrame]],
 ) -> pl.DataFrame | pl.LazyFrame:
@@ -106,22 +167,10 @@ def flatten_inputs(
         return _flatten_lazy_inputs(inputs)  # type: ignore[arg-type]
 
     sorted_inputs = sorted(inputs, key=lambda item: str(item[0].resolve()))
-    wavelength_columns_sorted = [
-        column
-        for _, column in sorted(
-            (
-                (parse_wavelength(column), column)
-                for column in wavelength_columns(sorted_inputs[0][1].columns)
-            ),
-            key=lambda item: item[0],
-        )
-    ]
-    feature_specs = _build_feature_specs(
-        wavelength_columns_sorted, [frame for _, frame in sorted_inputs]
+    wavelength_columns_sorted, feature_specs, feature_names = _prepare_flatten_layout(
+        sorted_inputs[0][1].columns,
+        [frame for _, frame in sorted_inputs],
     )
-    feature_names = [spec[-1] for spec in feature_specs]
-    if len(feature_names) != len(set(feature_names)):
-        raise ValueError("duplicate flattened feature names")
 
     rows: list[dict[str, object]] = []
     for path, frame in sorted_inputs:
@@ -131,13 +180,13 @@ def flatten_inputs(
                 "Step", "Sequence", "StepTime", *wavelength_columns_sorted
             ).iter_rows(named=True)
         }
-        row: dict[str, object] = {"source": path.as_posix()}
+        row: dict[str, object] = {SOURCE_COLUMN: path.as_posix()}
         for column, step, sequence, step_time, name in feature_specs:
             match = by_key.get((step, sequence, step_time))
             row[name] = match[column] if match is not None else None
         rows.append(row)
 
-    return pl.DataFrame(rows).select("source", *feature_names)
+    return pl.DataFrame(rows).select(SOURCE_COLUMN, *feature_names)
 
 
 def _flatten_lazy_inputs(
@@ -161,26 +210,16 @@ def _flatten_lazy_inputs(
         If formatted feature names collide.
     """
     frames = [frame for _, frame in inputs]
-    wavelength_columns_sorted = [
-        column
-        for _, column in sorted(
-            (
-                (parse_wavelength(column), column)
-                for column in wavelength_columns(frames[0].collect_schema().names())
-            ),
-            key=lambda item: item[0],
-        )
-    ]
-    feature_specs = _build_feature_specs(wavelength_columns_sorted, frames)
-    feature_names = [spec[-1] for spec in feature_specs]
-    if len(feature_names) != len(set(feature_names)):
-        raise ValueError("duplicate flattened feature names")
+    _, feature_specs, feature_names = _prepare_flatten_layout(
+        frames[0].collect_schema().names(),
+        frames,
+    )
 
     rows = []
     for path, frame in sorted(inputs, key=lambda item: str(item[0].resolve())):
         rows.append(
             frame.select(
-                pl.lit(path.as_posix()).alias("source"),
+                pl.lit(path.as_posix()).alias(SOURCE_COLUMN),
                 *[
                     pl.col(column)
                     .filter(
@@ -194,4 +233,4 @@ def _flatten_lazy_inputs(
                 ],
             )
         )
-    return pl.concat(rows).select("source", *feature_names)
+    return pl.concat(rows).select(SOURCE_COLUMN, *feature_names)

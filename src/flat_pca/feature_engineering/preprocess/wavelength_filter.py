@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
-from math import isfinite
-
 import polars as pl
 
-from ..flatten_pca.schema import select_wavelength_columns_in_range, wavelength_columns
+from flat_pca.spectral.schema import (
+    select_wavelength_columns_in_range,
+    wavelength_columns,
+)
+from flat_pca.utils import get_columns_from_polars
+
+from .ranges import validate_ordered_range
 
 
 def validate_wavelength_range(value: tuple[float, float]) -> tuple[float, float]:
     """Validate and coerce an inclusive ``wavelength_range`` interval.
+
+    Thin wrapper over ``validate_ordered_range`` that fixes the public
+    argument name used in validation messages.
 
     Parameters
     ----------
@@ -27,19 +34,7 @@ def validate_wavelength_range(value: tuple[float, float]) -> tuple[float, float]
     ValueError
         If the candidate is malformed, nonfinite, or reversed.
     """
-    if (
-        not isinstance(value, tuple)
-        or len(value) != 2
-        or any(isinstance(bound, bool) for bound in value)
-    ):
-        raise ValueError("wavelength_range must contain two finite bounds")
-    try:
-        lower, upper = (float(bound) for bound in value)
-    except (TypeError, ValueError) as error:
-        raise ValueError("wavelength_range must contain two finite bounds") from error
-    if not isfinite(lower) or not isfinite(upper) or lower > upper:
-        raise ValueError("wavelength_range must contain ordered finite bounds")
-    return lower, upper
+    return validate_ordered_range(value, "wavelength_range")
 
 
 def apply_wavelength_range_filter(
@@ -73,28 +68,10 @@ def apply_wavelength_range_filter(
         return frame
     validated_range = validate_wavelength_range(wavelength_range)
 
-    columns = _column_names(frame)
+    columns = get_columns_from_polars(frame)
     spectra = wavelength_columns(columns)
     non_spectral_columns = [column for column in columns if column not in spectra]
     selected_columns = select_wavelength_columns_in_range(columns, validated_range)
     if not selected_columns:
         raise ValueError("wavelength_range matches no wavelength columns")
     return frame.select(*non_spectral_columns, *selected_columns)
-
-
-def _column_names(frame: pl.DataFrame | pl.LazyFrame) -> list[str]:
-    """Return column names without materializing a LazyFrame.
-
-    Parameters
-    ----------
-    frame : pl.DataFrame | pl.LazyFrame
-        Spectral frame whose schema supplies the column names.
-
-    Returns
-    -------
-    list[str]
-        Frame column names in their existing order.
-    """
-    if isinstance(frame, pl.LazyFrame):
-        return frame.collect_schema().names()
-    return frame.columns
