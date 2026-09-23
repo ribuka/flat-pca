@@ -54,21 +54,32 @@ network_access="true"
 approve_for_me="false"
 extra_instructions=""
 
+require_value() {
+    if [ "$#" -lt 2 ]; then
+        echo "error: $1 requires a value" >&2
+        exit 1
+    fi
+}
+
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --model)
+            require_value "$@"
             model=$2
             shift 2
             ;;
         --effort)
+            require_value "$@"
             effort=$2
             shift 2
             ;;
         --sandbox)
+            require_value "$@"
             sandbox=$2
             shift 2
             ;;
         --network-access)
+            require_value "$@"
             network_access=$2
             shift 2
             ;;

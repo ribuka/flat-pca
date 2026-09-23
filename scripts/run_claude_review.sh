@@ -46,17 +46,27 @@ effort="medium"
 permission_mode="bypassPermissions"
 extra_instructions=""
 
+require_value() {
+    if [ "$#" -lt 2 ]; then
+        echo "error: $1 requires a value" >&2
+        exit 1
+    fi
+}
+
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --model)
+            require_value "$@"
             model=$2
             shift 2
             ;;
         --effort)
+            require_value "$@"
             effort=$2
             shift 2
             ;;
         --permission-mode)
+            require_value "$@"
             permission_mode=$2
             shift 2
             ;;
