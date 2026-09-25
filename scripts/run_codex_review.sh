@@ -45,7 +45,9 @@
 #                                   tmp/codex_review_logs/pr<N>-<timestamp>.jsonl).
 #                                   The path is also printed to stderr at
 #                                   start-up so it can be tailed from outside
-#                                   to check liveness/progress.
+#                                   to check liveness/progress. Removed on
+#                                   success; kept for debugging on failure,
+#                                   timeout, or hang.
 #
 # Anything after a literal `--` is appended to the review prompt as extra
 # instructions (for example, what to focus the review on).
@@ -182,29 +184,50 @@ if [ "$approve_for_me" = "true" ]; then
     codex_args+=(--approve-for-me)
 fi
 
+# Run codex in its own process group (via job control) so that a kill can
+# target the whole group -- codex exec spawns child tool/shell processes of
+# its own, and killing only codex_pid would leave those behind.
+set -m
 codex "${codex_args[@]}" "$prompt" >"$log_file" 2>&1 &
 codex_pid=$!
+set +m
 
-kill_codex() {
-    kill -TERM "$codex_pid" 2>/dev/null || true
-    sleep 2
-    kill -KILL "$codex_pid" 2>/dev/null || true
+# Kills the codex process group. Registered as a trap so that the group is
+# also reaped if this wrapper itself is killed or interrupted (it used to
+# `exec codex ...`, which let signals reach codex directly; now that codex
+# runs in the background, that no longer happens without an explicit trap).
+cleanup() {
+    if kill -0 "$codex_pid" 2>/dev/null; then
+        kill -TERM -- "-${codex_pid}" 2>/dev/null || kill -TERM "$codex_pid" 2>/dev/null || true
+        sleep 2
+        kill -KILL -- "-${codex_pid}" 2>/dev/null || kill -KILL "$codex_pid" 2>/dev/null || true
+    fi
     wait "$codex_pid" 2>/dev/null || true
 }
+trap cleanup EXIT INT TERM
 
 poll_interval_seconds=10
 start_time=$(date +%s)
 last_log_size=-1
 last_progress_time=$start_time
 
-while kill -0 "$codex_pid" 2>/dev/null; do
+while true; do
+    # Re-check aliveness both before and after the sleep: codex may have
+    # exited *during* the sleep, in which case the timeout checks below must
+    # be skipped rather than misreported as a timeout/hang.
+    if ! kill -0 "$codex_pid" 2>/dev/null; then
+        break
+    fi
     sleep "$poll_interval_seconds"
+    if ! kill -0 "$codex_pid" 2>/dev/null; then
+        break
+    fi
+
     now=$(date +%s)
     elapsed=$((now - start_time))
 
     if [ "$elapsed" -ge "$timeout_seconds" ]; then
         echo "error: codex exec exceeded the hard timeout of ${timeout_seconds}s; killing pid ${codex_pid}. Progress log: ${log_file}" >&2
-        kill_codex
         exit 124
     fi
 
@@ -214,7 +237,6 @@ while kill -0 "$codex_pid" 2>/dev/null; do
         last_progress_time=$now
     elif [ "$((now - last_progress_time))" -ge "$heartbeat_timeout_seconds" ]; then
         echo "error: no progress in codex log for ${heartbeat_timeout_seconds}s (hang suspected); killing pid ${codex_pid}. Progress log: ${log_file}" >&2
-        kill_codex
         exit 125
     fi
 done
@@ -223,5 +245,12 @@ set +e
 wait "$codex_pid"
 exit_code=$?
 set -e
+
+# Keep the progress log around for post-mortem debugging when codex failed,
+# timed out, or hung; remove it on success so tmp/codex_review_logs/ does not
+# accumulate indefinitely (per AGENTS.md's rule to clean up temp files).
+if [ "$exit_code" -eq 0 ]; then
+    rm -f "$log_file"
+fi
 
 exit "$exit_code"
