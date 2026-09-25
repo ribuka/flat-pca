@@ -278,3 +278,36 @@ def test_numpy_path_falls_back_and_preserves_integer_precision_beyond_53_bits(
     feature_column = materialized.columns[1]
     assert materialized.schema[feature_column] == pl.Int64
     assert materialized[feature_column][0] == exact_value
+
+
+@pytest.mark.parametrize("materialize_once", [True, False])
+def test_numpy_path_raises_file_not_found_for_missing_path(
+    materialize_once: bool, tmp_path: Path
+) -> None:
+    """Raise FileNotFoundError for a missing path, matching load_and_validate_inputs.
+
+    Regression test for a Codex review finding on this branch: the NumPy
+    fast path's float-dtype eligibility check called ``pl.scan_parquet``
+    directly, bypassing ``read_parquet``'s ``path.exists()`` check and
+    leaking a raw polars exception instead of the documented
+    ``FileNotFoundError``.
+    """
+    missing_path = tmp_path / "missing.parquet"
+
+    with pytest.raises(FileNotFoundError):
+        preprocess_and_flatten([missing_path], materialize_once=materialize_once).collect()
+
+
+@pytest.mark.parametrize("materialize_once", [True, False])
+def test_numpy_path_raises_value_error_for_directory_path(
+    materialize_once: bool, tmp_path: Path
+) -> None:
+    """Raise ValueError for a directory path, matching load_and_validate_inputs.
+
+    Companion to the missing-path regression test above: passing a
+    directory used to leak a raw
+    ``polars.exceptions.InvalidOperationError`` from the fast path's
+    float-dtype eligibility check instead of the documented ``ValueError``.
+    """
+    with pytest.raises(ValueError, match="not a file"):
+        preprocess_and_flatten([tmp_path], materialize_once=materialize_once).collect()

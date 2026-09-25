@@ -39,7 +39,7 @@ from ..preprocess.ranges import validate_ordered_range, validate_positive_finite
 from ..preprocess.step_time import add_step_time_columns
 from ..preprocess.trim import apply_edge_trim
 from ..preprocess.wavelength_filter import validate_wavelength_range
-from .input import validate_frame_schema
+from .input import read_parquet, validate_frame_schema
 from .input import validate_metadata_alignment as _validate_metadata_alignment
 
 MetadataGroups = dict[tuple[object, object], list[int]]
@@ -78,7 +78,7 @@ def all_wavelength_columns_are_float(
         validate_wavelength_range(wavelength_range) if wavelength_range is not None else None
     )
     for path in paths:
-        schema = pl.scan_parquet(path).collect_schema()
+        schema = read_parquet(path).collect_schema()
         candidate_columns = wavelength_columns(schema.names())
         if validated_range is not None:
             candidate_columns = select_wavelength_columns_in_range(
@@ -105,7 +105,7 @@ def _read_file_metadata(path: Path, target_steps: list[int] | None) -> pl.DataFr
         Cheap metadata-only frame, projected to three columns so the shared
         Time grid can be resolved before any spectral column is read.
     """
-    frame = pl.scan_parquet(path).select("Time", "Step", "Sequence")
+    frame = read_parquet(path).select("Time", "Step", "Sequence")
     filtered = filter_target_steps(frame, target_steps)
     assert isinstance(filtered, pl.LazyFrame)
     return filtered.collect()
@@ -647,7 +647,7 @@ def build_numpy_prepared_inputs(
     expected_wavelength_set: frozenset[str] | None = None
     native_wavelength_columns_by_path: dict[Path, list[str]] = {}
     for path in paths:
-        schema_frame = pl.scan_parquet(path)
+        schema_frame = read_parquet(path)
         wavelength_set = validate_frame_schema(path, schema_frame)
         if expected_wavelength_set is None:
             expected_wavelength_set = wavelength_set
@@ -703,7 +703,7 @@ def build_numpy_prepared_inputs(
     for path, _ in trimmed_metadata:
         file_native_columns = _selected_native_columns(path)
         combined_raw = (
-            pl.scan_parquet(path)
+            read_parquet(path)
             .select("Time", "Step", "Sequence", *file_native_columns)
             .collect()
         )
