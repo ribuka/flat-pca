@@ -45,6 +45,50 @@ from .input import validate_metadata_alignment as _validate_metadata_alignment
 MetadataGroups = dict[tuple[object, object], list[int]]
 
 
+def all_wavelength_columns_are_float(
+    paths: Sequence[Path], wavelength_range: tuple[float, float] | None
+) -> bool:
+    """Report whether every file's wavelength_range-restricted columns are float.
+
+    The fast path converts spectral values to ``float64`` throughout, which
+    reproduces ``Float32``/``Float64`` input exactly but would silently
+    round an integer beyond 53 bits or widen a decimal dtype -- exactly the
+    dtype rule ``flatten.py``'s ``_has_float_spectral_columns`` already
+    enforces for the flatten stage itself. Checked from schema alone (no
+    data read), so this is cheap to call before deciding which
+    ``preprocess_and_flatten`` ``materialize_once=True`` implementation to
+    use.
+
+    Parameters
+    ----------
+    paths : Sequence[Path]
+        Resolved input paths.
+    wavelength_range : tuple[float, float] | None
+        Inclusive ``(lower, upper)`` wavelength interval that will restrict
+        which columns are read, or ``None`` to check every wavelength
+        column.
+
+    Returns
+    -------
+    bool
+        ``True`` if every checked wavelength column, in every file, has a
+        floating-point dtype.
+    """
+    validated_range = (
+        validate_wavelength_range(wavelength_range) if wavelength_range is not None else None
+    )
+    for path in paths:
+        schema = pl.scan_parquet(path).collect_schema()
+        candidate_columns = wavelength_columns(schema.names())
+        if validated_range is not None:
+            candidate_columns = select_wavelength_columns_in_range(
+                candidate_columns, validated_range
+            )
+        if any(not schema[column].is_float() for column in candidate_columns):
+            return False
+    return True
+
+
 def _read_file_metadata(path: Path, target_steps: list[int] | None) -> pl.DataFrame:
     """Read one file's ``(Time, Step, Sequence)`` metadata, applying ``target_steps``.
 

@@ -1011,8 +1011,9 @@ def test_preprocess_and_flatten_numpy_path_scans_each_file_a_constant_number_of_
     """Keep the NumPy fast path's per-file scan count independent of normalization.
 
     Regression guard for #29: ``materialize_once=True`` must scan each file
-    the same small, fixed number of times (schema validation, the cheap
-    metadata pre-read, and the single combined value read) whether or not
+    the same small, fixed number of times (the float-dtype eligibility
+    check, schema validation, the cheap metadata pre-read, and the single
+    combined value read) whether or not
     ``t_normalization_range``/``w_normalization_range`` is requested, since
     normalization is computed selectively on the values already loaded by
     that one read rather than by re-reading or re-collecting the file.
@@ -1027,7 +1028,7 @@ def test_preprocess_and_flatten_numpy_path_scans_each_file_a_constant_number_of_
         **normalization,
     ).collect()
 
-    assert len(calls) == 3 * len(paths)
+    assert len(calls) == 4 * len(paths)
 
 
 def test_preprocess_and_flatten_stays_fast_with_many_wavelengths_and_combos(

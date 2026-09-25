@@ -6,6 +6,9 @@ import polars as pl
 import pytest
 
 from flat_pca.feature_engineering import preprocess_and_flatten
+from flat_pca.feature_engineering.flatten_pca.numpy_preprocessing import (
+    all_wavelength_columns_are_float,
+)
 
 
 def _write_two_group_frame(path: Path) -> Path:
@@ -213,3 +216,65 @@ def test_numpy_path_matches_deferred_path_with_mismatched_input_grids(
     deferred = preprocess_and_flatten(paths, max_null_ratio=1.0, materialize_once=False)
 
     assert materialized.collect().equals(deferred.collect())
+
+
+def test_all_wavelength_columns_are_float_detects_non_float_dtype(tmp_path: Path) -> None:
+    """Report ``False`` for an integer wavelength column, ``True`` for float ones."""
+    integer_frame = pl.DataFrame(
+        {
+            "Time": [0.0],
+            "Step": [0],
+            "Sequence": [0],
+            "500.0nm": pl.Series([1], dtype=pl.Int64),
+        }
+    )
+    float_frame = pl.DataFrame(
+        {
+            "Time": [0.0],
+            "Step": [0],
+            "Sequence": [0],
+            "500.0nm": pl.Series([1.0], dtype=pl.Float64),
+        }
+    )
+    integer_path = tmp_path / "integer.parquet"
+    float_path = tmp_path / "float.parquet"
+    integer_frame.write_parquet(integer_path)
+    float_frame.write_parquet(float_path)
+
+    assert all_wavelength_columns_are_float([integer_path], None) is False
+    assert all_wavelength_columns_are_float([float_path], None) is True
+
+
+def test_numpy_path_falls_back_and_preserves_integer_precision_beyond_53_bits(
+    tmp_path: Path,
+) -> None:
+    """Preserve an Int64 spectrum's exact dtype and value beyond 2**53.
+
+    Regression test for a bug a Codex review of this branch found: the
+    NumPy fast path converts spectral values to ``float64`` throughout,
+    which would silently round an integer beyond 53 bits of precision (and
+    change the flattened dtype for any non-float wavelength column).
+    ``preprocess_and_flatten`` must therefore fall back to the legacy
+    per-file polars pipeline -- matching ``flatten.py``'s
+    ``_has_float_spectral_columns`` dtype rule -- for such input, whether or
+    not ``materialize_once`` is requested.
+    """
+    exact_value = 2**53 + 1  # not exactly representable as a float64
+    frame = pl.DataFrame(
+        {
+            "Time": [0.0, 1.0],
+            "Step": [0, 0],
+            "Sequence": [0, 0],
+            "500.0nm": pl.Series([exact_value, exact_value + 1], dtype=pl.Int64),
+        }
+    )
+    path = tmp_path / "integer-spectrum.parquet"
+    frame.write_parquet(path)
+
+    materialized = preprocess_and_flatten([path], materialize_once=True).collect()
+    deferred = preprocess_and_flatten([path], materialize_once=False).collect()
+
+    assert materialized.equals(deferred)
+    feature_column = materialized.columns[1]
+    assert materialized.schema[feature_column] == pl.Int64
+    assert materialized[feature_column][0] == exact_value
