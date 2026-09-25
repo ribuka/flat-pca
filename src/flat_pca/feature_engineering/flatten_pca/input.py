@@ -52,6 +52,56 @@ def read_parquet(path: Path) -> pl.LazyFrame:
         raise ValueError(f"failed to read Parquet input: {path}") from error
 
 
+def validate_frame_schema(
+    path: Path,
+    frame: pl.DataFrame | pl.LazyFrame,
+) -> frozenset[str]:
+    """Validate one input frame's schema without reading any of its values.
+
+    Checks the required-column, numeric-dtype, and wavelength-name-format
+    rules that can be resolved from ``collect_schema()`` alone. Split out of
+    ``validate_frame`` so the NumPy fast path can perform the same schema
+    checks without also triggering ``validate_frame``'s separate value-scan
+    ``collect()``; it instead validates values from the single read it
+    already performs for preprocessing.
+
+    Parameters
+    ----------
+    path : Path
+        Source path used in validation errors.
+    frame : pl.DataFrame | pl.LazyFrame
+        Frame whose schema is validated. A ``LazyFrame`` is not materialized.
+
+    Returns
+    -------
+    frozenset[str]
+        Wavelength-column names.
+
+    Raises
+    ------
+    ValueError
+        If the frame violates the Flatten-PCA input schema rules.
+    """
+    schema = get_schema_from_polars(frame)
+    columns = list(schema)
+    missing_columns = [column for column in METADATA_COLUMNS if column not in schema]
+    if missing_columns:
+        raise ValueError(f"required columns missing in {path}: {missing_columns}")
+
+    if any(not schema[column].is_numeric() for column in METADATA_COLUMNS):
+        raise ValueError(f"metadata columns must be numeric in {path}")
+
+    spectra = wavelength_columns(columns)
+    if not spectra:
+        raise ValueError(f"at least one wavelength column is required in {path}")
+    for column in spectra:
+        parse_wavelength(column)
+    if any(not schema[column].is_numeric() for column in spectra):
+        raise ValueError(f"spectral columns must be numeric in {path}")
+
+    return frozenset(spectra)
+
+
 def validate_frame(
     path: Path,
     frame: pl.LazyFrame,
@@ -90,22 +140,8 @@ def validate_frame(
     ValueError
         If the frame violates the Flatten-PCA input schema or value rules.
     """
-    schema = get_schema_from_polars(frame)
-    columns = list(schema)
-    missing_columns = [column for column in METADATA_COLUMNS if column not in schema]
-    if missing_columns:
-        raise ValueError(f"required columns missing in {path}: {missing_columns}")
-
-    if any(not schema[column].is_numeric() for column in METADATA_COLUMNS):
-        raise ValueError(f"metadata columns must be numeric in {path}")
-
-    spectra = wavelength_columns(columns)
-    if not spectra:
-        raise ValueError(f"at least one wavelength column is required in {path}")
-    for column in spectra:
-        parse_wavelength(column)
-    if any(not schema[column].is_numeric() for column in spectra):
-        raise ValueError(f"spectral columns must be numeric in {path}")
+    spectra = validate_frame_schema(path, frame)
+    columns = [*METADATA_COLUMNS, *spectra]
 
     if wavelength_range is None:
         value_check_columns = columns
@@ -172,6 +208,51 @@ def validate_metadata_alignment(
             raise ValueError("input metadata-key sets must match")
 
 
+def resolve_and_check_paths(
+    paths: Sequence[str | Path],
+    *,
+    stem_uniqueness: StemUniquenessCheck = "skip",
+) -> list[Path]:
+    """Normalize input paths and apply the requested stem-uniqueness check.
+
+    Extracted from ``load_and_validate_inputs`` so the NumPy fast path can
+    reuse the same deterministic path resolution and stem-uniqueness rule
+    without also running ``validate_frame``'s separate value-scan
+    ``collect()`` for each path.
+
+    Parameters
+    ----------
+    paths : Sequence[str | Path]
+        One or more input Parquet paths.
+    stem_uniqueness : Literal["skip", "warn", "error"], default "skip"
+        How to handle duplicate ``Path.stem`` values across inputs. See
+        ``load_and_validate_inputs`` for details.
+
+    Returns
+    -------
+    list[Path]
+        Normalized absolute paths, sorted by path text.
+
+    Raises
+    ------
+    ValueError
+        If ``paths`` is empty, or ``stem_uniqueness="error"`` and stems
+        repeat.
+    """
+    if isinstance(paths, (str, Path)) or len(paths) == 0:
+        raise ValueError("paths must contain at least one input path")
+
+    normalized_paths = sorted((Path(path).resolve() for path in paths), key=str)
+    if stem_uniqueness != "skip":
+        stems = [path.stem for path in normalized_paths]
+        if len(stems) != len(set(stems)):
+            if stem_uniqueness == "error":
+                raise ValueError("input path stems must be unique")
+            warnings.warn("input path stems are not unique", stacklevel=2)
+
+    return normalized_paths
+
+
 def load_and_validate_inputs(
     paths: Sequence[str | Path],
     *,
@@ -216,16 +297,7 @@ def load_and_validate_inputs(
         input data violates the schema, value, requested uniqueness, or
         cross-file consistency requirements.
     """
-    if isinstance(paths, (str, Path)) or len(paths) == 0:
-        raise ValueError("paths must contain at least one input path")
-
-    normalized_paths = sorted((Path(path).resolve() for path in paths), key=str)
-    if stem_uniqueness != "skip":
-        stems = [path.stem for path in normalized_paths]
-        if len(stems) != len(set(stems)):
-            if stem_uniqueness == "error":
-                raise ValueError("input path stems must be unique")
-            warnings.warn("input path stems are not unique", stacklevel=2)
+    normalized_paths = resolve_and_check_paths(paths, stem_uniqueness=stem_uniqueness)
 
     loaded: list[tuple[Path, pl.LazyFrame]] = []
     expected_wavelengths: frozenset[str] | None = None

@@ -64,6 +64,41 @@ def collect_unique_wavelengths(
     )
 
 
+def resolve_downsampled_values(
+    unique_values: list[float],
+    stride: int,
+    argument_name: str,
+) -> list[float]:
+    """Validate a downsampling stride and select its regularly spaced values.
+
+    Shared by the Time- and wavelength-direction downsampling stages, and by
+    the NumPy fast path, so the stride validation rule and selection formula
+    have one implementation.
+
+    Parameters
+    ----------
+    unique_values : list[float]
+        Numerically sorted unique values to downsample.
+    stride : int
+        Positive, non-boolean interval between retained indices.
+    argument_name : str
+        Public argument name used in the validation message.
+
+    Returns
+    -------
+    list[float]
+        Every ``stride``-th value of ``unique_values``, starting from index 0.
+
+    Raises
+    ------
+    ValueError
+        If ``stride`` is not a positive, non-boolean integer.
+    """
+    if isinstance(stride, bool) or not isinstance(stride, Integral) or stride < 1:
+        raise ValueError(f"{argument_name} must be an integer of at least 1")
+    return unique_values[:: int(stride)]
+
+
 def apply_t_downsampling(
     frame: pl.DataFrame | pl.LazyFrame,
     unique_times: list[float],
@@ -90,10 +125,9 @@ def apply_t_downsampling(
     ValueError
         If ``stride`` is not a positive, non-boolean integer.
     """
-    if isinstance(stride, bool) or not isinstance(stride, Integral) or stride < 1:
-        raise ValueError("t_downsampling_stride must be an integer of at least 1")
-
-    selected_times = unique_times[:: int(stride)]
+    selected_times = resolve_downsampled_values(
+        unique_times, stride, "t_downsampling_stride"
+    )
     return frame.filter(pl.col("Time").is_in(selected_times))
 
 
@@ -124,8 +158,9 @@ def apply_w_downsampling(
     ValueError
         If ``stride`` is not a positive, non-boolean integer.
     """
-    if isinstance(stride, bool) or not isinstance(stride, Integral) or stride < 1:
-        raise ValueError("w_downsampling_stride must be an integer of at least 1")
+    selected_wavelengths = resolve_downsampled_values(
+        unique_wavelengths, stride, "w_downsampling_stride"
+    )
 
     columns = get_columns_from_polars(frame)
     spectra = wavelength_columns(columns)
@@ -134,7 +169,6 @@ def apply_w_downsampling(
         parse_wavelength(column): column for column in spectra
     }
     selected_columns = [
-        wavelength_to_column[wavelength]
-        for wavelength in unique_wavelengths[:: int(stride)]
+        wavelength_to_column[wavelength] for wavelength in selected_wavelengths
     ]
     return frame.select(*non_spectral_columns, *selected_columns)

@@ -16,6 +16,9 @@ from flat_pca.feature_engineering import (
 )
 from flat_pca.feature_engineering.flatten_pca import api as _api
 from flat_pca.feature_engineering.flatten_pca import flatten_pca as package_flatten_pca
+from flat_pca.feature_engineering.flatten_pca import (
+    numpy_preprocessing as _numpy_preprocessing,
+)
 from flat_pca.feature_engineering.flatten_pca import pca_scores
 from flat_pca.feature_engineering.flatten_pca.flatten import (
     flatten_inputs as _flatten_inputs,
@@ -902,7 +905,6 @@ def _instrument_t_smoothing_execution_count(
     return executions
 
 
-@pytest.mark.parametrize("materialize_once", [True, False])
 @pytest.mark.parametrize(
     "normalization",
     [
@@ -919,14 +921,20 @@ def test_preprocess_and_flatten_runs_upstream_once_with_normalization(
     real_fixture_paths: list[Path],
     monkeypatch: pytest.MonkeyPatch,
     normalization: dict[str, tuple[float, float]],
-    materialize_once: bool,
 ) -> None:
-    """Keep the upstream execution count unchanged when normalization is enabled.
+    """Keep the deferred upstream execution count unchanged when normalizing.
 
     Normalization used to ``collect()`` inside its LazyFrame branch purely to
     validate reference means, which re-ran every preceding stage on the later
     ``collect()``. Each direction is measured on its own so that reintroducing
     the extra collect in either branch fails this test.
+
+    Scoped to ``materialize_once=False``: the ``True`` default now runs
+    through the NumPy fast path (see numpy_preprocessing.py), which never
+    calls ``_apply_t_smoothing_eager`` at all, so this instrumentation cannot
+    observe it; see
+    ``test_preprocess_and_flatten_numpy_path_scans_each_file_a_constant_number_of_times``
+    for the equivalent regression guard on that path.
     """
     paths = real_fixture_paths[:3]
 
@@ -934,7 +942,7 @@ def test_preprocess_and_flatten_runs_upstream_once_with_normalization(
     preprocess_and_flatten(
         paths,
         t_smoothing_window=0.5,
-        materialize_once=materialize_once,
+        materialize_once=False,
     ).collect()
     disabled_executions = len(disabled)
 
@@ -942,18 +950,84 @@ def test_preprocess_and_flatten_runs_upstream_once_with_normalization(
     preprocess_and_flatten(
         paths,
         t_smoothing_window=0.5,
-        materialize_once=materialize_once,
+        materialize_once=False,
         **normalization,
     ).collect()
 
     # Normalization collects each file once and reuses that result, so the
     # upstream pipeline runs exactly once per input and never more often than
-    # with normalization disabled. The disabled baseline itself differs
-    # between the materialize_once branches, since the deferred branch lets
-    # the flatten stage rescan each per-file query.
+    # with normalization disabled.
     assert disabled_executions > 0
     assert len(enabled) == len(paths)
     assert len(enabled) <= disabled_executions
+
+
+def _count_numpy_path_scan_parquet_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[Path]:
+    """Wrap the NumPy fast path's ``pl.scan_parquet`` with a call recorder.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture used to replace ``numpy_preprocessing``'s ``pl.scan_parquet``.
+
+    Returns
+    -------
+    list[Path]
+        One entry (the scanned path) per ``pl.scan_parquet`` call made from
+        within ``numpy_preprocessing``.
+    """
+    calls: list[Path] = []
+    original_scan_parquet = _numpy_preprocessing.pl.scan_parquet
+
+    def counting_scan_parquet(source: Path, *args: object, **kwargs: object) -> pl.LazyFrame:
+        """Record one ``scan_parquet`` call without altering its result."""
+        calls.append(source)
+        return original_scan_parquet(source, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(_numpy_preprocessing.pl, "scan_parquet", counting_scan_parquet)
+    return calls
+
+
+@pytest.mark.parametrize(
+    "normalization",
+    [
+        {},
+        {"t_normalization_range": (0.0, 4.0)},
+        {"w_normalization_range": (350.0, 850.0)},
+        {
+            "t_normalization_range": (0.0, 4.0),
+            "w_normalization_range": (350.0, 850.0),
+        },
+    ],
+    ids=["none", "t", "w", "t_and_w"],
+)
+def test_preprocess_and_flatten_numpy_path_scans_each_file_a_constant_number_of_times(
+    real_fixture_paths: list[Path],
+    monkeypatch: pytest.MonkeyPatch,
+    normalization: dict[str, tuple[float, float]],
+) -> None:
+    """Keep the NumPy fast path's per-file scan count independent of normalization.
+
+    Regression guard for #29: ``materialize_once=True`` must scan each file
+    the same small, fixed number of times (schema validation, the cheap
+    metadata pre-read, and the single combined value read) whether or not
+    ``t_normalization_range``/``w_normalization_range`` is requested, since
+    normalization is computed selectively on the values already loaded by
+    that one read rather than by re-reading or re-collecting the file.
+    """
+    paths = real_fixture_paths[:3]
+    calls = _count_numpy_path_scan_parquet_calls(monkeypatch)
+
+    preprocess_and_flatten(
+        paths,
+        t_smoothing_window=0.5,
+        materialize_once=True,
+        **normalization,
+    ).collect()
+
+    assert len(calls) == 3 * len(paths)
 
 
 def test_preprocess_and_flatten_stays_fast_with_many_wavelengths_and_combos(

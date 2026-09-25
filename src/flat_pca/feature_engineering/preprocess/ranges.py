@@ -75,3 +75,35 @@ def validate_ordered_range(
     if lower > upper:
         raise ValueError(f"{argument_name} must contain ordered finite bounds")
     return lower, upper
+
+
+def validate_positive_finite(value: float, argument_name: str) -> float:
+    """Validate and coerce a single finite, strictly positive scalar.
+
+    Shared by the smoothing stages, whose half-window arguments follow the
+    same rule: finite, non-boolean, and greater than zero.
+
+    Parameters
+    ----------
+    value : float
+        Candidate scalar.
+    argument_name : str
+        Public argument name used in the validation message.
+
+    Returns
+    -------
+    float
+        The validated value as a ``float``.
+
+    Raises
+    ------
+    ValueError
+        If ``value`` is not finite and greater than zero.
+    """
+    try:
+        coerced = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{argument_name} must be finite and greater than 0") from error
+    if isinstance(value, bool) or not isfinite(coerced) or coerced <= 0:
+        raise ValueError(f"{argument_name} must be finite and greater than 0")
+    return coerced

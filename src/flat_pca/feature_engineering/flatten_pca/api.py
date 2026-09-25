@@ -25,10 +25,15 @@ from ..preprocess import (
     validate_max_null_ratio,
 )
 from .flatten import flatten_and_prune_inputs, flatten_inputs
-from .input import StemUniquenessCheck, load_and_validate_inputs
+from .input import (
+    StemUniquenessCheck,
+    load_and_validate_inputs,
+    resolve_and_check_paths,
+)
 from .input import (
     validate_metadata_alignment as validate_alignment_across_inputs,
 )
+from .numpy_preprocessing import build_numpy_prepared_inputs
 from .pca_scores import fit_flattened_pca
 
 
@@ -268,6 +273,35 @@ def preprocess_and_flatten(
     fitting's ``impute_strategy``. Enable the check only when inputs are
     required to share an identical grid.
     """
+    if materialize_once:
+        # Fail fast before reading any input; flatten_and_prune_inputs
+        # validates again for its independent callers.
+        validate_max_null_ratio(max_null_ratio)
+        resolved_paths = resolve_and_check_paths(paths, stem_uniqueness=stem_uniqueness)
+        # The NumPy fast path replaces load_and_validate_inputs and the
+        # per-file smoothing/normalization/downsampling loop below with a
+        # single read per file (merging validate_frame's separate value scan
+        # into it) and selective smoothing/normalization computed only at
+        # the row and wavelength-column positions downsampling and
+        # normalization references actually need. See
+        # numpy_preprocessing.py for details; materialize_once=False keeps
+        # the original polars implementation below unchanged.
+        prepared_inputs = build_numpy_prepared_inputs(
+            resolved_paths,
+            target_steps=target_steps,
+            edge_trim=edge_trim,
+            wavelength_range=wavelength_range,
+            t_smoothing_window=t_smoothing_window,
+            w_smoothing_window=w_smoothing_window,
+            t_normalization_range=t_normalization_range,
+            w_normalization_range=w_normalization_range,
+            t_downsampling_stride=t_downsampling_stride,
+            w_downsampling_stride=w_downsampling_stride,
+            validate_metadata_uniqueness=validate_metadata_uniqueness,
+            validate_metadata_alignment=validate_metadata_alignment,
+        )
+        return flatten_and_prune_inputs(prepared_inputs, max_null_ratio).lazy()
+
     loaded_inputs = load_and_validate_inputs(
         paths,
         stem_uniqueness=stem_uniqueness,
@@ -311,22 +345,6 @@ def preprocess_and_flatten(
         )
         prepared_inputs.append((path, prepared))
 
-    if materialize_once:
-        # Fail fast before collecting inputs and running the expensive
-        # flatten below; flatten_and_prune_inputs validates again for its
-        # independent callers.
-        validate_max_null_ratio(max_null_ratio)
-        # Collecting each file before flatten routes flattening through the
-        # NumPy feature-matrix path, which is far faster than the LazyFrame
-        # branch (one filter+first expression per wavelength-and-combo
-        # cell). materialize_once=True already collects the flatten result
-        # immediately afterward, so this does not add a new collection
-        # boundary, only moves it earlier. Pruning is fused into the same
-        # pass so sparse columns never reach polars.
-        collected_inputs: list[tuple[Path, pl.DataFrame]] = [
-            (path, frame.collect()) for path, frame in prepared_inputs
-        ]
-        return flatten_and_prune_inputs(collected_inputs, max_null_ratio).lazy()
     flattened = flatten_inputs(prepared_inputs)
     assert isinstance(flattened, pl.LazyFrame)
     return drop_sparse_feature_columns(flattened, max_null_ratio)
