@@ -1,12 +1,12 @@
 """Time- and wavelength-direction smoothing for Flatten-PCA."""
 
-from math import isfinite
-
 import numpy as np
 import polars as pl
 
 from flat_pca.spectral.schema import parse_wavelength, wavelength_columns
 from flat_pca.utils import get_columns_from_polars
+
+from .ranges import validate_positive_finite
 
 
 def apply_t_smoothing(
@@ -36,14 +36,7 @@ def apply_t_smoothing(
     """
     if t_smoothing_window is None:
         return frame
-    try:
-        window = float(t_smoothing_window)
-    except (TypeError, ValueError) as error:
-        raise ValueError(
-            "t_smoothing_window must be finite and greater than 0"
-        ) from error
-    if isinstance(t_smoothing_window, bool) or not isfinite(window) or window <= 0:
-        raise ValueError("t_smoothing_window must be finite and greater than 0")
+    window = validate_positive_finite(t_smoothing_window, "t_smoothing_window")
 
     if isinstance(frame, pl.LazyFrame):
         return frame.map_batches(
@@ -173,14 +166,7 @@ def apply_w_smoothing(
     """
     if w_smoothing_window is None:
         return frame
-    try:
-        window = float(w_smoothing_window)
-    except (TypeError, ValueError) as error:
-        raise ValueError(
-            "w_smoothing_window must be finite and greater than 0"
-        ) from error
-    if isinstance(w_smoothing_window, bool) or not isfinite(window) or window <= 0:
-        raise ValueError("w_smoothing_window must be finite and greater than 0")
+    window = validate_positive_finite(w_smoothing_window, "w_smoothing_window")
 
     columns = get_columns_from_polars(frame)
     spectra = wavelength_columns(columns)

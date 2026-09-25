@@ -25,9 +25,17 @@ from ..preprocess import (
     validate_max_null_ratio,
 )
 from .flatten import flatten_and_prune_inputs, flatten_inputs
-from .input import StemUniquenessCheck, load_and_validate_inputs
+from .input import (
+    StemUniquenessCheck,
+    load_and_validate_inputs,
+    resolve_and_check_paths,
+)
 from .input import (
     validate_metadata_alignment as validate_alignment_across_inputs,
+)
+from .numpy_preprocessing import (
+    all_wavelength_columns_are_float,
+    build_numpy_prepared_inputs,
 )
 from .pca_scores import fit_flattened_pca
 
@@ -268,6 +276,124 @@ def preprocess_and_flatten(
     fitting's ``impute_strategy``. Enable the check only when inputs are
     required to share an identical grid.
     """
+    if materialize_once:
+        # Fail fast before reading any input; flatten_and_prune_inputs
+        # validates again for its independent callers.
+        validate_max_null_ratio(max_null_ratio)
+        resolved_paths = resolve_and_check_paths(paths, stem_uniqueness=stem_uniqueness)
+        if all_wavelength_columns_are_float(resolved_paths, wavelength_range):
+            # The NumPy fast path replaces load_and_validate_inputs and the
+            # per-file smoothing/normalization/downsampling loop below with
+            # a single read per file (merging validate_frame's separate
+            # value scan into it) and selective smoothing/normalization
+            # computed only at the row and wavelength-column positions
+            # downsampling and normalization references actually need. It
+            # converts every spectral value to float64 throughout, which
+            # reproduces Float32/Float64 input exactly (see
+            # numpy_preprocessing.py), so it is only used when every
+            # wavelength column already has a floating-point dtype.
+            prepared_inputs = build_numpy_prepared_inputs(
+                resolved_paths,
+                target_steps=target_steps,
+                edge_trim=edge_trim,
+                wavelength_range=wavelength_range,
+                t_smoothing_window=t_smoothing_window,
+                w_smoothing_window=w_smoothing_window,
+                t_normalization_range=t_normalization_range,
+                w_normalization_range=w_normalization_range,
+                t_downsampling_stride=t_downsampling_stride,
+                w_downsampling_stride=w_downsampling_stride,
+                validate_metadata_uniqueness=validate_metadata_uniqueness,
+                validate_metadata_alignment=validate_metadata_alignment,
+            )
+        else:
+            # An integer or decimal wavelength dtype would be corrupted by
+            # the NumPy fast path's float64 conversion (silently rounding
+            # values beyond 53 bits, or just changing dtype), so fall back
+            # to the original per-file polars pipeline -- the same one
+            # materialize_once=False uses below -- and collect each file
+            # eagerly instead. flatten_and_prune_inputs then routes such
+            # dtypes through its own dtype-preserving row-dict path (see
+            # flatten.py's _has_float_spectral_columns).
+            legacy_prepared_inputs = _build_legacy_prepared_inputs(
+                resolved_paths,
+                target_steps=target_steps,
+                edge_trim=edge_trim,
+                wavelength_range=wavelength_range,
+                t_smoothing_window=t_smoothing_window,
+                w_smoothing_window=w_smoothing_window,
+                t_normalization_range=t_normalization_range,
+                w_normalization_range=w_normalization_range,
+                t_downsampling_stride=t_downsampling_stride,
+                w_downsampling_stride=w_downsampling_stride,
+                stem_uniqueness=stem_uniqueness,
+                validate_metadata_uniqueness=validate_metadata_uniqueness,
+                validate_metadata_alignment=validate_metadata_alignment,
+            )
+            prepared_inputs = [
+                (path, frame.collect()) for path, frame in legacy_prepared_inputs
+            ]
+        return flatten_and_prune_inputs(prepared_inputs, max_null_ratio).lazy()
+
+    prepared_inputs = _build_legacy_prepared_inputs(
+        paths,
+        target_steps=target_steps,
+        edge_trim=edge_trim,
+        wavelength_range=wavelength_range,
+        t_smoothing_window=t_smoothing_window,
+        w_smoothing_window=w_smoothing_window,
+        t_normalization_range=t_normalization_range,
+        w_normalization_range=w_normalization_range,
+        t_downsampling_stride=t_downsampling_stride,
+        w_downsampling_stride=w_downsampling_stride,
+        stem_uniqueness=stem_uniqueness,
+        validate_metadata_uniqueness=validate_metadata_uniqueness,
+        validate_metadata_alignment=validate_metadata_alignment,
+    )
+    flattened = flatten_inputs(prepared_inputs)
+    assert isinstance(flattened, pl.LazyFrame)
+    return drop_sparse_feature_columns(flattened, max_null_ratio)
+
+
+def _build_legacy_prepared_inputs(
+    paths: Sequence[str | Path],
+    *,
+    target_steps: list[int] | None,
+    edge_trim: Sequence[float] | None,
+    wavelength_range: tuple[float, float] | None,
+    t_smoothing_window: float | None,
+    w_smoothing_window: float | None,
+    t_normalization_range: tuple[float, float] | None,
+    w_normalization_range: tuple[float, float] | None,
+    t_downsampling_stride: int,
+    w_downsampling_stride: int,
+    stem_uniqueness: StemUniquenessCheck,
+    validate_metadata_uniqueness: bool,
+    validate_metadata_alignment: bool,
+) -> list[tuple[Path, pl.LazyFrame]]:
+    """Validate and preprocess inputs through the original polars pipeline.
+
+    Shared by ``preprocess_and_flatten``'s ``materialize_once=False`` branch
+    and by its ``materialize_once=True`` branch's fallback for inputs whose
+    wavelength columns are not all floating point (see
+    ``all_wavelength_columns_are_float``), since the NumPy fast path's
+    ``float64`` conversion cannot represent those losslessly.
+
+    Parameters
+    ----------
+    paths, target_steps, edge_trim, wavelength_range, t_smoothing_window,
+    w_smoothing_window, t_normalization_range, w_normalization_range,
+    t_downsampling_stride, w_downsampling_stride, stem_uniqueness,
+    validate_metadata_uniqueness, validate_metadata_alignment :
+        See ``preprocess_and_flatten``.
+
+    Returns
+    -------
+    list[tuple[Path, pl.LazyFrame]]
+        Normalized paths paired with fully preprocessed, downsampled,
+        not-yet-collected per-file queries, ready for ``flatten_inputs`` or,
+        after collecting each, ``flatten_and_prune_inputs``.
+    """
     loaded_inputs = load_and_validate_inputs(
         paths,
         stem_uniqueness=stem_uniqueness,
@@ -310,26 +436,7 @@ def preprocess_and_flatten(
             w_downsampling_stride,
         )
         prepared_inputs.append((path, prepared))
-
-    if materialize_once:
-        # Fail fast before collecting inputs and running the expensive
-        # flatten below; flatten_and_prune_inputs validates again for its
-        # independent callers.
-        validate_max_null_ratio(max_null_ratio)
-        # Collecting each file before flatten routes flattening through the
-        # NumPy feature-matrix path, which is far faster than the LazyFrame
-        # branch (one filter+first expression per wavelength-and-combo
-        # cell). materialize_once=True already collects the flatten result
-        # immediately afterward, so this does not add a new collection
-        # boundary, only moves it earlier. Pruning is fused into the same
-        # pass so sparse columns never reach polars.
-        collected_inputs: list[tuple[Path, pl.DataFrame]] = [
-            (path, frame.collect()) for path, frame in prepared_inputs
-        ]
-        return flatten_and_prune_inputs(collected_inputs, max_null_ratio).lazy()
-    flattened = flatten_inputs(prepared_inputs)
-    assert isinstance(flattened, pl.LazyFrame)
-    return drop_sparse_feature_columns(flattened, max_null_ratio)
+    return prepared_inputs
 
 
 def materialize_flattened(flattened: pl.LazyFrame) -> pl.LazyFrame:
