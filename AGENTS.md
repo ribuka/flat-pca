@@ -14,9 +14,10 @@
 
 ### Verification commands
 
-- Run targeted tests while implementing a task.
-- Run the full test suite and lint before marking the task as completed.
-  - Use `uv run -m ruff check .` for lint.
+- Run targeted tests (`uv run -m pytest <test-path>`) while implementing a task.
+- Run lint (`uv run -m ruff check .`) before marking the task as completed.
+- Run the full test suite (`uv run -m pytest --tb=short -q`) once before opening a pull request;
+  CI re-runs lint and the full suite on every pull request to main.
 
 #### Test execution
 
