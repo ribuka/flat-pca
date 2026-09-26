@@ -44,3 +44,9 @@ Implementation agent: Copilot
 Implementation model: gpt-5.6-luna
 Reasoning effort: low
 ```
+
+## Attribution
+
+- NEVER include session URLs (e.g. `https://claude.ai/code/session_...`) in pull request descriptions.
+  - Omit the trailing session link.
+- The "Generated with Claude Code" line is allowed.
