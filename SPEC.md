@@ -239,6 +239,8 @@ def apply_w_downsampling(
 - `s`、`q` は int型で表現する。
 - `t`は`StepTime`列の値を`f"{t:.2f}"`で表現する。`Time`列の値は使用しない。
 - 正規化後の特徴量列名が重複する場合は`ValueError`を送出する。
+- 1つの入力ファイル内に同一の`(Step, Sequence, StepTime)`を持つ行が複数ある場合は、そのファイル内で最後の行の値を採用する。`materialize_once`の値によらず同じ規則とする。
+- `materialize_once=False`のflattenは、特徴量1本ごとの式を作らない。各入力ファイルを全ファイルでunionした`(Step, Sequence, StepTime)`の組み合わせとのleft joinで整列させ、特徴量順の縦長の1列へ積み、全入力を横に並べたうえでcollect時に1回だけ横長へ変換する。出力（列名・列順・`source`の順・値・null・dtype）は`materialize_once=True`と一致する。
 - flatten結果`df`の列順は、`source`、flattenした特徴量列の順とする。
 - `preprocess_and_flatten`が返すLazyFrameのスキーマは、collect後の`df`と同じとする。
 

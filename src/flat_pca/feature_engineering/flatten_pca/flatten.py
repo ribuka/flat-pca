@@ -21,6 +21,7 @@ from .feature_matrix import (
 )
 
 FeatureSpec = tuple[str, int, int, float, str]
+METADATA_KEY_COLUMNS = ("Step", "Sequence", "StepTime")
 
 
 class FlattenLayout(NamedTuple):
@@ -418,6 +419,12 @@ def _flatten_lazy_inputs(
 ) -> pl.LazyFrame:
     """Build a deferred deterministic one-row-per-input flatten query.
 
+    Each input is aligned to the shared ``(Step, Sequence, StepTime)`` grid
+    by one left join and stacked into a single long column, and the stacked
+    columns are widened once at collect time. The query therefore grows with
+    the input count, not with the feature count, which reaches six figures
+    in practice.
+
     Parameters
     ----------
     inputs : Sequence[tuple[Path, pl.LazyFrame]]
@@ -426,7 +433,10 @@ def _flatten_lazy_inputs(
     Returns
     -------
     pl.LazyFrame
-        Deferred flattened rows ordered by normalized input path.
+        Deferred flattened rows ordered by normalized input path. Values and
+        dtypes match the materialized ``flatten_inputs`` branch: floating
+        wavelength columns become ``Float64`` with ``NaN`` as null, and a
+        repeated combination keeps the frame's last row.
 
     Raises
     ------
@@ -438,23 +448,138 @@ def _flatten_lazy_inputs(
         frames[0].collect_schema().names(),
         frames,
     )
+    sorted_inputs = sorted(inputs, key=lambda item: str(item[0].resolve()))
+    sources = [path.as_posix() for path, _ in sorted_inputs]
+    if not layout.feature_names:
+        return pl.LazyFrame({SOURCE_COLUMN: sources}, schema={SOURCE_COLUMN: pl.String})
 
-    rows = []
-    for path, frame in sorted(inputs, key=lambda item: str(item[0].resolve())):
-        rows.append(
-            frame.select(
-                pl.lit(path.as_posix()).alias(SOURCE_COLUMN),
-                *[
-                    pl.col(column)
-                    .filter(
-                        (pl.col("Step") == step)
-                        & (pl.col("Sequence") == sequence)
-                        & (pl.col("StepTime") == step_time)
-                    )
-                    .first()
-                    .alias(name)
-                    for column, step, sequence, step_time, name in layout.feature_specs
-                ],
+    grid = _metadata_grid(layout.metadata_rows, frames[0].collect_schema())
+    as_float64 = all(
+        schema[column].is_float()
+        for schema in (frame.collect_schema() for frame in frames)
+        for column in layout.wavelength_columns_sorted
+    )
+    narrow = pl.concat(
+        [
+            _stack_aligned_features(
+                frame,
+                grid,
+                layout.wavelength_columns_sorted,
+                f"c{index}",
+                as_float64,
             )
-        )
-    return pl.concat(rows).select(SOURCE_COLUMN, *layout.feature_names)
+            for index, (_, frame) in enumerate(sorted_inputs)
+        ],
+        how="horizontal",
+        strict=True,
+    )
+    feature_dtype = narrow.collect_schema().dtypes()[0]
+    return narrow.map_batches(
+        lambda stacked: _widen_stacked_features(
+            stacked, sources, layout.feature_names
+        ),
+        schema={
+            SOURCE_COLUMN: pl.String,
+            **dict.fromkeys(layout.feature_names, feature_dtype),
+        },
+    )
+
+
+def _metadata_grid(
+    metadata_rows: list[MetadataKey],
+    schema: pl.Schema,
+) -> pl.LazyFrame:
+    """Build the shared ``(Step, Sequence, StepTime)`` grid as a LazyFrame.
+
+    Parameters
+    ----------
+    metadata_rows : list[MetadataKey]
+        Sorted union of ``(Step, Sequence, StepTime)`` combinations.
+    schema : pl.Schema
+        Schema of an input frame, supplying the key column dtypes.
+
+    Returns
+    -------
+    pl.LazyFrame
+        One row per combination, in ``metadata_rows`` order.
+    """
+    return pl.LazyFrame(
+        metadata_rows,
+        schema={key: schema[key] for key in METADATA_KEY_COLUMNS},
+        orient="row",
+    )
+
+
+def _stack_aligned_features(
+    frame: pl.LazyFrame,
+    grid: pl.LazyFrame,
+    wavelength_columns_sorted: list[str],
+    name: str,
+    as_float64: bool,
+) -> pl.LazyFrame:
+    """Align one input to the metadata grid and stack it in feature order.
+
+    Parameters
+    ----------
+    frame : pl.LazyFrame
+        Validated spectral scan query plan of one input.
+    grid : pl.LazyFrame
+        Shared metadata grid from ``_metadata_grid``.
+    wavelength_columns_sorted : list[str]
+        Wavelength column names ordered by numeric wavelength.
+    name : str
+        Name of the returned column.
+    as_float64 : bool
+        Whether every input's wavelength columns are floating point, in
+        which case values are cast to ``Float64`` and ``NaN`` becomes null,
+        as in the NumPy feature matrix. Otherwise the stacked values keep
+        the wavelength columns' common supertype.
+
+    Returns
+    -------
+    pl.LazyFrame
+        One column of ``wavelength count * combination count`` values,
+        ordered by wavelength, then by grid row, which is the flattened
+        feature order. Combinations the input lacks are null, and a
+        repeated combination keeps the input's last row.
+    """
+    keys = list(METADATA_KEY_COLUMNS)
+    grid_schema = grid.collect_schema()
+    deduplicated = frame.select(
+        *[pl.col(key).cast(grid_schema[key]) for key in keys],
+        *wavelength_columns_sorted,
+    ).unique(subset=keys, keep="last")
+    aligned = grid.join(
+        deduplicated, on=keys, how="left", maintain_order="left"
+    ).select(wavelength_columns_sorted)
+    value = pl.col("value")
+    if as_float64:
+        value = value.cast(pl.Float64).fill_nan(None)
+    return aligned.unpivot(on=wavelength_columns_sorted).select(value.alias(name))
+
+
+def _widen_stacked_features(
+    stacked: pl.DataFrame,
+    sources: list[str],
+    feature_names: list[str],
+) -> pl.DataFrame:
+    """Turn per-input stacked feature columns into one row per input.
+
+    Parameters
+    ----------
+    stacked : pl.DataFrame
+        One column per input, in ``sources`` order, each holding that
+        input's features in ``feature_names`` order.
+    sources : list[str]
+        Normalized input path texts.
+    feature_names : list[str]
+        Flattened feature names.
+
+    Returns
+    -------
+    pl.DataFrame
+        ``source`` followed by the feature columns.
+    """
+    return stacked.transpose(column_names=feature_names).insert_column(
+        0, pl.Series(SOURCE_COLUMN, sources, dtype=pl.String)
+    )
