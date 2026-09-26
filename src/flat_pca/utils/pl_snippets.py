@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 import polars as pl
+import polars.selectors as cs
 
 from .natural_keys import natural_keys
 
@@ -295,6 +296,52 @@ def validate_missing_ratio_threshold(threshold: float) -> None:
         raise ValueError("threshold must be between 0.0 and 1.0")
 
 
+def _count_missing_values(
+    frame: pl.DataFrame | pl.LazyFrame,
+    include_nan_missing: bool,
+) -> tuple[int, dict[str, int]]:
+    """Count the rows and each column's missing values in bulk.
+
+    Nulls are counted by ``null_count`` and, when requested, NaNs by one
+    selector over the floating-point columns, instead of one aggregation
+    expression per column, which dominates the cost at six-figure widths.
+    ``is_nan`` yields null for null entries and ``sum`` skips them, so no
+    entry is counted twice. A ``pl.DataFrame`` is aggregated eagerly,
+    because routing it through a lazy query costs far more than the
+    aggregation itself on wide frames.
+
+    Parameters
+    ----------
+    frame : pl.DataFrame | pl.LazyFrame
+        Frame whose columns are evaluated. A ``pl.LazyFrame`` collects only
+        the statistics queries.
+    include_nan_missing : bool
+        Whether NaN values count as missing for floating-point columns.
+
+    Returns
+    -------
+    tuple[int, dict[str, int]]
+        Row count and missing-value count per column, in column order.
+    """
+    nan_count_expr = cs.float().is_nan().sum()
+    if isinstance(frame, pl.LazyFrame):
+        queries = [frame.select(pl.len()), frame.null_count()]
+        if include_nan_missing:
+            queries.append(frame.select(nan_count_expr))
+        stats = pl.collect_all(queries)
+    else:
+        stats = [frame.select(pl.len()), frame.null_count()]
+        if include_nan_missing:
+            stats.append(frame.select(nan_count_expr))
+    row_count = stats[0].item()
+    missing_counts, *nan_counts = [
+        stat.row(0, named=True) if stat.width else {} for stat in stats[1:]
+    ]
+    for col_name, nan_count in (nan_counts[0] if nan_counts else {}).items():
+        missing_counts[col_name] += nan_count
+    return row_count, missing_counts
+
+
 def drop_all_null_columns_from_polars(
     frame: pl.DataFrame | pl.LazyFrame,
     include_nan_missing: bool = True,
@@ -323,30 +370,14 @@ def drop_all_null_columns_from_polars(
     """
     validate_missing_ratio_threshold(threshold)
 
-    schema = (
-        frame.collect_schema() if isinstance(frame, pl.LazyFrame) else frame.schema
-    )
-    missing_count_exprs = []
-    for col_name, dtype in schema.items():
-        is_missing = pl.col(col_name).is_null()
-        if include_nan_missing and dtype in (pl.Float32, pl.Float64):
-            is_missing = is_missing | pl.col(col_name).is_nan()
-        missing_count_exprs.append(is_missing.sum().alias(f"{col_name}_missing"))
-
-    stats = frame.select(
-        *missing_count_exprs,
-        pl.len().alias("_n")
-    )
-    if isinstance(stats, pl.LazyFrame):
-        stats = stats.collect()
-    n = stats[0, "_n"]  # ty:ignore[not-subscriptable]
-    if n == 0:
+    row_count, missing_counts = _count_missing_values(frame, include_nan_missing)
+    if row_count == 0:
         return frame
 
     keep_cols = [
         col_name
-        for col_name in schema.names()
-        if (stats[0, f"{col_name}_missing"] / n) <= threshold  # ty:ignore[unresolved-attribute, not-subscriptable]
+        for col_name, missing_count in missing_counts.items()
+        if missing_count / row_count <= threshold
     ]
 
     return frame.select(keep_cols)
