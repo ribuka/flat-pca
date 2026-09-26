@@ -6,6 +6,9 @@ import polars as pl
 import pytest
 
 from flat_pca.feature_engineering.flatten_pca.flatten import (
+    flatten_and_prune_inputs as _flatten_and_prune_inputs,
+)
+from flat_pca.feature_engineering.flatten_pca.flatten import (
     flatten_inputs as _flatten_inputs,
 )
 from flat_pca.feature_engineering.flatten_pca.input import (
@@ -13,6 +16,9 @@ from flat_pca.feature_engineering.flatten_pca.input import (
 )
 from flat_pca.feature_engineering.preprocess import (
     add_step_time_columns as _add_step_time_columns,
+)
+from flat_pca.feature_engineering.preprocess.sparse_columns import (
+    drop_sparse_feature_columns as _drop_sparse_feature_columns,
 )
 
 METADATA_COLUMNS = {"Time", "Step", "Sequence", "StepTime", "ReverseStepTime"}
@@ -204,3 +210,216 @@ def test_flatten_eager_inputs_unions_metadata_grids_and_fills_null_gaps(
     assert missing_column in flattened.columns
     assert row_by_source[path_a.as_posix()][missing_column] is not None
     assert row_by_source[path_b.as_posix()][missing_column] is None
+
+
+def _load_step_time_frames(paths: list[Path]) -> list[tuple[Path, pl.DataFrame]]:
+    """Load real fixtures with StepTime columns as materialized frames."""
+    return [
+        (path, _add_step_time_columns(frame).collect())
+        for path, frame in _load_and_validate_inputs(paths)
+    ]
+
+
+@pytest.mark.parametrize("grids", ["matched", "mismatched"])
+@pytest.mark.parametrize("max_null_ratio", [0.0, 0.1, 0.25, 1.0])
+def test_flatten_lazy_inputs_matches_materialized_flatten_and_prune(
+    real_fixture_paths: list[Path],
+    tmp_path: Path,
+    grids: str,
+    max_null_ratio: float,
+) -> None:
+    """Produce exactly the materialized branch's pruned output when deferred."""
+    if grids == "matched":
+        _, frame = _load_step_time_frames(real_fixture_paths[:1])[0]
+        inputs = [(tmp_path / f"{index}.parquet", frame) for index in range(3)]
+    else:
+        inputs = _load_step_time_frames(real_fixture_paths)
+
+    materialized = _flatten_and_prune_inputs(inputs, max_null_ratio)
+    deferred = _flatten_inputs([(path, frame.lazy()) for path, frame in inputs])
+    assert isinstance(deferred, pl.LazyFrame)
+    pruned = _drop_sparse_feature_columns(deferred, max_null_ratio)
+    assert isinstance(pruned, pl.LazyFrame)
+
+    assert pruned.collect().equals(materialized)
+
+
+def test_flatten_duplicate_metadata_rows_keep_last_row_in_both_branches(
+    tmp_path: Path,
+) -> None:
+    """Keep the last row of a repeated combination whether deferred or not."""
+    frame = pl.DataFrame(
+        {
+            "Step": [0, 0, 0],
+            "Sequence": [0, 0, 0],
+            "StepTime": [0.0, 0.0, 1.0],
+            "500.0nm": [10.0, 20.0, 30.0],
+        }
+    )
+    path = tmp_path / "duplicate.parquet"
+
+    materialized = _flatten_inputs([(path, frame)])
+    deferred = _flatten_inputs([(path, frame.lazy())])
+    assert isinstance(materialized, pl.DataFrame)
+    assert isinstance(deferred, pl.LazyFrame)
+    collected = deferred.collect()
+
+    assert collected.equals(materialized)
+    assert collected["500.0nm_0_0_0.00"].to_list() == [20.0]
+
+
+def test_flatten_lazy_inputs_widens_float32_and_nulls_nan(tmp_path: Path) -> None:
+    """Widen Float32 to Float64 and turn NaN into null like the materialized branch."""
+    frame = pl.DataFrame(
+        {
+            "Step": [0, 0],
+            "Sequence": [0, 0],
+            "StepTime": [0.0, 1.0],
+            "500.0nm": pl.Series([1.5, float("nan")], dtype=pl.Float32),
+        }
+    )
+    path = tmp_path / "float32.parquet"
+
+    materialized = _flatten_inputs([(path, frame)])
+    deferred = _flatten_inputs([(path, frame.lazy())])
+    assert isinstance(deferred, pl.LazyFrame)
+    collected = deferred.collect()
+
+    assert collected.equals(materialized)
+    assert collected.schema["500.0nm_0_0_0.00"] == pl.Float64
+    assert collected["500.0nm_0_0_1.00"].to_list() == [None]
+
+
+def test_flatten_rejects_mixed_frame_types(tmp_path: Path) -> None:
+    """Reject inputs that mix DataFrame and LazyFrame frames."""
+    frame = pl.DataFrame(
+        {"Step": [0], "Sequence": [0], "StepTime": [0.0], "500.0nm": [1.0]}
+    )
+
+    with pytest.raises(ValueError, match="flatten inputs must use one frame type"):
+        _flatten_inputs(
+            [(tmp_path / "a.parquet", frame), (tmp_path / "b.parquet", frame.lazy())]
+        )
+
+
+def test_flatten_lazy_inputs_keeps_integer_precision_beside_float_columns(
+    tmp_path: Path,
+) -> None:
+    """Keep an Int64 feature exact when another wavelength column is Float64."""
+    exact_value = 2**53 + 1  # not exactly representable as a float64
+    frame = pl.DataFrame(
+        {
+            "Step": [0],
+            "Sequence": [0],
+            "StepTime": [0.0],
+            "500.0nm": pl.Series([exact_value], dtype=pl.Int64),
+            "600.0nm": pl.Series([1.5], dtype=pl.Float64),
+            "700.0nm": pl.Series([7], dtype=pl.Int32),
+        }
+    )
+    path = tmp_path / "mixed.parquet"
+
+    materialized = _flatten_inputs([(path, frame)])
+    deferred = _flatten_inputs([(path, frame.lazy())])
+    assert isinstance(deferred, pl.LazyFrame)
+    collected = deferred.collect()
+
+    assert collected.equals(materialized)
+    assert collected.schema == deferred.collect_schema()
+    assert collected.schema["500.0nm_0_0_0.00"] == pl.Int64
+    assert collected["500.0nm_0_0_0.00"].to_list() == [exact_value]
+
+
+def test_flatten_lazy_inputs_uses_supertype_of_wavelength_dtypes_across_inputs(
+    tmp_path: Path,
+) -> None:
+    """Keep a later input's Float64 value when the first input stores Int64."""
+    integer_frame = pl.DataFrame(
+        {
+            "Step": [0],
+            "Sequence": [0],
+            "StepTime": [0.0],
+            "500.0nm": pl.Series([1], dtype=pl.Int64),
+        }
+    )
+    float_frame = integer_frame.with_columns(
+        pl.Series("500.0nm", [1.5], dtype=pl.Float64)
+    )
+    inputs = [(tmp_path / "a.parquet", integer_frame), (tmp_path / "b.parquet", float_frame)]
+
+    for ordered in (inputs, list(reversed(inputs))):
+        materialized = _flatten_inputs(ordered)
+        deferred = _flatten_inputs([(path, frame.lazy()) for path, frame in ordered])
+        assert isinstance(deferred, pl.LazyFrame)
+        collected = deferred.collect()
+
+        assert collected.equals(materialized)
+        assert collected.schema["500.0nm_0_0_0.00"] == pl.Float64
+        assert collected["500.0nm_0_0_0.00"].to_list() == [1.0, 1.5]
+
+
+def test_flatten_lazy_inputs_keeps_metadata_keys_distinct_across_dtypes(
+    tmp_path: Path,
+) -> None:
+    """Keep StepTime keys distinct that would collide if cast to Float32."""
+    narrow_frame = pl.DataFrame(
+        {
+            "Step": [0],
+            "Sequence": [0],
+            "StepTime": pl.Series([16_777_216.0], dtype=pl.Float32),
+            "500.0nm": [1.0],
+        }
+    )
+    wide_frame = pl.DataFrame(
+        {
+            "Step": [0],
+            "Sequence": [0],
+            "StepTime": pl.Series([16_777_217.0], dtype=pl.Float64),
+            "500.0nm": [2.0],
+        }
+    )
+    inputs = [(tmp_path / "a.parquet", narrow_frame), (tmp_path / "b.parquet", wide_frame)]
+
+    materialized = _flatten_inputs(inputs)
+    deferred = _flatten_inputs([(path, frame.lazy()) for path, frame in inputs])
+    assert isinstance(deferred, pl.LazyFrame)
+    collected = deferred.collect()
+
+    assert collected.equals(materialized)
+    assert collected["500.0nm_0_0_16777216.00"].to_list() == [1.0, None]
+    assert collected["500.0nm_0_0_16777217.00"].to_list() == [None, 2.0]
+
+
+def test_flatten_lazy_inputs_keeps_signed_and_unsigned_step_keys_distinct(
+    tmp_path: Path,
+) -> None:
+    """Keep Int64 and UInt64 Step keys distinct that would collide in Float64."""
+    signed_frame = pl.DataFrame(
+        {
+            "Step": pl.Series([2**63 - 1], dtype=pl.Int64),
+            "Sequence": [0],
+            "StepTime": [0.0],
+            "500.0nm": [1.0],
+        }
+    )
+    unsigned_frame = pl.DataFrame(
+        {
+            "Step": pl.Series([2**63], dtype=pl.UInt64),
+            "Sequence": [0],
+            "StepTime": [0.0],
+            "500.0nm": [2.0],
+        }
+    )
+    inputs = [
+        (tmp_path / "a.parquet", signed_frame),
+        (tmp_path / "b.parquet", unsigned_frame),
+    ]
+
+    materialized = _flatten_inputs(inputs)
+    deferred = _flatten_inputs([(path, frame.lazy()) for path, frame in inputs])
+    assert isinstance(deferred, pl.LazyFrame)
+    collected = deferred.collect()
+
+    assert collected.equals(materialized)
+    assert collected[f"500.0nm_{2**63 - 1}_0_0.00"].to_list() == [1.0, None]
+    assert collected[f"500.0nm_{2**63}_0_0.00"].to_list() == [None, 2.0]
