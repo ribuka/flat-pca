@@ -7,6 +7,8 @@
 - A Claude pull-request author launches Codex via `scripts/run_codex_review.sh <pr-number>`; a Codex pull-request author launches Claude via `scripts/run_claude_review.sh <pr-number>`.
 - Both scripts reject a launch when they are run from an existing review environment. This prevents nested reviews even if a review agent attempts to request one.
 - Both scripts embed the instruction to post the review with `scripts/post_pr_comment.sh <pr-number> <body-file> <codex|claude>`, and default model/effort/sandbox/permission settings to values that let `gh` run. See each script's header comment for defaults and override flags.
+- Wait until the review script process exits. If command execution returns control while the process is still running, keep polling that same process; do not start another review for the PR.
+- Do not decide the review result or merge until the script exits with status 0 and prints `review-posted: <comment-url>`. Open that URL and inspect the posted comment before proceeding.
 
 ## Model labeling
 
