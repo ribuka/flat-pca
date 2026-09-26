@@ -14,6 +14,8 @@
 #     non-interactive session cannot answer, while allowing overrides.
 #   - waits for `claude -p` to exit and confirms that it posted a new review
 #     comment before printing `review-posted: <url>` and exiting successfully.
+#   - limits each PR to three reviews, rejects an unchanged re-review, and
+#     narrows re-reviews to commits added after the previous review.
 #
 # Usage:
 #   scripts/run_claude_review.sh <pr-number> [options] [-- <extra instructions>]
@@ -100,10 +102,14 @@ if ! command -v claude >/dev/null 2>&1; then
 fi
 
 repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
-gh pr view "$pr_number" --repo "$repo" --json url >/dev/null
-review_comment_ids_before=$(snapshot_review_comment_ids "$repo" "$pr_number" claude)
+prepare_review_context "$repo" "$pr_number" claude
+review_comment_ids_before=$FLAT_PCA_REVIEW_COMMENT_IDS_BEFORE
 
-prompt="このリポジトリの PR #${pr_number} をレビューしてください。差分を確認し、日本語でレビューコメントを作成してください。"
+if [ "$FLAT_PCA_REVIEW_COUNT" -eq 0 ]; then
+    prompt="このリポジトリの PR #${pr_number} をレビューしてください。PR 全体の差分を確認し、日本語でレビューコメントを作成してください。"
+else
+    prompt="このリポジトリの PR #${pr_number} を再レビューしてください。レビュー対象は ${FLAT_PCA_PREVIOUS_REVIEW_COMMIT}..${FLAT_PCA_REVIEW_HEAD_COMMIT} の差分と前回の指摘だけです。前回の指摘が解消されているか、修正によって新しい問題が入っていないかを確認してください。対象差分の外にある既存コードへの新しい指摘はしないでください。日本語でレビューコメントを作成してください。"
+fi
 prompt+=$'\n'"レビューが完了したら、コメント本文をファイルに書き出し、必ず次のコマンドで投稿してください（\`gh pr comment\` を直接使わないこと）: scripts/post_pr_comment.sh ${pr_number} <body-file> claude"
 
 if [ -n "$extra_instructions" ]; then
@@ -111,6 +117,7 @@ if [ -n "$extra_instructions" ]; then
 fi
 
 export "${review_environment_variable}=1"
+export FLAT_PCA_REVIEWED_COMMIT="$FLAT_PCA_REVIEW_HEAD_COMMIT"
 
 # Run Claude in its own process group so cancelling this wrapper can terminate
 # Claude and any tool processes it spawned before they post a late comment.
