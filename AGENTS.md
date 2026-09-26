@@ -26,6 +26,10 @@
 
 ## Github
 
+### Commit
+
+- Before creating a commit, read `docs/agents/commit.md` and follow it.
+
 ### Pull request
 
 - When creating a pull request, read `docs/agents/pull-request.md` and follow it.
