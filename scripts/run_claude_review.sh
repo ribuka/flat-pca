@@ -112,8 +112,25 @@ fi
 
 export "${review_environment_variable}=1"
 
+# Run Claude in its own process group so cancelling this wrapper can terminate
+# Claude and any tool processes it spawned before they post a late comment.
+set -m
+claude -p --model "$model" --effort "$effort" --permission-mode "$permission_mode" "$prompt" &
+claude_pid=$!
+set +m
+
+cleanup() {
+    if kill -0 "$claude_pid" 2>/dev/null; then
+        kill -TERM -- "-${claude_pid}" 2>/dev/null || kill -TERM "$claude_pid" 2>/dev/null || true
+        sleep 2
+        kill -KILL -- "-${claude_pid}" 2>/dev/null || kill -KILL "$claude_pid" 2>/dev/null || true
+    fi
+    wait "$claude_pid" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
 set +e
-claude -p --model "$model" --effort "$effort" --permission-mode "$permission_mode" "$prompt"
+wait "$claude_pid"
 exit_code=$?
 set -e
 
@@ -121,9 +138,14 @@ if [ "$exit_code" -ne 0 ]; then
     exit "$exit_code"
 fi
 
-if ! comment_url=$(find_new_review_comment_url "$repo" "$pr_number" claude "$review_comment_ids_before"); then
-    echo "error: Claude exited successfully, but no new review comment was found for PR #${pr_number}" >&2
-    exit 1
+if comment_url=$(find_new_review_comment_url "$repo" "$pr_number" claude "$review_comment_ids_before"); then
+    echo "review-posted: ${comment_url}"
+    exit 0
+else
+    verification_status=$?
 fi
 
-echo "review-posted: ${comment_url}"
+if [ "$verification_status" -eq 1 ]; then
+    echo "error: Claude exited successfully, but no new review comment was found for PR #${pr_number}" >&2
+fi
+exit "$verification_status"

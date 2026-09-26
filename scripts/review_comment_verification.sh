@@ -35,6 +35,12 @@ find_new_review_comment_url() {
     local previous_ids=$4
     local comment_id
     local comment_url
+    local comments
+
+    if ! comments=$(list_review_comments "$repo" "$pr_number" "$agent"); then
+        echo "error: failed to query review comments for PR #${pr_number}" >&2
+        return 2
+    fi
 
     while IFS=$'\t' read -r comment_id comment_url; do
         if [ -z "$comment_id" ]; then
@@ -48,7 +54,7 @@ find_new_review_comment_url() {
                 return 0
                 ;;
         esac
-    done < <(list_review_comments "$repo" "$pr_number" "$agent")
+    done <<<"$comments"
 
     return 1
 }

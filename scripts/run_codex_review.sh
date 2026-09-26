@@ -270,10 +270,15 @@ if [ "$exit_code" -ne 0 ]; then
     exit "$exit_code"
 fi
 
-if ! comment_url=$(find_new_review_comment_url "$repo" "$pr_number" codex "$review_comment_ids_before"); then
-    echo "error: Codex exited successfully, but no new review comment was found for PR #${pr_number}. Progress log: ${log_file}" >&2
-    exit 1
+if comment_url=$(find_new_review_comment_url "$repo" "$pr_number" codex "$review_comment_ids_before"); then
+    rm -f "$log_file"
+    echo "review-posted: ${comment_url}"
+    exit 0
+else
+    verification_status=$?
 fi
 
-rm -f "$log_file"
-echo "review-posted: ${comment_url}"
+if [ "$verification_status" -eq 1 ]; then
+    echo "error: Codex exited successfully, but no new review comment was found for PR #${pr_number}. Progress log: ${log_file}" >&2
+fi
+exit "$verification_status"

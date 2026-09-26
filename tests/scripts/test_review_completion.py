@@ -31,6 +31,7 @@ def run_review_script(
     *,
     post_comment: bool,
     existing_comment: bool = False,
+    api_failure_after_review: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run a review wrapper with deterministic fake CLI and GitHub commands."""
     state_name = f"review-test-{uuid.uuid4().hex}"
@@ -42,6 +43,9 @@ gh() {
         "repo view") printf '%s\n' 'ribuka/flat-pca' ;;
         "pr view") return 0 ;;
         "api --paginate")
+            if [ "$REVIEW_API_FAILURE_AFTER" = "true" ] && [ -f "$REVIEW_STATE_FILE" ]; then
+                return 22
+            fi
             if [ -f "$REVIEW_STATE_FILE" ]; then
                 printf '1001\thttps://github.com/ribuka/flat-pca/pull/123#issuecomment-1001\n'
             fi
@@ -86,6 +90,7 @@ bash "${review_args[@]}"
         "REVIEW_LOG_FILE": log_file.as_posix(),
         "REVIEW_POST_COMMENT": str(post_comment).lower(),
         "REVIEW_EXISTING_COMMENT": str(existing_comment).lower(),
+        "REVIEW_API_FAILURE_AFTER": str(api_failure_after_review).lower(),
     }
 
     try:
@@ -134,4 +139,19 @@ def test_review_script_does_not_accept_existing_comment(script_name: str) -> Non
 
     assert result.returncode == 1
     assert "no new review comment was found" in result.stderr
+    assert "review-posted:" not in result.stdout
+
+
+@pytest.mark.parametrize("script_name", ["run_claude_review.sh", "run_codex_review.sh"])
+def test_review_script_distinguishes_api_failure(script_name: str) -> None:
+    """A GitHub API failure is reported separately from a missing comment."""
+    result = run_review_script(
+        script_name,
+        post_comment=True,
+        api_failure_after_review=True,
+    )
+
+    assert result.returncode == 2
+    assert "failed to query review comments" in result.stderr
+    assert "no new review comment was found" not in result.stderr
     assert "review-posted:" not in result.stdout
