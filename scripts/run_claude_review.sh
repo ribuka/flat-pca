@@ -12,6 +12,8 @@
 #   - defaults the permission mode so that `gh` (used by
 #     post_pr_comment.sh) does not fail on a permission prompt that a
 #     non-interactive session cannot answer, while allowing overrides.
+#   - waits for `claude -p` to exit and confirms that it posted a new review
+#     comment before printing `review-posted: <url>` and exiting successfully.
 #
 # Usage:
 #   scripts/run_claude_review.sh <pr-number> [options] [-- <extra instructions>]
@@ -27,6 +29,9 @@
 # instructions (for example, what to focus the review on).
 
 set -euo pipefail
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+source "${script_dir}/review_comment_verification.sh"
 
 review_environment_variable="FLAT_PCA_REVIEW_IN_PROGRESS"
 
@@ -94,6 +99,10 @@ if ! command -v claude >/dev/null 2>&1; then
     exit 1
 fi
 
+repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+gh pr view "$pr_number" --repo "$repo" --json url >/dev/null
+review_comment_ids_before=$(snapshot_review_comment_ids "$repo" "$pr_number" claude)
+
 prompt="このリポジトリの PR #${pr_number} をレビューしてください。差分を確認し、日本語でレビューコメントを作成してください。"
 prompt+=$'\n'"レビューが完了したら、コメント本文をファイルに書き出し、必ず次のコマンドで投稿してください（\`gh pr comment\` を直接使わないこと）: scripts/post_pr_comment.sh ${pr_number} <body-file> claude"
 
@@ -103,4 +112,40 @@ fi
 
 export "${review_environment_variable}=1"
 
-exec claude -p --model "$model" --effort "$effort" --permission-mode "$permission_mode" "$prompt"
+# Run Claude in its own process group so cancelling this wrapper can terminate
+# Claude and any tool processes it spawned before they post a late comment.
+set -m
+claude -p --model "$model" --effort "$effort" --permission-mode "$permission_mode" "$prompt" &
+claude_pid=$!
+set +m
+
+cleanup() {
+    if kill -0 "$claude_pid" 2>/dev/null; then
+        kill -TERM -- "-${claude_pid}" 2>/dev/null || kill -TERM "$claude_pid" 2>/dev/null || true
+        sleep 2
+        kill -KILL -- "-${claude_pid}" 2>/dev/null || kill -KILL "$claude_pid" 2>/dev/null || true
+    fi
+    wait "$claude_pid" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+set +e
+wait "$claude_pid"
+exit_code=$?
+set -e
+
+if [ "$exit_code" -ne 0 ]; then
+    exit "$exit_code"
+fi
+
+if comment_url=$(find_new_review_comment_url "$repo" "$pr_number" claude "$review_comment_ids_before"); then
+    echo "review-posted: ${comment_url}"
+    exit 0
+else
+    verification_status=$?
+fi
+
+if [ "$verification_status" -eq 1 ]; then
+    echo "error: Claude exited successfully, but no new review comment was found for PR #${pr_number}" >&2
+fi
+exit "$verification_status"

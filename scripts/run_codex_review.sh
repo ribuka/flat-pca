@@ -15,6 +15,8 @@
 #   - enforces a hard timeout and a heartbeat (no-progress) timeout around
 #     `codex exec`, so a hang is killed and reported instead of being left
 #     running unnoticed (see issue #35).
+#   - confirms that `codex exec` posted a new review comment before printing
+#     `review-posted: <url>` and exiting successfully.
 #
 # Usage:
 #   scripts/run_codex_review.sh <pr-number> [options] [-- <extra instructions>]
@@ -53,6 +55,9 @@
 # instructions (for example, what to focus the review on).
 
 set -euo pipefail
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+source "${script_dir}/review_comment_verification.sh"
 
 review_environment_variable="FLAT_PCA_REVIEW_IN_PROGRESS"
 
@@ -158,6 +163,10 @@ if ! command -v codex >/dev/null 2>&1; then
     exit 1
 fi
 
+repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+gh pr view "$pr_number" --repo "$repo" --json url >/dev/null
+review_comment_ids_before=$(snapshot_review_comment_ids "$repo" "$pr_number" codex)
+
 if [ -z "$log_file" ]; then
     log_dir="tmp/codex_review_logs"
     mkdir -p "$log_dir"
@@ -256,10 +265,20 @@ exit_code=$?
 set -e
 
 # Keep the progress log around for post-mortem debugging when codex failed,
-# timed out, or hung; remove it on success so tmp/codex_review_logs/ does not
-# accumulate indefinitely (per AGENTS.md's rule to clean up temp files).
-if [ "$exit_code" -eq 0 ]; then
-    rm -f "$log_file"
+# timed out, hung, or did not post a comment.
+if [ "$exit_code" -ne 0 ]; then
+    exit "$exit_code"
 fi
 
-exit "$exit_code"
+if comment_url=$(find_new_review_comment_url "$repo" "$pr_number" codex "$review_comment_ids_before"); then
+    rm -f "$log_file"
+    echo "review-posted: ${comment_url}"
+    exit 0
+else
+    verification_status=$?
+fi
+
+if [ "$verification_status" -eq 1 ]; then
+    echo "error: Codex exited successfully, but no new review comment was found for PR #${pr_number}. Progress log: ${log_file}" >&2
+fi
+exit "$verification_status"
