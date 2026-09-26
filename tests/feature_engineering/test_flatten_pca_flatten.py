@@ -388,3 +388,38 @@ def test_flatten_lazy_inputs_keeps_metadata_keys_distinct_across_dtypes(
     assert collected.equals(materialized)
     assert collected["500.0nm_0_0_16777216.00"].to_list() == [1.0, None]
     assert collected["500.0nm_0_0_16777217.00"].to_list() == [None, 2.0]
+
+
+def test_flatten_lazy_inputs_keeps_signed_and_unsigned_step_keys_distinct(
+    tmp_path: Path,
+) -> None:
+    """Keep Int64 and UInt64 Step keys distinct that would collide in Float64."""
+    signed_frame = pl.DataFrame(
+        {
+            "Step": pl.Series([2**63 - 1], dtype=pl.Int64),
+            "Sequence": [0],
+            "StepTime": [0.0],
+            "500.0nm": [1.0],
+        }
+    )
+    unsigned_frame = pl.DataFrame(
+        {
+            "Step": pl.Series([2**63], dtype=pl.UInt64),
+            "Sequence": [0],
+            "StepTime": [0.0],
+            "500.0nm": [2.0],
+        }
+    )
+    inputs = [
+        (tmp_path / "a.parquet", signed_frame),
+        (tmp_path / "b.parquet", unsigned_frame),
+    ]
+
+    materialized = _flatten_inputs(inputs)
+    deferred = _flatten_inputs([(path, frame.lazy()) for path, frame in inputs])
+    assert isinstance(deferred, pl.LazyFrame)
+    collected = deferred.collect()
+
+    assert collected.equals(materialized)
+    assert collected[f"500.0nm_{2**63 - 1}_0_0.00"].to_list() == [1.0, None]
+    assert collected[f"500.0nm_{2**63}_0_0.00"].to_list() == [None, 2.0]
