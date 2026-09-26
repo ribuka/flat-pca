@@ -464,11 +464,14 @@ def _flatten_lazy_inputs(
         for schema in schemas
         for column in layout.wavelength_columns_sorted
     )
-    grid = _metadata_grid(layout.metadata_rows, schemas[0])
+    common_schema = _common_schema(
+        schemas, [*METADATA_KEY_COLUMNS, *layout.wavelength_columns_sorted]
+    )
+    grid = _metadata_grid(layout.metadata_rows, common_schema)
     widened = [
         _widen_dtype_group(sorted_frames, grid, layout, columns, dtype, as_float64)
         for dtype, columns in _group_columns_by_flattened_dtype(
-            schemas[0], layout.wavelength_columns_sorted, as_float64
+            common_schema, layout.wavelength_columns_sorted, as_float64
         ).items()
     ]
     flattened = pl.concat([sources, *widened], how="horizontal", strict=True)
@@ -477,6 +480,35 @@ def _flatten_lazy_inputs(
         # column counts is not free.
         return flattened
     return flattened.select(SOURCE_COLUMN, *layout.feature_names)
+
+
+def _common_schema(schemas: Sequence[pl.Schema], columns: list[str]) -> pl.Schema:
+    """Resolve each column's common supertype across every input schema.
+
+    Inputs may store the same column with different numeric dtypes, so
+    casting every input to one input's dtype could narrow values (for
+    example ``Float64`` to ``Int64``) or make distinct metadata keys equal.
+
+    Parameters
+    ----------
+    schemas : Sequence[pl.Schema]
+        Schemas of every input frame.
+    columns : list[str]
+        Columns to resolve.
+
+    Returns
+    -------
+    pl.Schema
+        Supertype of each column in ``columns``, as polars resolves it when
+        vertically concatenating the inputs.
+    """
+    return pl.concat(
+        [
+            pl.LazyFrame(schema={column: schema[column] for column in columns})
+            for schema in schemas
+        ],
+        how="vertical_relaxed",
+    ).collect_schema()
 
 
 def _flattened_dtype(dtype: pl.DataType, as_float64: bool) -> pl.DataType:
@@ -519,7 +551,8 @@ def _group_columns_by_flattened_dtype(
     Parameters
     ----------
     schema : pl.Schema
-        Schema of an input frame, supplying the wavelength column dtypes.
+        Common schema of every input, supplying the wavelength column
+        dtypes.
     wavelength_columns_sorted : list[str]
         Wavelength column names ordered by numeric wavelength.
     as_float64 : bool
@@ -598,7 +631,7 @@ def _metadata_grid(
     metadata_rows : list[MetadataKey]
         Sorted union of ``(Step, Sequence, StepTime)`` combinations.
     schema : pl.Schema
-        Schema of an input frame, supplying the key column dtypes.
+        Common schema of every input, supplying the key column dtypes.
 
     Returns
     -------
