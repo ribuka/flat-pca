@@ -300,3 +300,31 @@ def test_flatten_rejects_mixed_frame_types(tmp_path: Path) -> None:
         _flatten_inputs(
             [(tmp_path / "a.parquet", frame), (tmp_path / "b.parquet", frame.lazy())]
         )
+
+
+def test_flatten_lazy_inputs_keeps_integer_precision_beside_float_columns(
+    tmp_path: Path,
+) -> None:
+    """Keep an Int64 feature exact when another wavelength column is Float64."""
+    exact_value = 2**53 + 1  # not exactly representable as a float64
+    frame = pl.DataFrame(
+        {
+            "Step": [0],
+            "Sequence": [0],
+            "StepTime": [0.0],
+            "500.0nm": pl.Series([exact_value], dtype=pl.Int64),
+            "600.0nm": pl.Series([1.5], dtype=pl.Float64),
+            "700.0nm": pl.Series([7], dtype=pl.Int32),
+        }
+    )
+    path = tmp_path / "mixed.parquet"
+
+    materialized = _flatten_inputs([(path, frame)])
+    deferred = _flatten_inputs([(path, frame.lazy())])
+    assert isinstance(deferred, pl.LazyFrame)
+    collected = deferred.collect()
+
+    assert collected.equals(materialized)
+    assert collected.schema == deferred.collect_schema()
+    assert collected.schema["500.0nm_0_0_0.00"] == pl.Int64
+    assert collected["500.0nm_0_0_0.00"].to_list() == [exact_value]
