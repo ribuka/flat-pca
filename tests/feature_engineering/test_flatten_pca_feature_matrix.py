@@ -2,9 +2,13 @@
 
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 import pytest
 
+from flat_pca.feature_engineering.flatten_pca.feature_matrix import (
+    build_flattened_frame as _build_flattened_frame,
+)
 from flat_pca.feature_engineering.flatten_pca.flatten import (
     flatten_and_prune_inputs as _flatten_and_prune_inputs,
 )
@@ -271,3 +275,50 @@ def test_flatten_and_prune_rejects_invalid_arguments(
         )
     with pytest.raises(ValueError, match="threshold must be between"):
         _flatten_and_prune_inputs(inputs, 1.5)
+
+
+def _row_oriented_reference(
+    matrix: np.ndarray, sources: list[str], feature_names: list[str]
+) -> pl.DataFrame:
+    """Build the flattened frame with the direct row-oriented construction.
+
+    Parameters
+    ----------
+    matrix : np.ndarray
+        Feature matrix with ``NaN`` for missing values.
+    sources : list[str]
+        Source texts, one per matrix row.
+    feature_names : list[str]
+        Feature names, one per matrix column.
+
+    Returns
+    -------
+    pl.DataFrame
+        Reference frame that ``build_flattened_frame`` must equal.
+    """
+    frame = pl.DataFrame(matrix, schema=feature_names, orient="row", nan_to_null=True)
+    return frame.insert_column(0, pl.Series("source", sources, dtype=pl.String))
+
+
+@pytest.mark.parametrize(
+    ("row_count", "column_count"),
+    [(3, 5), (1, 4), (3, 0), (0, 4), (0, 0)],
+)
+def test_build_flattened_frame_matches_the_row_oriented_construction(
+    row_count: int, column_count: int
+) -> None:
+    """Transpose-based widening must equal the row-oriented construction."""
+    rng = np.random.default_rng(0)
+    matrix = rng.normal(size=(row_count, column_count))
+    matrix[rng.random(matrix.shape) < 0.3] = np.nan
+    if matrix.size:
+        matrix[:, 0] = np.nan
+    sources = [f"input_{index}.parquet" for index in range(row_count)]
+    feature_names = [f"feature_{index}" for index in range(column_count)]
+
+    result = _build_flattened_frame(matrix, sources, feature_names)
+
+    expected = _row_oriented_reference(matrix, sources, feature_names)
+    assert result.equals(expected)
+    assert result.schema == expected.schema
+    assert all(result[name].is_nan().sum() == 0 for name in feature_names)
