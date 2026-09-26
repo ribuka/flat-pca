@@ -28,6 +28,13 @@
 
 set -euo pipefail
 
+review_environment_variable="FLAT_PCA_REVIEW_IN_PROGRESS"
+
+if [ -n "${!review_environment_variable:-}" ]; then
+    echo "error: nested review launch is not allowed while ${review_environment_variable} is set" >&2
+    exit 1
+fi
+
 if [ "$#" -lt 1 ]; then
     echo "usage: $0 <pr-number> [options] [-- <extra instructions>]" >&2
     exit 1
@@ -93,5 +100,7 @@ prompt+=$'\n'"レビューが完了したら、コメント本文をファイル
 if [ -n "$extra_instructions" ]; then
     prompt+=$'\n\n'"追加指示: ${extra_instructions}"
 fi
+
+export "${review_environment_variable}=1"
 
 exec claude -p --model "$model" --effort "$effort" --permission-mode "$permission_mode" "$prompt"
