@@ -17,6 +17,8 @@
 #     running unnoticed (see issue #35).
 #   - confirms that `codex exec` posted a new review comment before printing
 #     `review-posted: <url>` and exiting successfully.
+#   - limits each PR to three reviews, rejects an unchanged re-review, and
+#     narrows re-reviews to commits added after the previous review.
 #
 # Usage:
 #   scripts/run_codex_review.sh <pr-number> [options] [-- <extra instructions>]
@@ -164,7 +166,7 @@ if ! command -v codex >/dev/null 2>&1; then
 fi
 
 repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
-gh pr view "$pr_number" --repo "$repo" --json url >/dev/null
+prepare_review_context "$repo" "$pr_number"
 review_comment_ids_before=$(snapshot_review_comment_ids "$repo" "$pr_number" codex)
 
 if [ -z "$log_file" ]; then
@@ -179,7 +181,11 @@ fi
 echo "info: codex progress log: ${log_file}" >&2
 echo "info: hard timeout: ${timeout_seconds}s, heartbeat (no-progress) timeout: ${heartbeat_timeout_seconds}s" >&2
 
-prompt="このリポジトリの PR #${pr_number} をレビューしてください。差分を確認し、日本語でレビューコメントを作成してください。"
+if [ "$FLAT_PCA_REVIEW_COUNT" -eq 0 ]; then
+    prompt="このリポジトリの PR #${pr_number} をレビューしてください。PR 全体の差分を確認し、日本語でレビューコメントを作成してください。"
+else
+    prompt="このリポジトリの PR #${pr_number} を再レビューしてください。レビュー対象は ${FLAT_PCA_PREVIOUS_REVIEW_COMMIT}..${FLAT_PCA_REVIEW_HEAD_COMMIT} の差分と前回の指摘だけです。前回の指摘が解消されているか、修正によって新しい問題が入っていないかを確認してください。対象差分の外にある既存コードへの新しい指摘はしないでください。日本語でレビューコメントを作成してください。"
+fi
 prompt+=$'\n'"レビューが完了したら、コメント本文をファイルに書き出し、必ず次のコマンドで投稿してください（\`gh pr comment\` を直接使わないこと）: scripts/post_pr_comment.sh ${pr_number} <body-file> codex"
 
 if [ -n "$extra_instructions" ]; then
@@ -187,6 +193,7 @@ if [ -n "$extra_instructions" ]; then
 fi
 
 export "${review_environment_variable}=1"
+export FLAT_PCA_REVIEWED_COMMIT="$FLAT_PCA_REVIEW_HEAD_COMMIT"
 
 # --json makes codex emit one JSONL event per line of progress, so the
 # growth of $log_file can be used as a heartbeat signal (as opposed to just

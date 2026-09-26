@@ -12,6 +12,7 @@
 #   - refuses to run unless the target PR actually exists in this repo;
 #   - appends a fixed provenance footer itself, so the footer cannot be
 #     omitted or altered by whatever produced the comment body.
+#   - records the PR head commit captured by the parent review wrapper.
 #
 # Usage:
 #   scripts/post_pr_comment.sh <pr-number> <body-file> <agent>
@@ -53,6 +54,12 @@ case "$agent" in
         ;;
 esac
 
+reviewed_commit=${FLAT_PCA_REVIEWED_COMMIT:-}
+if ! [[ "$reviewed_commit" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "error: FLAT_PCA_REVIEWED_COMMIT must be set to the 40-character PR head commit" >&2
+    exit 1
+fi
+
 repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
 
 # Fail fast if the PR does not exist in this repo, rather than letting
@@ -69,5 +76,6 @@ else
 fi
 
 printf '\n\n_Reviewed by %s. Posted via `scripts/post_pr_comment.sh`._\n' "$agent_label" >>"$comment_file"
+printf 'Reviewed commit: %s\n' "$reviewed_commit" >>"$comment_file"
 
 gh pr comment "$pr_number" --repo "$repo" --body-file "$comment_file"
