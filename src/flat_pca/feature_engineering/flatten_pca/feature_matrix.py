@@ -137,13 +137,32 @@ def build_flattened_frame(
         ``source`` followed by the feature columns. ``NaN`` entries become
         polars nulls, so missing combinations keep the null representation
         that downstream pruning and imputation expect.
+
+    Notes
+    -----
+    Building tens of thousands of columns from Python dominates the cost of
+    a row-oriented construction, so the frame is first built narrow, as
+    ``(feature, source)`` with one column per source, and widened by
+    ``DataFrame.transpose``. ``transpose`` requires every column to share a
+    dtype, which holds because ``matrix`` is ``float64``. ``NaN`` is turned
+    into null on the narrow frame, where it is cheap. ``transpose`` rejects
+    empty frames, so a matrix without rows or columns falls back to the
+    direct construction.
     """
-    frame = pl.DataFrame(
-        matrix,
-        schema=feature_names,
-        orient="row",
-        nan_to_null=True,
-    )
+    if matrix.size == 0:
+        frame = pl.DataFrame(
+            matrix,
+            schema=feature_names,
+            orient="row",
+            nan_to_null=True,
+        )
+    else:
+        narrow = pl.DataFrame(
+            matrix.T,
+            schema=[f"c{index}" for index in range(len(sources))],
+            orient="row",
+        )
+        frame = narrow.fill_nan(None).transpose(column_names=feature_names)
     return frame.insert_column(
         0, pl.Series(SOURCE_COLUMN, sources, dtype=pl.String)
     )
