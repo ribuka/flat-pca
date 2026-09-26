@@ -2,9 +2,10 @@
 
 ## Agent review
 
-- When you need another agent to review a pull request, do NOT invoke `codex`/`claude` directly and do NOT call `gh pr comment` directly.
-- If you are Claude, launch Codex for review via `scripts/run_codex_review.sh <pr-number>`.
-- If you are Codex, launch Claude for review via `scripts/run_claude_review.sh <pr-number>`.
+- The agent that created a pull request may request one cross-review after the pull request is created. A review agent must not request an additional review.
+- To request that review, do NOT invoke `codex`/`claude` directly and do NOT call `gh pr comment` directly.
+- A Claude pull-request author launches Codex via `scripts/run_codex_review.sh <pr-number>`; a Codex pull-request author launches Claude via `scripts/run_claude_review.sh <pr-number>`.
+- Both scripts reject a launch when they are run from an existing review environment. This prevents nested reviews even if a review agent attempts to request one.
 - Both scripts embed the instruction to post the review with `scripts/post_pr_comment.sh <pr-number> <body-file> <codex|claude>`, and default model/effort/sandbox/permission settings to values that let `gh` run. See each script's header comment for defaults and override flags.
 
 ## Model labeling
