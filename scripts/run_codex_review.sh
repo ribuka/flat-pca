@@ -166,8 +166,8 @@ if ! command -v codex >/dev/null 2>&1; then
 fi
 
 repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
-prepare_review_context "$repo" "$pr_number"
-review_comment_ids_before=$(snapshot_review_comment_ids "$repo" "$pr_number" codex)
+prepare_review_context "$repo" "$pr_number" codex
+review_comment_ids_before=$FLAT_PCA_REVIEW_COMMENT_IDS_BEFORE
 
 if [ -z "$log_file" ]; then
     log_dir="tmp/codex_review_logs"

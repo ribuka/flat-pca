@@ -102,8 +102,8 @@ if ! command -v claude >/dev/null 2>&1; then
 fi
 
 repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
-prepare_review_context "$repo" "$pr_number"
-review_comment_ids_before=$(snapshot_review_comment_ids "$repo" "$pr_number" claude)
+prepare_review_context "$repo" "$pr_number" claude
+review_comment_ids_before=$FLAT_PCA_REVIEW_COMMENT_IDS_BEFORE
 
 if [ "$FLAT_PCA_REVIEW_COUNT" -eq 0 ]; then
     prompt="このリポジトリの PR #${pr_number} をレビューしてください。PR 全体の差分を確認し、日本語でレビューコメントを作成してください。"

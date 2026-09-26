@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Shared helpers for confirming that a review run posted a new PR comment.
 
-review_comment_marker() {
+review_agent_label() {
     case "$1" in
-        codex) printf '%s\n' '_Reviewed by Codex. Posted via `scripts/post_pr_comment.sh`._' ;;
-        claude) printf '%s\n' '_Reviewed by Claude. Posted via `scripts/post_pr_comment.sh`._' ;;
+        codex) printf '%s\n' 'Codex' ;;
+        claude) printf '%s\n' 'Claude' ;;
         *)
             echo "error: unknown review agent: $1" >&2
             return 1
@@ -12,20 +12,26 @@ review_comment_marker() {
     esac
 }
 
-review_comment_provenance_marker() {
-    printf '%s\n' 'Posted via `scripts/post_pr_comment.sh`._'
+list_review_history() {
+    local repo=$1
+    local pr_number=$2
+    local jq_filter
+
+    jq_filter='.[] | (.body | try capture("_Reviewed by (?<agent>Codex|Claude)\\. Posted via `scripts/post_pr_comment\\.sh`\\._\\r?\\nReviewed commit: (?<sha>[0-9a-fA-F]{40})\\r?\\n?$") catch empty) as $footer | [.id, .html_url, $footer.sha, $footer.agent] | @tsv'
+    gh api --paginate "repos/${repo}/issues/${pr_number}/comments" --jq "$jq_filter"
 }
 
 list_review_comments() {
     local repo=$1
     local pr_number=$2
     local agent=$3
-    local marker
-    local jq_filter
+    local agent_label
+    local review_history
 
-    marker=$(review_comment_marker "$agent")
-    jq_filter=".[] | select(.body | contains(\"${marker}\")) | [.id, .html_url] | @tsv"
-    gh api --paginate "repos/${repo}/issues/${pr_number}/comments" --jq "$jq_filter"
+    agent_label=$(review_agent_label "$agent")
+    review_history=$(list_review_history "$repo" "$pr_number") || return $?
+    printf '%s\n' "$review_history" |
+        awk -F '\t' -v agent="$agent_label" '$4 == agent { print $1 "\t" $2 }'
 }
 
 snapshot_review_comment_ids() {
@@ -63,20 +69,11 @@ find_new_review_comment_url() {
     return 1
 }
 
-list_review_history() {
-    local repo=$1
-    local pr_number=$2
-    local marker
-    local jq_filter
-
-    marker=$(review_comment_provenance_marker)
-    jq_filter=".[] | select(.body | contains(\"${marker}\")) | [.id, .html_url, (.body | try capture(\"Reviewed commit: (?<sha>[0-9a-fA-F]{40})\").sha catch \"\")] | @tsv"
-    gh api --paginate "repos/${repo}/issues/${pr_number}/comments" --jq "$jq_filter"
-}
-
 prepare_review_context() {
     local repo=$1
     local pr_number=$2
+    local agent=$3
+    local agent_label
     local review_history
 
     FLAT_PCA_REVIEW_HEAD_COMMIT=$(
@@ -111,4 +108,10 @@ prepare_review_context() {
         echo "error: PR #${pr_number} has no commits after the previous review (${FLAT_PCA_REVIEW_HEAD_COMMIT})" >&2
         return 1
     fi
+
+    agent_label=$(review_agent_label "$agent")
+    FLAT_PCA_REVIEW_COMMENT_IDS_BEFORE=$(
+        printf '%s\n' "$review_history" |
+            awk -F '\t' -v agent="$agent_label" '$4 == agent { print $1 }'
+    )
 }

@@ -41,12 +41,14 @@ def run_review_script(
     state_file = Path("tmp") / f"{state_name}.state"
     log_file = Path("tmp") / f"{state_name}.jsonl"
     capture_file = Path("tmp") / f"{state_name}.capture"
+    api_file = Path("tmp") / f"{state_name}.api"
     harness = r"""
 gh() {
     case "$1 $2" in
         "repo view") printf '%s\n' 'ribuka/flat-pca' ;;
         "pr view") printf '%s\n' "$REVIEW_HEAD_COMMIT" ;;
         "api --paginate")
+            printf 'call\n' >>"$REVIEW_API_FILE"
             if [ "$REVIEW_API_FAILURE_AFTER" = "true" ] && [ -f "$REVIEW_STATE_FILE" ]; then
                 return 22
             fi
@@ -62,14 +64,14 @@ gh() {
                 if [ "$include_commit" = "false" ]; then
                     printf '%s\thttps://github.com/ribuka/flat-pca/pull/123#issuecomment-%s\n' "$comment_id" "$comment_id"
                 elif [ "$commit" = "missing" ]; then
-                    printf '%s\thttps://github.com/ribuka/flat-pca/pull/123#issuecomment-%s\t\n' "$comment_id" "$comment_id"
+                    printf '%s\thttps://github.com/ribuka/flat-pca/pull/123#issuecomment-%s\t\t%s\n' "$comment_id" "$comment_id" "$REVIEW_AGENT_LABEL"
                 else
-                    printf '%s\thttps://github.com/ribuka/flat-pca/pull/123#issuecomment-%s\t%s\n' "$comment_id" "$comment_id" "$commit"
+                    printf '%s\thttps://github.com/ribuka/flat-pca/pull/123#issuecomment-%s\t%s\t%s\n' "$comment_id" "$comment_id" "$commit" "$REVIEW_AGENT_LABEL"
                 fi
             done
             if [ -f "$REVIEW_STATE_FILE" ]; then
                 if [ "$include_commit" = "true" ]; then
-                    printf '1001\thttps://github.com/ribuka/flat-pca/pull/123#issuecomment-1001\t%s\n' "$REVIEW_HEAD_COMMIT"
+                    printf '1001\thttps://github.com/ribuka/flat-pca/pull/123#issuecomment-1001\t%s\t%s\n' "$REVIEW_HEAD_COMMIT" "$REVIEW_AGENT_LABEL"
                 else
                     printf '1001\thttps://github.com/ribuka/flat-pca/pull/123#issuecomment-1001\n'
                 fi
@@ -101,6 +103,8 @@ codex() {
 export -f gh post_fake_review claude codex
 export REVIEW_STATE_FILE REVIEW_POST_COMMENT
 
+mkdir -p "$(dirname "$REVIEW_CAPTURE_FILE")"
+
 review_args=("$REVIEW_SCRIPT" 123)
 if [ "$REVIEW_SCRIPT" = "scripts/run_codex_review.sh" ]; then
     review_args+=(--log-file "$REVIEW_LOG_FILE")
@@ -111,6 +115,7 @@ review_status=$?
 if [ -f "$REVIEW_CAPTURE_FILE" ]; then
     cat "$REVIEW_CAPTURE_FILE"
 fi
+printf 'api-calls: %s\n' "$(wc -l <"$REVIEW_API_FILE")"
 exit "$review_status"
 """
     environment = {
@@ -118,10 +123,14 @@ exit "$review_status"
         "REVIEW_STATE_FILE": state_file.as_posix(),
         "REVIEW_LOG_FILE": log_file.as_posix(),
         "REVIEW_CAPTURE_FILE": capture_file.as_posix(),
+        "REVIEW_API_FILE": api_file.as_posix(),
         "REVIEW_POST_COMMENT": str(post_comment).lower(),
         "REVIEW_EXISTING_COMMITS": " ".join(existing_review_commits),
         "REVIEW_HEAD_COMMIT": head_commit,
         "REVIEW_API_FAILURE_AFTER": str(api_failure_after_review).lower(),
+        "REVIEW_AGENT_LABEL": (
+            "Claude" if script_name == "run_claude_review.sh" else "Codex"
+        ),
     }
 
     try:
@@ -138,6 +147,7 @@ exit "$review_status"
         (REPOSITORY_ROOT / state_file).unlink(missing_ok=True)
         (REPOSITORY_ROOT / log_file).unlink(missing_ok=True)
         (REPOSITORY_ROOT / capture_file).unlink(missing_ok=True)
+        (REPOSITORY_ROOT / api_file).unlink(missing_ok=True)
 
 
 @pytest.mark.parametrize("script_name", ["run_claude_review.sh", "run_codex_review.sh"])
@@ -152,6 +162,7 @@ def test_review_script_reports_new_comment_url(script_name: str) -> None:
     ) in result.stdout
     assert f"reviewed-commit: {HEAD_COMMIT}" in result.stdout
     assert "PR 全体の差分" in result.stdout
+    assert "api-calls: 2" in result.stdout
 
 
 @pytest.mark.parametrize("script_name", ["run_claude_review.sh", "run_codex_review.sh"])
