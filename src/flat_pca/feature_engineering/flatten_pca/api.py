@@ -38,6 +38,7 @@ from .numpy_preprocessing import (
     build_numpy_prepared_inputs,
 )
 from .pca_scores import fit_flattened_pca
+from .preprocess_config import PreprocessConfig
 
 
 def flatten_pca(
@@ -146,8 +147,7 @@ def flatten_pca(
         raise ValueError("exactly one of paths or flattened must be specified")
     if flattened is None:
         assert paths is not None
-        flattened = preprocess_and_flatten(
-            paths,
+        config = PreprocessConfig(
             target_steps=target_steps,
             edge_trim=edge_trim,
             wavelength_range=wavelength_range,
@@ -161,7 +161,9 @@ def flatten_pca(
             stem_uniqueness=stem_uniqueness,
             validate_metadata_uniqueness=validate_metadata_uniqueness,
             validate_metadata_alignment=validate_metadata_alignment,
-            materialize_once=materialize_once,
+        )
+        flattened = _preprocess_and_flatten(
+            paths, config, materialize_once=materialize_once
         )
     return fit_flattened_pca(
         flattened,
@@ -276,12 +278,55 @@ def preprocess_and_flatten(
     fitting's ``impute_strategy``. Enable the check only when inputs are
     required to share an identical grid.
     """
+    config = PreprocessConfig(
+        target_steps=target_steps,
+        edge_trim=edge_trim,
+        wavelength_range=wavelength_range,
+        t_smoothing_window=t_smoothing_window,
+        w_smoothing_window=w_smoothing_window,
+        t_normalization_range=t_normalization_range,
+        w_normalization_range=w_normalization_range,
+        t_downsampling_stride=t_downsampling_stride,
+        w_downsampling_stride=w_downsampling_stride,
+        max_null_ratio=max_null_ratio,
+        stem_uniqueness=stem_uniqueness,
+        validate_metadata_uniqueness=validate_metadata_uniqueness,
+        validate_metadata_alignment=validate_metadata_alignment,
+    )
+    return _preprocess_and_flatten(paths, config, materialize_once=materialize_once)
+
+
+def _preprocess_and_flatten(
+    paths: Sequence[str | Path],
+    config: PreprocessConfig,
+    *,
+    materialize_once: bool,
+) -> pl.LazyFrame:
+    """Build the preprocessing and flattening query from a validated config.
+
+    Shared by ``flatten_pca`` and ``preprocess_and_flatten``, which build
+    ``config`` from their keyword arguments, so every preprocessing argument
+    is validated before any input file is read.
+
+    Parameters
+    ----------
+    paths : Sequence[str | Path]
+        One or more Parquet input paths.
+    config : PreprocessConfig
+        Validated preprocessing parameters.
+    materialize_once : bool
+        See ``preprocess_and_flatten``.
+
+    Returns
+    -------
+    pl.LazyFrame
+        Deferred one-row-per-file flattened features with ``source`` first.
+    """
     if materialize_once:
-        # Fail fast before reading any input; flatten_and_prune_inputs
-        # validates again for its independent callers.
-        validate_max_null_ratio(max_null_ratio)
-        resolved_paths = resolve_and_check_paths(paths, stem_uniqueness=stem_uniqueness)
-        if all_wavelength_columns_are_float(resolved_paths, wavelength_range):
+        resolved_paths = resolve_and_check_paths(
+            paths, stem_uniqueness=config.stem_uniqueness
+        )
+        if all_wavelength_columns_are_float(resolved_paths, config.wavelength_range):
             # The NumPy fast path replaces load_and_validate_inputs and the
             # per-file smoothing/normalization/downsampling loop below with
             # a single read per file (merging validate_frame's separate
@@ -292,20 +337,7 @@ def preprocess_and_flatten(
             # reproduces Float32/Float64 input exactly (see
             # numpy_preprocessing.py), so it is only used when every
             # wavelength column already has a floating-point dtype.
-            prepared_inputs = build_numpy_prepared_inputs(
-                resolved_paths,
-                target_steps=target_steps,
-                edge_trim=edge_trim,
-                wavelength_range=wavelength_range,
-                t_smoothing_window=t_smoothing_window,
-                w_smoothing_window=w_smoothing_window,
-                t_normalization_range=t_normalization_range,
-                w_normalization_range=w_normalization_range,
-                t_downsampling_stride=t_downsampling_stride,
-                w_downsampling_stride=w_downsampling_stride,
-                validate_metadata_uniqueness=validate_metadata_uniqueness,
-                validate_metadata_alignment=validate_metadata_alignment,
-            )
+            prepared_inputs = build_numpy_prepared_inputs(resolved_paths, config)
         else:
             # An integer or decimal wavelength dtype would be corrupted by
             # the NumPy fast path's float64 conversion (silently rounding
@@ -316,60 +348,22 @@ def preprocess_and_flatten(
             # dtypes through its own dtype-preserving row-dict path (see
             # flatten.py's _has_float_spectral_columns).
             legacy_prepared_inputs = _build_legacy_prepared_inputs(
-                resolved_paths,
-                target_steps=target_steps,
-                edge_trim=edge_trim,
-                wavelength_range=wavelength_range,
-                t_smoothing_window=t_smoothing_window,
-                w_smoothing_window=w_smoothing_window,
-                t_normalization_range=t_normalization_range,
-                w_normalization_range=w_normalization_range,
-                t_downsampling_stride=t_downsampling_stride,
-                w_downsampling_stride=w_downsampling_stride,
-                stem_uniqueness=stem_uniqueness,
-                validate_metadata_uniqueness=validate_metadata_uniqueness,
-                validate_metadata_alignment=validate_metadata_alignment,
+                resolved_paths, config
             )
             prepared_inputs = [
                 (path, frame.collect()) for path, frame in legacy_prepared_inputs
             ]
-        return flatten_and_prune_inputs(prepared_inputs, max_null_ratio).lazy()
+        return flatten_and_prune_inputs(prepared_inputs, config.max_null_ratio).lazy()
 
-    prepared_inputs = _build_legacy_prepared_inputs(
-        paths,
-        target_steps=target_steps,
-        edge_trim=edge_trim,
-        wavelength_range=wavelength_range,
-        t_smoothing_window=t_smoothing_window,
-        w_smoothing_window=w_smoothing_window,
-        t_normalization_range=t_normalization_range,
-        w_normalization_range=w_normalization_range,
-        t_downsampling_stride=t_downsampling_stride,
-        w_downsampling_stride=w_downsampling_stride,
-        stem_uniqueness=stem_uniqueness,
-        validate_metadata_uniqueness=validate_metadata_uniqueness,
-        validate_metadata_alignment=validate_metadata_alignment,
-    )
+    prepared_inputs = _build_legacy_prepared_inputs(paths, config)
     flattened = flatten_inputs(prepared_inputs)
     assert isinstance(flattened, pl.LazyFrame)
-    return drop_sparse_feature_columns(flattened, max_null_ratio)
+    return drop_sparse_feature_columns(flattened, config.max_null_ratio)
 
 
 def _build_legacy_prepared_inputs(
     paths: Sequence[str | Path],
-    *,
-    target_steps: list[int] | None,
-    edge_trim: Sequence[float] | None,
-    wavelength_range: tuple[float, float] | None,
-    t_smoothing_window: float | None,
-    w_smoothing_window: float | None,
-    t_normalization_range: tuple[float, float] | None,
-    w_normalization_range: tuple[float, float] | None,
-    t_downsampling_stride: int,
-    w_downsampling_stride: int,
-    stem_uniqueness: StemUniquenessCheck,
-    validate_metadata_uniqueness: bool,
-    validate_metadata_alignment: bool,
+    config: PreprocessConfig,
 ) -> list[tuple[Path, pl.LazyFrame]]:
     """Validate and preprocess inputs through the original polars pipeline.
 
@@ -381,11 +375,11 @@ def _build_legacy_prepared_inputs(
 
     Parameters
     ----------
-    paths, target_steps, edge_trim, wavelength_range, t_smoothing_window,
-    w_smoothing_window, t_normalization_range, w_normalization_range,
-    t_downsampling_stride, w_downsampling_stride, stem_uniqueness,
-    validate_metadata_uniqueness, validate_metadata_alignment :
-        See ``preprocess_and_flatten``.
+    paths : Sequence[str | Path]
+        One or more Parquet input paths.
+    config : PreprocessConfig
+        Validated preprocessing parameters. ``max_null_ratio`` is not used
+        here; the caller applies it after flattening.
 
     Returns
     -------
@@ -396,24 +390,24 @@ def _build_legacy_prepared_inputs(
     """
     loaded_inputs = load_and_validate_inputs(
         paths,
-        stem_uniqueness=stem_uniqueness,
-        validate_metadata_uniqueness=validate_metadata_uniqueness,
-        wavelength_range=wavelength_range,
+        stem_uniqueness=config.stem_uniqueness,
+        validate_metadata_uniqueness=config.validate_metadata_uniqueness,
+        wavelength_range=config.wavelength_range,
     )
     filtered_inputs: list[tuple[Path, pl.LazyFrame]] = [
-        (path, filter_target_steps(frame, target_steps))
+        (path, filter_target_steps(frame, config.target_steps))
         for path, frame in loaded_inputs
     ]
-    if validate_metadata_alignment:
+    if config.validate_metadata_alignment:
         validate_alignment_across_inputs(filtered_inputs)
 
     step_time_inputs: list[tuple[Path, pl.LazyFrame]] = []
     for path, frame in filtered_inputs:
         with_step_time = add_step_time_columns(frame)
         wavelength_filtered = apply_wavelength_range_filter(
-            with_step_time, wavelength_range
+            with_step_time, config.wavelength_range
         )
-        trimmed = apply_edge_trim(wavelength_filtered, edge_trim)
+        trimmed = apply_edge_trim(wavelength_filtered, config.edge_trim)
         step_time_inputs.append((path, trimmed))
 
     frames = [frame for _, frame in step_time_inputs]
@@ -421,19 +415,19 @@ def _build_legacy_prepared_inputs(
     unique_wavelengths = collect_unique_wavelengths(frames)
     prepared_inputs: list[tuple[Path, pl.LazyFrame]] = []
     for path, frame in step_time_inputs:
-        prepared = apply_t_smoothing(frame, t_smoothing_window)
-        prepared = apply_w_smoothing(prepared, w_smoothing_window)
-        prepared = apply_t_normalization(prepared, t_normalization_range)
-        prepared = apply_w_normalization(prepared, w_normalization_range)
+        prepared = apply_t_smoothing(frame, config.t_smoothing_window)
+        prepared = apply_w_smoothing(prepared, config.w_smoothing_window)
+        prepared = apply_t_normalization(prepared, config.t_normalization_range)
+        prepared = apply_w_normalization(prepared, config.w_normalization_range)
         prepared = apply_t_downsampling(
             prepared,
             unique_times,
-            t_downsampling_stride,
+            config.t_downsampling_stride,
         )
         prepared = apply_w_downsampling(
             prepared,
             unique_wavelengths,
-            w_downsampling_stride,
+            config.w_downsampling_stride,
         )
         prepared_inputs.append((path, prepared))
     return prepared_inputs
