@@ -38,3 +38,6 @@ wheels/
 
 # lnk
 *.lnk
+
+# graphify
+graphify-out/
