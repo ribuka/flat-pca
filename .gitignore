@@ -20,7 +20,8 @@ wheels/
 !.env.example
 .codex/
 .copilot/
-.claude/
+.claude/*
+!.claude/settings.json
 
 # data
 /data/

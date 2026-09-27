@@ -24,6 +24,12 @@
 - **NEVER** run pytest inside the Codex Windows sandbox.
 - Before running any pytest command, read `docs/agents/pytest.md` and follow it.
 
+## Code navigation
+
+- Before exploring code with Grep/Glob/Read, orient with graphify
+  (`graphify query "<question>"`, `graphify explain "<symbol>"`, `graphify affected "<symbol>"`).
+- Read `docs/agents/graphify.md` and follow it.
+
 ## Github
 
 ### Commit
