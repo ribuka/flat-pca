@@ -20,7 +20,8 @@ wheels/
 !.env.example
 .codex/
 .copilot/
-.claude/
+.claude/*
+!.claude/settings.json
 
 # data
 /data/
@@ -38,3 +39,6 @@ wheels/
 
 # lnk
 *.lnk
+
+# graphify
+graphify-out/

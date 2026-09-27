@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT"
+
+if ! command -v graphify >/dev/null 2>&1; then
+    echo "[graphify] graphify command not found; skipping graph sync" >&2
+    exit 0
+fi
+
+export PYTHONHASHSEED=0
+
+# Limit parallel execution in Git for Windows
+if [ -n "${WINDIR:-}" ] || [ -n "${MSYSTEM:-}" ]; then
+    export GRAPHIFY_MAX_WORKERS="${GRAPHIFY_MAX_WORKERS:-1}"
+fi
+
+if [ ! -f graphify-out/graph.json ]; then
+    echo "[graphify] Initializing graph in $ROOT"
+    graphify extract . --code-only </dev/null || echo "[graphify] extract failed" >&2
+else
+    echo "[graphify] Updating graph in $ROOT"
+    graphify update . </dev/null || echo "[graphify] update failed" >&2
+fi
