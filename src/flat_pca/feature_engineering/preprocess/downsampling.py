@@ -94,9 +94,32 @@ def resolve_downsampled_values(
     ValueError
         If ``stride`` is not a positive, non-boolean integer.
     """
+    return unique_values[:: validate_downsampling_stride(stride, argument_name)]
+
+
+def validate_downsampling_stride(stride: int, argument_name: str) -> int:
+    """Validate and coerce a downsampling stride.
+
+    Parameters
+    ----------
+    stride : int
+        Candidate interval between retained indices.
+    argument_name : str
+        Public argument name used in the validation message.
+
+    Returns
+    -------
+    int
+        The validated stride as a built-in ``int``.
+
+    Raises
+    ------
+    ValueError
+        If ``stride`` is not a positive, non-boolean integer.
+    """
     if isinstance(stride, bool) or not isinstance(stride, Integral) or stride < 1:
         raise ValueError(f"{argument_name} must be an integer of at least 1")
-    return unique_values[:: int(stride)]
+    return int(stride)
 
 
 def apply_t_downsampling(

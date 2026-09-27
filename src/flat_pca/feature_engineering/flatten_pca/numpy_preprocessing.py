@@ -35,12 +35,11 @@ from flat_pca.spectral.schema import (
 
 from ..preprocess.downsampling import collect_unique_times, resolve_downsampled_values
 from ..preprocess.filter import filter_target_steps
-from ..preprocess.ranges import validate_ordered_range, validate_positive_finite
 from ..preprocess.step_time import add_step_time_columns
 from ..preprocess.trim import apply_edge_trim
-from ..preprocess.wavelength_filter import validate_wavelength_range
 from .input import read_parquet, validate_frame_schema
 from .input import validate_metadata_alignment as _validate_metadata_alignment
+from .preprocess_config import PreprocessConfig
 
 MetadataGroups = dict[tuple[object, object], list[int]]
 
@@ -64,9 +63,9 @@ def all_wavelength_columns_are_float(
     paths : Sequence[Path]
         Resolved input paths.
     wavelength_range : tuple[float, float] | None
-        Inclusive ``(lower, upper)`` wavelength interval that will restrict
-        which columns are read, or ``None`` to check every wavelength
-        column.
+        Already validated inclusive ``(lower, upper)`` wavelength interval
+        (see ``PreprocessConfig``) that will restrict which columns are
+        read, or ``None`` to check every wavelength column.
 
     Returns
     -------
@@ -74,15 +73,12 @@ def all_wavelength_columns_are_float(
         ``True`` if every checked wavelength column, in every file, has a
         floating-point dtype.
     """
-    validated_range = (
-        validate_wavelength_range(wavelength_range) if wavelength_range is not None else None
-    )
     for path in paths:
         schema = read_parquet(path).collect_schema()
         candidate_columns = wavelength_columns(schema.names())
-        if validated_range is not None:
+        if wavelength_range is not None:
             candidate_columns = select_wavelength_columns_in_range(
-                candidate_columns, validated_range
+                candidate_columns, wavelength_range
             )
         if any(not schema[column].is_float() for column in candidate_columns):
             return False
@@ -243,7 +239,7 @@ def _apply_t_stage(
         for: the union of rows that survive downsampling and rows required
         for a Time-normalization reference mean.
     t_smoothing_window : float | None
-        Positive half-window width, or ``None`` to skip smoothing.
+        Validated positive half-window width, or ``None`` to skip smoothing.
 
     Returns
     -------
@@ -251,16 +247,10 @@ def _apply_t_stage(
         ``(needed row count, wavelength count)`` matrix: smoothed values if
         ``t_smoothing_window`` is given, otherwise the raw values at the
         needed rows.
-
-    Raises
-    ------
-    ValueError
-        If ``t_smoothing_window`` is not finite and greater than zero.
     """
     if t_smoothing_window is None:
         return values[needed_row_positions]
 
-    window = validate_positive_finite(t_smoothing_window, "t_smoothing_window")
     needed_row_set = set(needed_row_positions.tolist())
     position_of_row = {
         row_index: position for position, row_index in enumerate(needed_row_positions.tolist())
@@ -273,7 +263,8 @@ def _apply_t_stage(
         for local_index, row_index in enumerate(indices):
             if row_index not in needed_row_set:
                 continue
-            in_window = np.abs(group_times - group_times[local_index]) <= window
+            distances = np.abs(group_times - group_times[local_index])
+            in_window = distances <= t_smoothing_window
             output[position_of_row[row_index]] = group_values[in_window].mean(axis=0)
     return output
 
@@ -302,25 +293,19 @@ def _apply_w_stage(
         that survive downsampling and columns required for a
         wavelength-normalization reference mean.
     w_smoothing_window : float | None
-        Positive half-window width, or ``None`` to skip smoothing.
+        Validated positive half-window width, or ``None`` to skip smoothing.
 
     Returns
     -------
     np.ndarray
         ``(row count, needed column count)`` matrix.
-
-    Raises
-    ------
-    ValueError
-        If ``w_smoothing_window`` is not finite and greater than zero.
     """
     if w_smoothing_window is None:
         return values[:, needed_col_positions]
 
-    window = validate_positive_finite(w_smoothing_window, "w_smoothing_window")
     output = np.empty((values.shape[0], needed_col_positions.size), dtype=np.float64)
     for output_index, column_index in enumerate(needed_col_positions.tolist()):
-        in_window = np.abs(wavelengths - wavelengths[column_index]) <= window
+        in_window = np.abs(wavelengths - wavelengths[column_index]) <= w_smoothing_window
         output[:, output_index] = values[:, in_window].mean(axis=1)
     return output
 
@@ -348,17 +333,17 @@ def _validate_full_t_normalization_groups(
         Row positions for each ``(Step, Sequence)`` pair, over the full row
         set.
     t_normalization_range : tuple[float, float] | None
-        Inclusive reference interval, or ``None`` to skip the check.
+        Validated inclusive reference interval, or ``None`` to skip the
+        check.
 
     Raises
     ------
     ValueError
-        If the range is malformed, reversed, or nonfinite, or if any group
-        has no reference observations.
+        If any group has no reference observations.
     """
     if t_normalization_range is None:
         return
-    lower, upper = validate_ordered_range(t_normalization_range, "t_normalization_range")
+    lower, upper = t_normalization_range
     if not groups:
         raise ValueError("t_normalization_range reference interval is empty for a group")
     for indices in groups.values():
@@ -392,17 +377,18 @@ def _apply_t_normalization_stage(
         Row positions for each ``(Step, Sequence)`` pair, over the same
         (already reduced) row set as ``values``/``times``.
     t_normalization_range : tuple[float, float] | None
-        Inclusive reference interval, or ``None`` to skip normalization.
+        Validated inclusive reference interval, or ``None`` to skip
+        normalization.
 
     Raises
     ------
     ValueError
-        If the range is malformed, reversed, or nonfinite; a group has no
-        reference observations; or a reference mean is zero or nonfinite.
+        If a group has no reference observations or a reference mean is
+        zero or nonfinite.
     """
     if t_normalization_range is None:
         return
-    lower, upper = validate_ordered_range(t_normalization_range, "t_normalization_range")
+    lower, upper = t_normalization_range
     if not groups:
         raise ValueError("t_normalization_range reference interval is empty for a group")
     for indices in groups.values():
@@ -439,7 +425,8 @@ def _apply_w_normalization_stage(
     wavelengths : np.ndarray
         Wavelength value for each column of ``values``, aligned with it.
     w_normalization_range : tuple[float, float] | None
-        Inclusive reference interval, or ``None`` to skip normalization.
+        Validated inclusive reference interval, or ``None`` to skip
+        normalization.
 
     Returns
     -------
@@ -450,12 +437,12 @@ def _apply_w_normalization_stage(
     Raises
     ------
     ValueError
-        If the range is malformed, reversed, or nonfinite; the interval has
-        no wavelengths; or a row's reference mean is zero or nonfinite.
+        If the interval has no wavelengths or a row's reference mean is zero
+        or nonfinite.
     """
     if w_normalization_range is None:
         return values
-    lower, upper = validate_ordered_range(w_normalization_range, "w_normalization_range")
+    lower, upper = w_normalization_range
     in_reference = (wavelengths >= lower) & (wavelengths <= upper)
     if not in_reference.any():
         raise ValueError("w_normalization_range reference interval is empty")
@@ -467,13 +454,8 @@ def _apply_w_normalization_stage(
 
 def _process_file(
     combined_raw: pl.DataFrame,
+    config: PreprocessConfig,
     *,
-    target_steps: list[int] | None,
-    edge_trim: Sequence[float] | None,
-    t_smoothing_window: float | None,
-    w_smoothing_window: float | None,
-    t_normalization_range: tuple[float, float] | None,
-    w_normalization_range: tuple[float, float] | None,
     selected_times_array: np.ndarray,
     selected_wavelengths: list[float],
     wavelength_columns_native: list[str],
@@ -486,9 +468,10 @@ def _process_file(
         This file's freshly read ``Time``, ``Step``, ``Sequence``, and
         wavelength-range-restricted (native order) columns, not yet
         filtered, sorted, or trimmed.
-    target_steps, edge_trim : see ``preprocess_and_flatten``.
-    t_smoothing_window, w_smoothing_window : see ``preprocess_and_flatten``.
-    t_normalization_range, w_normalization_range : see ``preprocess_and_flatten``.
+    config : PreprocessConfig
+        Validated preprocessing parameters. Only ``target_steps``,
+        ``edge_trim``, the smoothing windows, and the normalization ranges
+        are used here.
     selected_times_array : np.ndarray
         Shared downsampled Time values (float64), sorted ascending.
     selected_wavelengths : list[float]
@@ -505,11 +488,13 @@ def _process_file(
         columns named canonically and sorted ascending -- ready to hand to
         ``flatten_and_prune_inputs`` alongside every other file.
     """
-    filtered = filter_target_steps(combined_raw, target_steps)
+    t_normalization_range = config.t_normalization_range
+    w_normalization_range = config.w_normalization_range
+    filtered = filter_target_steps(combined_raw, config.target_steps)
     assert isinstance(filtered, pl.DataFrame)
     with_step_time = add_step_time_columns(filtered)
     assert isinstance(with_step_time, pl.DataFrame)
-    trimmed = apply_edge_trim(with_step_time, edge_trim)
+    trimmed = apply_edge_trim(with_step_time, config.edge_trim)
     assert isinstance(trimmed, pl.DataFrame)
 
     times = trimmed["Time"].cast(pl.Float64).to_numpy()
@@ -529,9 +514,7 @@ def _process_file(
 
     needed_row_mask = np.isin(times, selected_times_array)
     if t_normalization_range is not None:
-        t_lower, t_upper = validate_ordered_range(
-            t_normalization_range, "t_normalization_range"
-        )
+        t_lower, t_upper = t_normalization_range
         needed_row_mask = needed_row_mask | ((times >= t_lower) & (times <= t_upper))
     needed_row_positions = np.flatnonzero(needed_row_mask)
 
@@ -540,7 +523,7 @@ def _process_file(
         raw_values,
         _group_row_indices(steps, sequences),
         needed_row_positions,
-        t_smoothing_window,
+        config.t_smoothing_window,
     )
     times = times[needed_row_positions]
     steps = [steps[index] for index in needed_row_positions.tolist()]
@@ -549,16 +532,14 @@ def _process_file(
 
     needed_col_mask = np.isin(wavelengths_native, np.asarray(selected_wavelengths))
     if w_normalization_range is not None:
-        w_lower, w_upper = validate_ordered_range(
-            w_normalization_range, "w_normalization_range"
-        )
+        w_lower, w_upper = w_normalization_range
         needed_col_mask = needed_col_mask | (
             (wavelengths_native >= w_lower) & (wavelengths_native <= w_upper)
         )
     needed_col_positions = np.flatnonzero(needed_col_mask)
 
     values = _apply_w_stage(
-        t_stage_values, wavelengths_native, needed_col_positions, w_smoothing_window
+        t_stage_values, wavelengths_native, needed_col_positions, config.w_smoothing_window
     )
     wavelengths = wavelengths_native[needed_col_positions]
 
@@ -591,18 +572,7 @@ def _process_file(
 
 def build_numpy_prepared_inputs(
     paths: Sequence[Path],
-    *,
-    target_steps: list[int] | None,
-    edge_trim: Sequence[float] | None,
-    wavelength_range: tuple[float, float] | None,
-    t_smoothing_window: float | None,
-    w_smoothing_window: float | None,
-    t_normalization_range: tuple[float, float] | None,
-    w_normalization_range: tuple[float, float] | None,
-    t_downsampling_stride: int,
-    w_downsampling_stride: int,
-    validate_metadata_uniqueness: bool,
-    validate_metadata_alignment: bool,
+    config: PreprocessConfig,
 ) -> list[tuple[Path, pl.DataFrame]]:
     """Validate and preprocess Flatten-PCA inputs through the NumPy fast path.
 
@@ -619,11 +589,10 @@ def build_numpy_prepared_inputs(
     paths : Sequence[Path]
         Already resolved (normalized, stem-checked) input paths, as returned
         by ``resolve_and_check_paths``.
-    target_steps, edge_trim, wavelength_range : see ``preprocess_and_flatten``.
-    t_smoothing_window, w_smoothing_window : see ``preprocess_and_flatten``.
-    t_normalization_range, w_normalization_range : see ``preprocess_and_flatten``.
-    t_downsampling_stride, w_downsampling_stride : see ``preprocess_and_flatten``.
-    validate_metadata_uniqueness, validate_metadata_alignment : see ``preprocess_and_flatten``.
+    config : PreprocessConfig
+        Validated preprocessing parameters. ``stem_uniqueness`` and
+        ``max_null_ratio`` are not used here; they are applied by
+        ``resolve_and_check_paths`` and ``flatten_and_prune_inputs``.
 
     Returns
     -------
@@ -637,8 +606,8 @@ def build_numpy_prepared_inputs(
         If an input path does not exist.
     ValueError
         If input data violates the schema, value, requested uniqueness, or
-        cross-file consistency requirements, or if any preprocessing
-        argument is invalid.
+        cross-file consistency requirements, or if ``wavelength_range``
+        matches no wavelength column.
     """
     # Validate every file's schema up front, before reading any column, so a
     # structurally invalid file (missing column, bad dtype, ...) is reported
@@ -657,7 +626,9 @@ def build_numpy_prepared_inputs(
             schema_frame.collect_schema().names()
         )
 
-    if validate_metadata_alignment:
+    target_steps = config.target_steps
+    edge_trim = config.edge_trim
+    if config.validate_metadata_alignment:
         raw_metadata = [
             (path, _read_file_metadata(path, target_steps)) for path in paths
         ]
@@ -674,27 +645,27 @@ def build_numpy_prepared_inputs(
 
     unique_times = collect_unique_times([metadata for _, metadata in trimmed_metadata])
     selected_times_array = np.asarray(
-        resolve_downsampled_values(unique_times, t_downsampling_stride, "t_downsampling_stride"),
+        resolve_downsampled_values(
+            unique_times, config.t_downsampling_stride, "t_downsampling_stride"
+        ),
         dtype=np.float64,
     )
 
-    validated_wavelength_range = (
-        validate_wavelength_range(wavelength_range) if wavelength_range is not None else None
-    )
+    wavelength_range = config.wavelength_range
 
     def _selected_native_columns(path: Path) -> list[str]:
         """Return one file's wavelength_range-restricted columns, native order."""
         native = native_wavelength_columns_by_path[path]
-        if validated_wavelength_range is None:
+        if wavelength_range is None:
             return native
-        return select_wavelength_columns_in_range(native, validated_wavelength_range)
+        return select_wavelength_columns_in_range(native, wavelength_range)
 
     first_selected = _selected_native_columns(paths[0])
-    if validated_wavelength_range is not None and not first_selected:
+    if wavelength_range is not None and not first_selected:
         raise ValueError("wavelength_range matches no wavelength columns")
     unique_wavelengths = sorted({parse_wavelength(column) for column in first_selected})
     selected_wavelengths = resolve_downsampled_values(
-        unique_wavelengths, w_downsampling_stride, "w_downsampling_stride"
+        unique_wavelengths, config.w_downsampling_stride, "w_downsampling_stride"
     )
 
     value_check_columns = [*METADATA_COLUMNS, *first_selected]
@@ -708,19 +679,14 @@ def build_numpy_prepared_inputs(
             .collect()
         )
         _validate_values(path, combined_raw, value_check_columns)
-        if validate_metadata_uniqueness:
+        if config.validate_metadata_uniqueness:
             _validate_no_duplicate_metadata(path, combined_raw)
 
         prepared.append((
             path,
             _process_file(
                 combined_raw,
-                target_steps=target_steps,
-                edge_trim=edge_trim,
-                t_smoothing_window=t_smoothing_window,
-                w_smoothing_window=w_smoothing_window,
-                t_normalization_range=t_normalization_range,
-                w_normalization_range=w_normalization_range,
+                config,
                 selected_times_array=selected_times_array,
                 selected_wavelengths=selected_wavelengths,
                 wavelength_columns_native=file_native_columns,
