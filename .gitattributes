@@ -5,3 +5,5 @@
 /docs/ export-ignore
 /wiggum/ export-ignore
 /.gitattributes export-ignore
+/.claude/ export-ignore
+/.githooks/ export-ignore
