@@ -45,40 +45,85 @@ def reshape_pca_components(
     feature_columns = flattened_feature_columns(flattened.collect_schema().names())
     components = _validated_components(pca_model, len(feature_columns))
     coordinates = [_parse_feature_coordinate(column) for column in feature_columns]
-    wavelengths = sorted({coordinate[0] for coordinate in coordinates})
-    steps = sorted({coordinate[1] for coordinate in coordinates})
-    sequences = sorted({coordinate[2] for coordinate in coordinates})
-    times = sorted({coordinate[3] for coordinate in coordinates})
-    expected_count = len(wavelengths) * len(steps) * len(sequences) * len(times)
-    coordinate_set = set(coordinates)
-    if len(coordinate_set) != len(coordinates) or len(coordinates) != expected_count:
-        raise ValueError("flattened features must form a coordinate Cartesian product")
+    axes, order = _sorted_feature_order(coordinates)
+    steps, sequences, times, wavelengths = axes
+    n_components = components.shape[0]
+    block_count = len(steps) * len(sequences) * len(times)
 
-    component_columns = [str(index) for index in range(1, components.shape[0] + 1)]
-    table = pl.DataFrame(
+    # Rows follow (Step, Sequence, StepTime, component, wavelength). Because the
+    # features form the full Cartesian product of the four coordinate axes, every
+    # row position is known in advance and no sort is needed.
+    coefficients = (
+        components[:, order]
+        .reshape(n_components, block_count, len(wavelengths))
+        .transpose(1, 0, 2)
+        .ravel()
+    )
+    component_axis = np.arange(1, n_components + 1, dtype=np.int64)
+    step_grid, sequence_grid, time_grid, component_grid, wavelength_grid = np.meshgrid(
+        steps, sequences, times, component_axis, wavelengths, indexing="ij", copy=False
+    )
+    return pl.DataFrame(
         {
-            "wavelength": [coordinate[0] for coordinate in coordinates],
-            "Step": [coordinate[1] for coordinate in coordinates],
-            "Sequence": [coordinate[2] for coordinate in coordinates],
-            "StepTime": [coordinate[3] for coordinate in coordinates],
+            "StepTime": time_grid.ravel(),
+            "Step": step_grid.ravel(),
+            "Sequence": sequence_grid.ravel(),
+            "wavelength": wavelength_grid.ravel(),
+            "component": component_grid.ravel(),
+            "coefficient": coefficients,
         }
-    ).with_columns(
-        [
-            pl.Series(name, components[index, :])
-            for index, name in enumerate(component_columns)
-        ]
     )
-    return (
-        table.unpivot(
-            index=["wavelength", "Step", "Sequence", "StepTime"],
-            on=component_columns,
-            variable_name="component",
-            value_name="coefficient",
-        )
-        .with_columns(pl.col("component").cast(pl.Int64))
-        .select(["StepTime", "Step", "Sequence", "wavelength", "component", "coefficient"])
-        .sort(["Step", "Sequence", "StepTime", "component", "wavelength"])
+
+
+def _sorted_feature_order(
+    coordinates: list[tuple[float, int, int, float]],
+) -> tuple[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray]:
+    """Return sorted coordinate axes and the feature order that follows them.
+
+    Parameters
+    ----------
+    coordinates : list[tuple[float, int, int, float]]
+        Wavelength, Step, Sequence, and StepTime coordinates of each feature.
+
+    Returns
+    -------
+    tuple[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray]
+        Ascending Step, Sequence, StepTime, and wavelength axes, and the
+        feature indices ordered by Step, Sequence, StepTime, and wavelength.
+
+    Raises
+    ------
+    ValueError
+        If the features are not the full Cartesian product of the axes.
+    """
+    wavelengths, wavelength_index = np.unique(
+        np.array([coordinate[0] for coordinate in coordinates], dtype=np.float64),
+        return_inverse=True,
     )
+    steps, step_index = np.unique(
+        np.array([coordinate[1] for coordinate in coordinates], dtype=np.int64),
+        return_inverse=True,
+    )
+    sequences, sequence_index = np.unique(
+        np.array([coordinate[2] for coordinate in coordinates], dtype=np.int64),
+        return_inverse=True,
+    )
+    times, time_index = np.unique(
+        np.array([coordinate[3] for coordinate in coordinates], dtype=np.float64),
+        return_inverse=True,
+    )
+    shape = (len(steps), len(sequences), len(times), len(wavelengths))
+    feature_count = len(coordinates)
+    if feature_count != int(np.prod(shape)):
+        raise ValueError("flattened features must form a coordinate Cartesian product")
+    positions = np.ravel_multi_index(
+        (step_index, sequence_index, time_index, wavelength_index), shape
+    )
+    order = np.full(feature_count, -1, dtype=np.intp)
+    order[positions] = np.arange(feature_count, dtype=np.intp)
+    if (order < 0).any():
+        raise ValueError("flattened features must form a coordinate Cartesian product")
+    return (steps, sequences, times, wavelengths), order
 
 
 def _validated_components(pca_model: PcaModel, feature_count: int) -> np.ndarray:

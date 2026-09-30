@@ -573,6 +573,53 @@ def test_reshape_pca_components_places_real_flattened_features_on_sorted_axes(
         )
 
 
+def test_reshape_pca_components_matches_unpivot_and_sort_for_shuffled_features(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Match the unpivot-and-sort layout exactly when feature columns are shuffled."""
+    flattened = preprocess_and_flatten(real_fixture_paths[:3])
+    feature_columns = flattened.collect_schema().names()[1:]
+    shuffled_columns = list(
+        np.random.default_rng(0).permutation(np.array(feature_columns, dtype=object))
+    )
+    shuffled = flattened.select(["source", *shuffled_columns])
+    pca = pca_scores.fit_flattened_pca(shuffled, 3)
+
+    reshaped = reshape_pca_components(pca, shuffled)
+
+    parts = [column.split("_") for column in shuffled_columns]
+    component_columns = [str(index) for index in range(1, pca.pca.n_components_ + 1)]
+    expected = (
+        pl.DataFrame(
+            {
+                "wavelength": [float(part[0].removesuffix("nm")) for part in parts],
+                "Step": [int(part[1]) for part in parts],
+                "Sequence": [int(part[2]) for part in parts],
+                "StepTime": [float(part[3]) for part in parts],
+            }
+        )
+        .with_columns(
+            [
+                pl.Series(name, pca.pca.components_[index, :])
+                for index, name in enumerate(component_columns)
+            ]
+        )
+        .unpivot(
+            index=["wavelength", "Step", "Sequence", "StepTime"],
+            on=component_columns,
+            variable_name="component",
+            value_name="coefficient",
+        )
+        .with_columns(pl.col("component").cast(pl.Int64))
+        .select(["StepTime", "Step", "Sequence", "wavelength", "component", "coefficient"])
+        .sort(["Step", "Sequence", "StepTime", "component", "wavelength"])
+    )
+
+    assert shuffled_columns != feature_columns
+    assert reshaped.schema == expected.schema
+    assert reshaped.equals(expected)
+
+
 def test_reshape_pca_components_rejects_invalid_real_flattened_layouts(
     real_fixture_paths: list[Path],
 ) -> None:
