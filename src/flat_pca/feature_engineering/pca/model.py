@@ -1,8 +1,9 @@
 """Fitted PCA pipeline state.
 
 The model is a thin container: component interpretation lives in
-``analysis``, score-space distances in ``mahalanobis``, and payload
-conversion in ``serialization``, and the methods
+``analysis``, score-space distances in ``mahalanobis``, feature
+reconstruction in ``reconstruct``, and payload conversion in
+``serialization``, and the methods
 here only forward to them so the dataclass stays readable as a description
 of the fitted state.
 """
@@ -18,9 +19,14 @@ from sklearn.decomposition import PCA
 
 from ..outlier import OutlierStrategy
 from ..scaling import ScalingModel
-from .analysis import component_coefficients, feature_contribution_ranking
+from .analysis import (
+    component_coefficients,
+    explained_variance_table,
+    feature_contribution_ranking,
+)
 from .impute import ImputeStrategy
 from .mahalanobis import mahalanobis_threshold
+from .reconstruct import reconstruct_features
 from .serialization import build_transform_payload, parse_transform_payload
 
 
@@ -149,6 +155,75 @@ class PcaModel:
             cumulative_explained_variance,
             include_component_breakdown,
             component_prefix,
+        )
+
+    def get_explained_variance_table(self) -> pl.DataFrame:
+        """Return the explained variance of every fitted component.
+
+        The cumulative values come from the same computation that
+        ``cumulative_explained_variance`` selectors use, so the component
+        count chosen for a threshold matches the first row whose cumulative
+        value reaches it.
+
+        Returns
+        -------
+        pl.DataFrame
+            One row per component in ascending ``component`` order, with
+            columns ``component`` (one-based), ``pca_column``,
+            ``explained_variance``, ``explained_variance_ratio``, and
+            ``cumulative_explained_variance``.
+
+        Raises
+        ------
+        ValueError
+            If the PCA state is inconsistent.
+        """
+        return explained_variance_table(self.pca, self.pca_column_names)
+
+    def reconstruct(
+        self,
+        scores: pl.DataFrame,
+        cumulative_explained_variance: float | None = None,
+    ) -> pl.DataFrame:
+        """Reconstruct features in the original scale from PCA scores.
+
+        Computes ``mean + sum_{j<=k} t_j w_j`` in the preprocessed space and
+        undoes the fitted scaling. Imputation and outlier clipping cannot be
+        undone, so the result approximates the imputed and clipped data.
+
+        Parameters
+        ----------
+        scores : pl.DataFrame
+            Frame holding at least the first ``k`` score columns of
+            ``pca_column_names``; later score columns are ignored.
+        cumulative_explained_variance : float | int | None, default None
+            Component selector for leading components, following the same
+            rule as :meth:`get_feature_contribution_ranking`. ``None`` uses
+            every fitted component.
+
+        Returns
+        -------
+        pl.DataFrame
+            The non-score columns of ``scores`` followed by the reconstructed
+            feature columns in ``columns`` order, with the input row order.
+            Input columns named like a feature column are replaced. Rows
+            with a null or NaN used score are NaN.
+
+        Raises
+        ------
+        TypeError
+            If ``scores`` is not a ``pl.DataFrame``.
+        ValueError
+            If the selector is out of range, a used score column is missing,
+            or the PCA or scaling state is inconsistent.
+        """
+        return reconstruct_features(
+            scores,
+            self.pca,
+            self.scaling_model,
+            self.columns,
+            self.pca_column_names,
+            cumulative_explained_variance,
         )
 
     def get_mahalanobis_threshold(

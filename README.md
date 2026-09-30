@@ -82,6 +82,10 @@ components: pl.DataFrame = reshape_pca_components(pca, flattened)
 
 - PCA スコア空間のマハラノビス距離と管理限界（UCL）を出力できます。使い方は [docs/usage/anomaly-detection.md](docs/usage/anomaly-detection.md) を参照してください。
 
+### 寄与率の表と特徴量の再構成
+
+- 成分ごとの寄与率・累積寄与率の表と、PCA スコアから元のスケールの特徴量を再構成する機能があります。使い方は [docs/usage/explained-variance-and-reconstruction.md](docs/usage/explained-variance-and-reconstruction.md) を参照してください。
+
 ### 可視化
 
 - `flat_pca.visualize.create_heatmap` は、波長方向を横軸、時間方向を縦軸としたヒートマップ(`plotly.graph_objects.Figure`)を作成します。

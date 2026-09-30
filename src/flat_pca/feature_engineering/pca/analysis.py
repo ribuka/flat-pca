@@ -61,6 +61,28 @@ def component_coefficients(
     return pl.DataFrame(rows).sort("abs_coefficient", descending=True)
 
 
+def cumulative_explained_variance_ratio(
+    explained_variance_ratio: np.ndarray,
+) -> np.ndarray:
+    """Return the cumulative explained-variance ratio of leading components.
+
+    Both the component selector and the explained-variance table use this
+    function, so the component count chosen for a threshold always agrees
+    with the cumulative values shown in the table.
+
+    Parameters
+    ----------
+    explained_variance_ratio : np.ndarray
+        Explained-variance ratio of each fitted component.
+
+    Returns
+    -------
+    np.ndarray
+        Running sum of ``explained_variance_ratio``.
+    """
+    return np.cumsum(explained_variance_ratio)
+
+
 def resolve_used_components(
     explained_variance_ratio: np.ndarray,
     component_count: int,
@@ -109,7 +131,9 @@ def resolve_used_components(
             raise ValueError(
                 "cumulative_explained_variance as float must satisfy 0 < value <= 1"
             )
-        cumulative_ratio = np.cumsum(explained_variance_ratio)
+        cumulative_ratio = cumulative_explained_variance_ratio(
+            explained_variance_ratio
+        )
         used_components = int(
             np.searchsorted(cumulative_ratio, variance_threshold, side="left") + 1
         )
@@ -208,4 +232,63 @@ def feature_contribution_ranking(
                 "used_cumulative_explained_variance"
             ),
         )
+    )
+
+
+def explained_variance_table(
+    pca: PCA,
+    pca_column_names: tuple[str, ...],
+) -> pl.DataFrame:
+    """Return the explained variance of every fitted component as a table.
+
+    Parameters
+    ----------
+    pca : PCA
+        Fitted scikit-learn PCA estimator.
+    pca_column_names : tuple[str, ...]
+        Score-column name of each fitted component.
+
+    Returns
+    -------
+    pl.DataFrame
+        One row per component in ascending ``component`` order, with columns
+        ``component`` (one-based), ``pca_column``, ``explained_variance``,
+        ``explained_variance_ratio``, and ``cumulative_explained_variance``.
+
+    Raises
+    ------
+    ValueError
+        If the PCA state or the score-column names are inconsistent with the
+        fitted component count.
+    """
+    explained_variance = np.asarray(pca.explained_variance_, dtype=float)
+    explained_variance_ratio = np.asarray(pca.explained_variance_ratio_, dtype=float)
+    component_count = np.asarray(pca.components_).shape[0]
+
+    if explained_variance_ratio.shape[0] != component_count:
+        raise ValueError(
+            "inconsistent PCA state: explained_variance_ratio and components"
+        )
+    if explained_variance.shape[0] != component_count:
+        raise ValueError("inconsistent PCA state: explained_variance and components")
+    if len(pca_column_names) != component_count:
+        raise ValueError("inconsistent PCA state: pca_column_names and components")
+
+    return pl.DataFrame(
+        {
+            "component": np.arange(1, component_count + 1, dtype=np.int64),
+            "pca_column": list(pca_column_names),
+            "explained_variance": explained_variance,
+            "explained_variance_ratio": explained_variance_ratio,
+            "cumulative_explained_variance": cumulative_explained_variance_ratio(
+                explained_variance_ratio
+            ),
+        },
+        schema={
+            "component": pl.Int64,
+            "pca_column": pl.Utf8,
+            "explained_variance": pl.Float64,
+            "explained_variance_ratio": pl.Float64,
+            "cumulative_explained_variance": pl.Float64,
+        },
     )

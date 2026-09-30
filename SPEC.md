@@ -260,6 +260,25 @@ def apply_w_downsampling(
 - `append_pca_scores`は、flatten特徴量を`pca_model.pca.transform`へ渡して得たスコアを、入力の行順を維持して追加する。`pca_model.pca.n_features_in_`と特徴量列数が異なる場合は`ValueError`を送出する。
 - PCA成分の符号は一意に定まらないため、テストでは主成分やスコアの符号そのものを固定値と単純比較しない。
 
+### 寄与率の表と特徴量の再構成仕様
+
+- `PcaModel.get_explained_variance_table()`は、fitしたすべての成分について1成分1行の`pl.DataFrame`を`component`の昇順で返す。列は次のとおり。
+  - `component`（`Int64`）：1始まりの成分番号（`get_component_coefficients`の`component`と同じ番号）。
+  - `pca_column`（`Utf8`）：スコア列名（`pca_column_names`の値）。
+  - `explained_variance`（`Float64`）：`pca.explained_variance_`。
+  - `explained_variance_ratio`（`Float64`）：`pca.explained_variance_ratio_`。
+  - `cumulative_explained_variance`（`Float64`）：`explained_variance_ratio`の累積和。`resolve_used_components`と同じ関数（`cumulative_explained_variance_ratio`）で計算し、閾値`c`で選ばれる成分数は、この列が初めて`c`以上となる行の`component`と一致する。成分数を打ち切ってfitしたモデルでは最後の行でも`c`に届かないことがあり、その場合に選ばれる成分数はfitしたすべての成分数（最後の行の`component`）となる。
+- `explained_variance_ratio_`・`explained_variance_`・`pca_column_names`の長さが`components_`の行数と異なる場合は`ValueError`を送出する。
+- `PcaModel.reconstruct(scores, cumulative_explained_variance=None)`は、PCAスコアからスケーリング前の元のスケールの特徴量を再構成する。
+  - 前処理後の空間で $\hat{\mathbf{z}} = \boldsymbol{\mu} + \sum_{j=1}^{k} t_j \mathbf{w}_j$ を計算する。$t_j$は第$j$主成分のスコア、$\mathbf{w}_j$は`pca.components_[j]`、$\boldsymbol{\mu}$は`pca.mean_`、$k$は`cumulative_explained_variance`から`resolve_used_components`で決める主成分数（`None`はfitしたすべての成分）である。`pca.whiten`が`True`の場合は、スコアに$\sqrt{\lambda_j}$を掛けてから計算する（`pca.inverse_transform`と同じ）。
+  - 次に列$c$ごとに $\hat{x}_c = \hat{z}_c \cdot s_c + m_c$ でスケーリングを戻す。$s_c$、$m_c$は`scaling_model.scales`・`scaling_model.centers`である。`scaling_model.strategy == "none"`のときは戻さない。
+  - 欠損値補完と外れ値処理（winsorizeなどのクリップ）は戻さないため、再構成値は補完・クリップ後のデータの近似となる。`flatten_pca`の既定（補完なし・外れ値処理なし・スケーリングなし）では影響しない。
+  - `scores`は`pl.DataFrame`とし、それ以外は`TypeError`を送出する。`pca_column_names`の先頭$k$列が必要で、それより後ろのスコア列は使わない。
+  - 出力は、`scores`のうちスコア列（`pca_column_names`）と特徴量列（`columns`）以外の列を入力の順に先頭に残し、その後ろに`columns`の順で再構成した特徴量列を並べる。`transform_pca`の出力のように特徴量列と同名の列を含む場合は、再構成値で置き換える。行順は入力と同じとする。
+  - 使うスコアにnullまたはNaNを含む行は、再構成値をすべてNaNとする（行は削除しない）。
+  - 次の場合は`ValueError`を送出する：`cumulative_explained_variance`が範囲外または非対応の型、先頭$k$列のスコア列が`scores`にない、PCAの状態（`components_`・`mean_`・`explained_variance_`・`explained_variance_ratio_`・`pca_column_names`・`columns`）の形状が整合しない、スケーリングありで`scaling_model`に特徴量列の中心または尺度がない。
+- 出力は特徴量の列数だけ幅が広くなるため、必要な行だけを渡して使う。
+
 ### マハラノビス距離仕様
 
 - PCAスコア空間では共分散行列が対角行列となり、対角成分は主成分ごとの分散`pca.explained_variance_`である。元の特徴量空間では次元数がサンプル数を上回ると共分散行列が特異になるため、距離はPCAスコア空間で計算する。
