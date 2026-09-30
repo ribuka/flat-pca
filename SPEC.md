@@ -264,7 +264,7 @@ def apply_w_downsampling(
 
 - PCAスコア空間では共分散行列が対角行列となり、対角成分は主成分ごとの分散`pca.explained_variance_`である。元の特徴量空間では次元数がサンプル数を上回ると共分散行列が特異になるため、距離はPCAスコア空間で計算する。
 - マハラノビス距離の二乗（Hotelling T²と同じ形）は $D^2 = \sum_{j=1}^{k} t_j^2 / \lambda_j$ とする。$t_j$は第$j$主成分のスコア、$\lambda_j$は`pca.explained_variance_[j]`、$k$は使う主成分数である。
-- 管理限界（UCL）は新しい観測値に対するF分布の式 $\mathrm{UCL} = \frac{k (n+1)(n-1)}{n (n-k)} F_{1-\alpha}(k,\ n-k)$ とする。$n$はfit時のサンプル数`pca.n_samples_`であり、分位点$F_{1-\alpha}$は`scipy.stats.f.ppf(1 - alpha, ...)`と同じ値とする。ただし`scipy.stats.f`の`ppf`・`isf`はいずれも`1 - alpha`を経由し、小さい`alpha`では1に丸められて無限大になるため、$X \sim F(k, n-k)$のとき$W = (n-k)/(kX + n-k) \sim \mathrm{Beta}((n-k)/2,\ k/2)$となる関係を使い、`scipy.stats.beta.ppf(alpha, ...)`（下側分位点）から求める。学習データそのものを評価する場合、このUCLはやや保守的になる。
+- 管理限界（UCL）は新しい観測値に対するF分布の式 $\mathrm{UCL} = \frac{k (n+1)(n-1)}{n (n-k)} F_{1-\alpha}(k,\ n-k)$ とする。$n$はfit時のサンプル数`pca.n_samples_`であり、分位点$F_{1-\alpha}$は`scipy.stats.f.ppf(1 - alpha, ...)`と同じ値とする。ただし`scipy.stats.f`の`ppf`・`isf`はいずれも`1 - alpha`を経由し、小さい`alpha`では1に丸められて無限大になるため、$X \sim F(k, n-k)$のとき$W = (n-k)/(kX + n-k) \sim \mathrm{Beta}((n-k)/2,\ k/2)$となる関係を使い、`alpha < 0.5`では`scipy.stats.beta.ppf(alpha, ...)`（下側分位点）から求める。`alpha >= 0.5`では$W$が1に丸められて分位点が0になるのを避けるため、`1 - alpha`が正確に計算できる`scipy.stats.f.ppf(1 - alpha, ...)`を直接使う。学習データそのものを評価する場合、このUCLはやや保守的になる。
 - `MahalanobisConfig`はfrozen dataclassとし、`flat_pca.feature_engineering.pca`から公開する。属性は次のとおり。
   - `cumulative_explained_variance`（既定値`0.9`）：使う主成分の選択。`get_feature_contribution_ranking`と同じ規則（`resolve_used_components`）に従う。
   - `alpha`（既定値`0.01`）：UCLの有意水準。`0 < alpha < 1`でなければ`ValueError`を送出する。

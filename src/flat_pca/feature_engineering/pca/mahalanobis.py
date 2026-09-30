@@ -22,6 +22,7 @@ from numbers import Real
 
 import numpy as np
 from scipy.stats import beta as beta_distribution
+from scipy.stats import f as f_distribution
 from sklearn.decomposition import PCA
 
 from .analysis import resolve_used_components
@@ -188,6 +189,9 @@ def f_upper_quantile(alpha: float, dfn: int, dfd: int) -> float:
     to 1 for a tiny ``alpha`` and returns ``inf``. If ``X ~ F(dfn, dfd)``,
     then ``W = dfd / (dfn X + dfd) ~ Beta(dfd / 2, dfn / 2)`` and the upper
     tail of ``X`` is the lower tail of ``W``, which keeps ``alpha`` as is.
+    That route in turn loses the quantile when ``alpha`` is close to 1,
+    because ``W`` rounds to 1 and ``1 / W - 1`` to 0; there ``1 - alpha`` is
+    computed exactly, so ``ppf`` is used directly.
 
     Parameters
     ----------
@@ -203,6 +207,8 @@ def f_upper_quantile(alpha: float, dfn: int, dfd: int) -> float:
     float
         Quantile ``F_{1-alpha}(dfn, dfd)``.
     """
+    if alpha >= 0.5:
+        return float(f_distribution.ppf(1.0 - alpha, dfn, dfd))
     lower_beta = float(beta_distribution.ppf(alpha, dfd / 2, dfn / 2))
     return dfd / dfn * (1.0 / lower_beta - 1.0)
 

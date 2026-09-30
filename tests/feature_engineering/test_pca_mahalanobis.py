@@ -188,6 +188,26 @@ class TestMahalanobisFunctions:
         ) == pytest.approx(alpha)
         assert actual > mahalanobis_ucl(n_samples, used_components, 1e-10)
 
+    @pytest.mark.parametrize("alpha", [0.3, 0.5, 0.9, 0.999999999])
+    @pytest.mark.parametrize(("n_samples", "used_components"), [(30, 1), (30, 3)])
+    def test_ucl_matches_ppf_for_large_alpha(
+        self, n_samples: int, used_components: int, alpha: float
+    ) -> None:
+        """Keep the limit positive and exact when ``alpha`` is close to 1."""
+        dfd = n_samples - used_components
+        expected = (
+            used_components
+            * (n_samples + 1)
+            * (n_samples - 1)
+            / (n_samples * dfd)
+            * f_distribution.ppf(1 - alpha, used_components, dfd)
+        )
+
+        actual = mahalanobis_ucl(n_samples, used_components, alpha)
+
+        assert actual > 0
+        assert actual == pytest.approx(expected, rel=1e-6)
+
     def test_ucl_rejects_components_not_below_samples(self) -> None:
         """Reject a component count that leaves no F degrees of freedom."""
         with pytest.raises(ValueError, match="less than the fitted sample count"):
