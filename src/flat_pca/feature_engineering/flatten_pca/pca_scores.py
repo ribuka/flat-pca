@@ -12,6 +12,7 @@ from ..pca import (
     ImputeStrategy,
     MahalanobisConfig,
     PcaModel,
+    SpeConfig,
     fit_pca,
     transform_pca,
 )
@@ -81,6 +82,7 @@ def append_pca_scores(
     flattened: pl.LazyFrame,
     *,
     mahalanobis: MahalanobisConfig | None = None,
+    spe: SpeConfig | None = None,
 ) -> pl.LazyFrame:
     """Append PCA scores to flattened features, applying the fitted impute strategy.
 
@@ -99,12 +101,16 @@ def append_pca_scores(
     mahalanobis : MahalanobisConfig | None, default None
         Mahalanobis distance settings forwarded to ``transform_pca``.
         ``None`` leaves the output unchanged.
+    spe : SpeConfig | None, default None
+        Q statistic settings forwarded to ``transform_pca``. ``None`` leaves
+        the output unchanged.
 
     Returns
     -------
     pl.LazyFrame
         ``source``, flattened feature columns, and ``pca-1`` onward scores,
-        followed by the Mahalanobis columns when ``mahalanobis`` is given.
+        followed by the Mahalanobis columns when ``mahalanobis`` is given and
+        the SPE columns when ``spe`` is given.
         Feature-column values reflect ``pca_model.impute_strategy``: unchanged
         for ``"drop"`` (rows with remaining missing values are excluded
         instead), or filled with the fitted median for ``"median"``.
@@ -114,7 +120,7 @@ def append_pca_scores(
     ValueError
         If the PCA feature count differs from the flattened feature count,
         if no rows remain after missing-value handling, or if the
-        Mahalanobis request is invalid.
+        Mahalanobis or SPE request is invalid.
     """
     feature_columns = flattened_feature_columns(flattened.collect_schema().names())
     if pca_model.pca.n_features_in_ != len(feature_columns):
@@ -122,4 +128,4 @@ def append_pca_scores(
             "PCA feature count does not match flattened feature count"
         )
 
-    return transform_pca(flattened, pca_model, mahalanobis=mahalanobis)
+    return transform_pca(flattened, pca_model, mahalanobis=mahalanobis, spe=spe)

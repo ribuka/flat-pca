@@ -1,8 +1,8 @@
 """Fitted PCA pipeline state.
 
 The model is a thin container: component interpretation lives in
-``analysis``, score-space distances in ``mahalanobis``, feature
-reconstruction in ``reconstruct``, and payload conversion in
+``analysis``, score-space distances in ``mahalanobis``, residual Q
+statistics in ``spe``, feature reconstruction in ``reconstruct``, and payload conversion in
 ``serialization``, and the methods
 here only forward to them so the dataclass stays readable as a description
 of the fitted state.
@@ -28,6 +28,7 @@ from .impute import ImputeStrategy
 from .mahalanobis import mahalanobis_threshold
 from .reconstruct import reconstruct_features
 from .serialization import build_transform_payload, parse_transform_payload
+from .spe import spe_threshold
 
 
 @dataclass(frozen=True)
@@ -259,6 +260,43 @@ class PcaModel:
             used component count is not below the fitted sample count.
         """
         return mahalanobis_threshold(
+            self.pca,
+            alpha,
+            cumulative_explained_variance,
+        )
+
+    def get_spe_threshold(
+        self,
+        alpha: float = 0.01,
+        cumulative_explained_variance: float | None = 0.9,
+    ) -> float:
+        """Return the upper control limit of the Q statistic (SPE).
+
+        The limit is the Jackson-Mudholkar approximation built from the
+        variances of the components after the leading ``k``. Components
+        that were not fitted are each given ``pca.noise_variance_``.
+
+        Parameters
+        ----------
+        alpha : float, default 0.01
+            Significance level, ``0 < alpha < 1``.
+        cumulative_explained_variance : float | int | None, default 0.9
+            Component selector for the leading components kept in the
+            reconstruction, following the same rule as
+            :meth:`get_feature_contribution_ranking`.
+
+        Returns
+        -------
+        float
+            Upper control limit, e.g. for a horizontal line on a plot.
+
+        Raises
+        ------
+        ValueError
+            If ``alpha`` or the component selector is out of range, or no
+            residual component has variance.
+        """
+        return spe_threshold(
             self.pca,
             alpha,
             cumulative_explained_variance,

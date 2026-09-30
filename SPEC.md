@@ -55,6 +55,7 @@ def append_pca_scores(
     flattened: pl.LazyFrame,
     *,
     mahalanobis: MahalanobisConfig | None = None,
+    spe: SpeConfig | None = None,
 ) -> pl.LazyFrame:
     ...
 
@@ -83,7 +84,7 @@ def reshape_pca_components(
 - `w_normalization_range`はw方向規格化に用いる閉区間`(w1, w2)`を指定し、`None`の場合は適用しない。
 - `t_downsampling_stride`はt方向の間引き間隔を指定する。`1`の場合は間引かない。
 - `w_downsampling_stride`はw方向の間引き間隔を指定する。`1`の場合は間引かない。
-- `append_pca_scores`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、`source`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。キーワード専用引数`mahalanobis`（既定値`None`）に`MahalanobisConfig`を渡した場合は、スコア列の後ろに距離列・UCL列・UCL超過フラグ列の3列を追加する（「マハラノビス距離仕様」を参照）。`None`の場合は3列を追加しない。`flattened`に残る欠損値（異なる入力ファイル間の`(Step, Sequence, StepTime)`集合の差異に由来するものを含む）は、fit時と同じ`pca_model.impute_strategy`に従って処理する（`transform_pca`と同じ規則）。`"drop"`の場合、欠損が残る行は出力から除外されるため、戻り値の行数が`flattened`の行数より少なくなることがある。`"median"`の場合、特徴量列の値は補完後の値になる。`"kmeans"`の場合、特徴量列の値はfit時に得たクラスタ中心を用いた補完後の値になる（詳細は「欠損値補完仕様」を参照）。欠損処理後に1行も残らない場合は`ValueError`を送出する。
+- `append_pca_scores`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、`source`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。キーワード専用引数`mahalanobis`（既定値`None`）に`MahalanobisConfig`を渡した場合は、スコア列の後ろに距離列・UCL列・UCL超過フラグ列の3列を追加する（「マハラノビス距離仕様」を参照）。`None`の場合は3列を追加しない。キーワード専用引数`spe`（既定値`None`）に`SpeConfig`を渡した場合は、さらにその後ろ（`mahalanobis`を渡した場合はマハラノビス距離の3列の後ろ）にQ統計量列・UCL列・UCL超過フラグ列の3列を追加する（「Q統計量（SPE）仕様」を参照）。`None`の場合は3列を追加しない。`flattened`に残る欠損値（異なる入力ファイル間の`(Step, Sequence, StepTime)`集合の差異に由来するものを含む）は、fit時と同じ`pca_model.impute_strategy`に従って処理する（`transform_pca`と同じ規則）。`"drop"`の場合、欠損が残る行は出力から除外されるため、戻り値の行数が`flattened`の行数より少なくなることがある。`"median"`の場合、特徴量列の値は補完後の値になる。`"kmeans"`の場合、特徴量列の値はfit時に得たクラスタ中心を用いた補完後の値になる（詳細は「欠損値補完仕様」を参照）。欠損処理後に1行も残らない場合は`ValueError`を送出する。
 - `materialize_once`（既定値`True`）が`True`の場合、`preprocess_and_flatten`はflatten完了後に一度だけ`.collect().lazy()`を行い、結果をメモリ上の`pl.DataFrame`起点の`pl.LazyFrame`として返す。これにより、戻り値をPCAのfitやスコア付与などで再利用しても、Parquet読み込みからflattenまでのクエリが再実行されない。`False`の場合は未実行のflattenクエリをそのまま返す。いずれの場合も戻り値の型は`pl.LazyFrame`であり、flatten結果・列順は一致する。`flatten_pca`が`paths`を指定する場合、`materialize_once`は同じ意味で内部の`preprocess_and_flatten`へ伝播する。`flattened`を指定する場合、`materialize_once`は使用しない。
 - `reshape_pca_components`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、後述の座標へ展開した`pca_model.pca.components_`を`pl.DataFrame`として返す。
 
@@ -296,7 +297,26 @@ def apply_w_downsampling(
   - 使う主成分の中に分散がほぼ0（最大分散に対する比が`1e-12`以下）の成分が含まれる場合。
   - 追加する列名が、入力フレームの既存の列名またはPCAスコア列名と衝突する場合。
 - `pca.whiten`が`True`のモデル（復元したモデルを含む）では、スコアが既に$\sqrt{\lambda_j}$で除算されているため、分散を1として距離を計算する。
-- T²は学習時の変動パターンの範囲内での振れ幅の大きさのみを捉える。部分空間外の残差（Q統計量、SPE）は本仕様の対象外とする。
+- T²は学習時の変動パターンの範囲内での振れ幅の大きさのみを捉える。部分空間外の残差は「Q統計量（SPE）仕様」で扱う。
+
+### Q統計量（SPE）仕様
+
+- Q統計量（SPE：Squared Prediction Error）は、前処理（補完・外れ値処理・スケーリング）後の1行の特徴量ベクトル$\mathbf{x}$と、先頭$k$成分による再構成$\hat{\mathbf{x}} = \boldsymbol{\mu} + \sum_{j=1}^{k} t_j \mathbf{w}_j$との差の二乗和 $Q = \lVert \mathbf{x} - \hat{\mathbf{x}} \rVert^2$ とする。$\boldsymbol{\mu}$は`pca.mean_`、$t_j$は第$j$主成分のスコア、$\mathbf{w}_j$は`pca.components_[j]`、$k$は使う主成分数である。$\hat{\mathbf{x}}$は`PcaModel.reconstruct`と同じ前処理後の空間での再構成（`pca.whiten`が`True`の場合も含む）とする。`pca.inverse_transform`はfitしたすべての成分で再構成するため使わない。
+- T²が学習時の変動パターンの範囲内での振れ幅を捉えるのに対し、Qは主成分部分空間の外側の残差、すなわち学習時にない形の変化（新しいピークの出現、ベースラインの形の変化など）を捉える。
+- 管理限界（UCL）はJackson–Mudholkarの近似式 $\mathrm{UCL} = \theta_1 \left[ \frac{z_{1-\alpha} \sqrt{2 \theta_2 h_0^2}}{\theta_1} + 1 + \frac{\theta_2 h_0 (h_0 - 1)}{\theta_1^2} \right]^{1/h_0}$ とする。ここで $\theta_i = \sum_{j=k+1}^{r} \lambda_j^{\,i}$、$h_0 = 1 - \frac{2 \theta_1 \theta_3}{3 \theta_2^2}$、$r = \min(n_\text{samples}, n_\text{features})$（`pca.n_samples_`、`pca.n_features_in_`）である。
+  - $\lambda_j$は、fitした成分（$j \le K$、$K$はfitした成分数）では`pca.explained_variance_`、fitしていない成分（$K < j \le r$）では`pca.noise_variance_`（fitしていない成分の分散の平均）とする。fitしていない成分の分散は個別に保存しないため、payloadの形式は変えない。この近似は$\theta_1$を変えないが、`max_n_component`などで成分数を打ち切った場合は$\theta_2$・$\theta_3$の精度が落ちる。`flatten_pca`は既定で階数の上限までfitするため影響しない。
+  - 正規分布の分位点$z_{1-\alpha}$は`scipy.stats.norm.ppf(1 - alpha)`と同じ値とし、小さい`alpha`で`1 - alpha`が1に丸められないよう`scipy.stats.norm.isf(alpha)`で求める。
+  - $h_0 \le 0$の場合は、べき変換$(Q/\theta_1)^{h_0}$がQの大小を逆転させるため、また角括弧内が0以下の場合はべき乗が定義できないため、Jackson–Mudholkarの式の元になったBoxの近似 $\mathrm{UCL} = g\,\chi^2_{1-\alpha}(h)$（$g = \theta_2/\theta_1$、$h = \theta_1^2/\theta_2$、分位点は`scipy.stats.chi2.isf(alpha, h)`）を使う。$h_0 \le 0$は、残差側で1成分の分散が大きく、残りの多数の成分の分散が小さい場合に起こる。
+  - UCLは残差が正規分布に従うことを前提とした近似である。
+- `SpeConfig`はfrozen dataclassとし、`flat_pca.feature_engineering.pca`から公開する。属性は次のとおり。
+  - `cumulative_explained_variance`（既定値`0.9`）：再構成に使う主成分の選択。`get_feature_contribution_ranking`と同じ規則（`resolve_used_components`）に従う。T²と同じ部分空間で分けるため、`MahalanobisConfig`と同じ既定値とする。
+  - `alpha`（既定値`0.01`）：UCLの有意水準。`0 < alpha < 1`でなければ`ValueError`を送出する。
+  - `spe_column`（既定値`"spe"`）、`ucl_column`（既定値`"spe_ucl"`）、`exceeds_ucl_column`（既定値`"spe_exceeds_ucl"`）：追加する列名。空文字列または互いに重複する場合は`ValueError`を送出する。
+- `transform_pca`・`fit_and_transform_pca`・`append_pca_scores`はキーワード専用引数`spe: SpeConfig | None = None`を受け取る。`None`の場合は出力を変更しない。`SpeConfig`を渡した場合、PCAスコア列（`mahalanobis`を渡した場合はマハラノビス距離の3列）の後ろにQ統計量（float）、UCL（全行で同じ値）、`Q > UCL`を表すbool列をこの順に追加する。Qの計算には、NumPy経路・polars経路のいずれでも`pca.transform`へ渡した前処理後の値を使う。
+- `PcaModel.get_spe_threshold(alpha=0.01, cumulative_explained_variance=0.9)`はUCLをスカラー（`float`）で返す。下記のエラー条件のうち、列名衝突以外は`transform`系関数と同じく検証する。
+- 次の場合は`ValueError`を送出する。
+  - 残差側に分散を持つ成分がなく、UCLを計算できない場合。具体的には$\theta_1$が全成分の分散の合計（$\sum_{j=1}^{r} \lambda_j$）の`1e-12`倍以下の場合。例：$k$が階数の上限$r$に達している場合。
+  - 追加する列名が、入力フレームの既存の列名、PCAスコア列名、または同時に渡した`MahalanobisConfig`の列名と衝突する場合。
 
 ### 欠損値補完仕様
 
