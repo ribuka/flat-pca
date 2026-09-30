@@ -267,7 +267,7 @@ def apply_w_downsampling(
   - `pca_column`（`Utf8`）：スコア列名（`pca_column_names`の値）。
   - `explained_variance`（`Float64`）：`pca.explained_variance_`。
   - `explained_variance_ratio`（`Float64`）：`pca.explained_variance_ratio_`。
-  - `cumulative_explained_variance`（`Float64`）：`explained_variance_ratio`の累積和。`resolve_used_components`と同じ関数（`cumulative_explained_variance_ratio`）で計算し、閾値`c`で選ばれる成分数は、この列が初めて`c`以上となる行の`component`と一致する。
+  - `cumulative_explained_variance`（`Float64`）：`explained_variance_ratio`の累積和。`resolve_used_components`と同じ関数（`cumulative_explained_variance_ratio`）で計算し、閾値`c`で選ばれる成分数は、この列が初めて`c`以上となる行の`component`と一致する。成分数を打ち切ってfitしたモデルでは最後の行でも`c`に届かないことがあり、その場合に選ばれる成分数はfitしたすべての成分数（最後の行の`component`）となる。
 - `explained_variance_ratio_`・`explained_variance_`・`pca_column_names`の長さが`components_`の行数と異なる場合は`ValueError`を送出する。
 - `PcaModel.reconstruct(scores, cumulative_explained_variance=None)`は、PCAスコアからスケーリング前の元のスケールの特徴量を再構成する。
   - 前処理後の空間で $\hat{\mathbf{z}} = \boldsymbol{\mu} + \sum_{j=1}^{k} t_j \mathbf{w}_j$ を計算する。$t_j$は第$j$主成分のスコア、$\mathbf{w}_j$は`pca.components_[j]`、$\boldsymbol{\mu}$は`pca.mean_`、$k$は`cumulative_explained_variance`から`resolve_used_components`で決める主成分数（`None`はfitしたすべての成分）である。`pca.whiten`が`True`の場合は、スコアに$\sqrt{\lambda_j}$を掛けてから計算する（`pca.inverse_transform`と同じ）。

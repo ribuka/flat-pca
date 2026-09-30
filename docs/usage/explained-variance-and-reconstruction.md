@@ -34,9 +34,11 @@ print(table.head(10))
 
 累積寄与率が 90% に届く成分番号は、表の最初の該当行で確認できます。
 この番号は、`cumulative_explained_variance=0.9` を受け取る各メソッド（`get_feature_contribution_ranking`、`MahalanobisConfig`、`reconstruct` など）が選ぶ成分数と一致します。
+成分数を打ち切って fit したモデルでは最後の成分でも 90% に届かないことがあり、その場合に各メソッドが選ぶのは fit したすべての成分（表の最後の行）です。
 
 ```python
-k_90 = table.filter(pl.col("cumulative_explained_variance") >= 0.9)["component"][0]
+reaching = table.filter(pl.col("cumulative_explained_variance") >= 0.9)
+k_90 = reaching["component"][0] if reaching.height > 0 else table["component"][-1]
 ```
 
 ### スクリープロット

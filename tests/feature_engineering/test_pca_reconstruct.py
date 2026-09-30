@@ -156,6 +156,23 @@ class TestGetExplainedVarianceTable:
 
         assert selected == first_reaching
 
+    def test_unreached_threshold_selects_last_component(
+        self, frame: pl.DataFrame
+    ) -> None:
+        """Select every fitted component when a truncated PCA misses the threshold."""
+        model = fit_pca(
+            frame.lazy(), FEATURES, max_n_component=2, scaling_strategy="none"
+        )
+        table = model.get_explained_variance_table()
+        threshold = 0.999
+        assert table["cumulative_explained_variance"][-1] < threshold
+
+        selected = resolve_used_components(
+            model.pca.explained_variance_ratio_, model.n_component, threshold
+        )
+
+        assert selected == table["component"][-1] == 2
+
     def test_rejects_inconsistent_pca_state(self, frame: pl.DataFrame) -> None:
         """Raise when the ratio length disagrees with the component count."""
         model = _fit(frame, "none")
