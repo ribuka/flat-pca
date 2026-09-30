@@ -168,6 +168,26 @@ class TestMahalanobisFunctions:
             expected
         )
 
+    def test_ucl_stays_finite_for_tiny_alpha(self) -> None:
+        """Keep the limit finite when ``1 - alpha`` rounds to 1."""
+        n_samples, used_components, alpha = 30, 3, 1e-20
+        scale = (
+            used_components
+            * (n_samples + 1)
+            * (n_samples - 1)
+            / (n_samples * (n_samples - used_components))
+        )
+
+        actual = mahalanobis_ucl(n_samples, used_components, alpha)
+
+        assert np.isfinite(actual)
+        # The survival function is evaluated without ``1 - alpha``, so it
+        # recovers the tiny upper-tail probability accurately.
+        assert f_distribution.sf(
+            actual / scale, used_components, n_samples - used_components
+        ) == pytest.approx(alpha)
+        assert actual > mahalanobis_ucl(n_samples, used_components, 1e-10)
+
     def test_ucl_rejects_components_not_below_samples(self) -> None:
         """Reject a component count that leaves no F degrees of freedom."""
         with pytest.raises(ValueError, match="less than the fitted sample count"):
@@ -290,22 +310,32 @@ class TestTransformWithMahalanobis:
 
     def test_rejects_near_zero_variance_component(self) -> None:
         """Reject a used component whose variance is effectively zero."""
-        base = np.linspace(1.0, 10.0, 8)
-        frame = pl.DataFrame(
-            {"feature_a": base, "feature_b": 2 * base, "feature_c": -base}
-        )
-        columns = ["feature_a", "feature_b", "feature_c"]
-        model = fit_pca(
-            frame.lazy(),
-            columns,
-            n_component=2,
-            max_n_component=None,
-            scaling_strategy="none",
-        )
+        frame, model = _rank_one_model()
         config = MahalanobisConfig(cumulative_explained_variance=2)
 
         with pytest.raises(ValueError, match="near-zero variance"):
             transform_pca(frame.lazy(), model, mahalanobis=config)
+
+
+def _rank_one_model() -> tuple[pl.DataFrame, PcaModel]:
+    """Return rank-one data and a two-component model fitted on it.
+
+    Returns
+    -------
+    tuple[pl.DataFrame, PcaModel]
+        Collinear features and a model whose second component has
+        effectively zero variance.
+    """
+    base = np.linspace(1.0, 10.0, 8)
+    frame = pl.DataFrame({"feature_a": base, "feature_b": 2 * base, "feature_c": -base})
+    model = fit_pca(
+        frame.lazy(),
+        ["feature_a", "feature_b", "feature_c"],
+        n_component=2,
+        max_n_component=None,
+        scaling_strategy="none",
+    )
+    return frame, model
 
 
 class TestModelThreshold:
@@ -323,6 +353,13 @@ class TestModelThreshold:
         """Reject a significance level outside (0, 1)."""
         with pytest.raises(ValueError, match="alpha"):
             model.get_mahalanobis_threshold(alpha=1.0)
+
+    def test_threshold_rejects_near_zero_variance_component(self) -> None:
+        """Reject the same selector that ``transform_pca`` rejects."""
+        _, model = _rank_one_model()
+
+        with pytest.raises(ValueError, match="near-zero variance"):
+            model.get_mahalanobis_threshold(cumulative_explained_variance=2)
 
     def test_json_round_trip_preserves_distance_and_ucl(
         self, model: PcaModel, new_frame: pl.DataFrame

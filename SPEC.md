@@ -264,14 +264,14 @@ def apply_w_downsampling(
 
 - PCAスコア空間では共分散行列が対角行列となり、対角成分は主成分ごとの分散`pca.explained_variance_`である。元の特徴量空間では次元数がサンプル数を上回ると共分散行列が特異になるため、距離はPCAスコア空間で計算する。
 - マハラノビス距離の二乗（Hotelling T²と同じ形）は $D^2 = \sum_{j=1}^{k} t_j^2 / \lambda_j$ とする。$t_j$は第$j$主成分のスコア、$\lambda_j$は`pca.explained_variance_[j]`、$k$は使う主成分数である。
-- 管理限界（UCL）は新しい観測値に対するF分布の式 $\mathrm{UCL} = \frac{k (n+1)(n-1)}{n (n-k)} F_{1-\alpha}(k,\ n-k)$ とする。$n$はfit時のサンプル数`pca.n_samples_`であり、分位点は`scipy.stats.f.ppf`で求める。学習データそのものを評価する場合、このUCLはやや保守的になる。
+- 管理限界（UCL）は新しい観測値に対するF分布の式 $\mathrm{UCL} = \frac{k (n+1)(n-1)}{n (n-k)} F_{1-\alpha}(k,\ n-k)$ とする。$n$はfit時のサンプル数`pca.n_samples_`であり、分位点$F_{1-\alpha}$は`scipy.stats.f.ppf(1 - alpha, ...)`と同じ値とする。ただし`scipy.stats.f`の`ppf`・`isf`はいずれも`1 - alpha`を経由し、小さい`alpha`では1に丸められて無限大になるため、$X \sim F(k, n-k)$のとき$W = (n-k)/(kX + n-k) \sim \mathrm{Beta}((n-k)/2,\ k/2)$となる関係を使い、`scipy.stats.beta.ppf(alpha, ...)`（下側分位点）から求める。学習データそのものを評価する場合、このUCLはやや保守的になる。
 - `MahalanobisConfig`はfrozen dataclassとし、`flat_pca.feature_engineering.pca`から公開する。属性は次のとおり。
   - `cumulative_explained_variance`（既定値`0.9`）：使う主成分の選択。`get_feature_contribution_ranking`と同じ規則（`resolve_used_components`）に従う。
   - `alpha`（既定値`0.01`）：UCLの有意水準。`0 < alpha < 1`でなければ`ValueError`を送出する。
   - `distance_column`（既定値`"mahalanobis_sq"`）、`ucl_column`（既定値`"mahalanobis_ucl"`）、`exceeds_ucl_column`（既定値`"mahalanobis_exceeds_ucl"`）：追加する列名。空文字列または互いに重複する場合は`ValueError`を送出する。
 - 主成分数の既定値`0.9`は`get_feature_contribution_ranking`の既定値（`None`）と意図的に異なる。`flatten_pca`は既定で主成分数をサンプル数までfitするため、全成分を使うと最後の成分の分散がほぼ0となって距離が発散し、また$k = n-1$では学習データの$D^2$が全サンプルで$(n-1)^2/n$となり異常を区別できないためである。
 - `transform_pca`・`fit_and_transform_pca`・`append_pca_scores`はキーワード専用引数`mahalanobis: MahalanobisConfig | None = None`を受け取る。`None`の場合は出力を変更しない。`MahalanobisConfig`を渡した場合、PCAスコア列の後ろに距離の二乗（float）、UCL（全行で同じ値）、`距離 > UCL`を表すbool列をこの順に追加する。
-- `PcaModel.get_mahalanobis_threshold(alpha=0.01, cumulative_explained_variance=0.9)`はUCLをスカラー（`float`）で返す。
+- `PcaModel.get_mahalanobis_threshold(alpha=0.01, cumulative_explained_variance=0.9)`はUCLをスカラー（`float`）で返す。下記のエラー条件のうち、列名衝突以外は`transform`系関数と同じく検証する。
 - 次の場合は`ValueError`を送出する。
   - 使う主成分数$k$がfit時のサンプル数$n$以上で、F分布の自由度$n-k$が0以下になる場合。
   - 使う主成分の中に分散がほぼ0（最大分散に対する比が`1e-12`以下）の成分が含まれる場合。

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from numbers import Real
 
 import numpy as np
-from scipy.stats import f as f_distribution
+from scipy.stats import beta as beta_distribution
 from sklearn.decomposition import PCA
 
 from .analysis import resolve_used_components
@@ -180,6 +180,33 @@ def mahalanobis_distance_sq(
     return np.sum(used_scores**2 / used_variances, axis=1)
 
 
+def f_upper_quantile(alpha: float, dfn: int, dfd: int) -> float:
+    """Return the F-distribution quantile with upper-tail probability ``alpha``.
+
+    This equals ``scipy.stats.f.ppf(1 - alpha, dfn, dfd)``, but both ``ppf``
+    and ``isf`` of ``scipy.stats.f`` go through ``1 - alpha``, which rounds
+    to 1 for a tiny ``alpha`` and returns ``inf``. If ``X ~ F(dfn, dfd)``,
+    then ``W = dfd / (dfn X + dfd) ~ Beta(dfd / 2, dfn / 2)`` and the upper
+    tail of ``X`` is the lower tail of ``W``, which keeps ``alpha`` as is.
+
+    Parameters
+    ----------
+    alpha : float
+        Upper-tail probability, ``0 < alpha < 1``.
+    dfn : int
+        Numerator degrees of freedom.
+    dfd : int
+        Denominator degrees of freedom.
+
+    Returns
+    -------
+    float
+        Quantile ``F_{1-alpha}(dfn, dfd)``.
+    """
+    lower_beta = float(beta_distribution.ppf(alpha, dfd / 2, dfn / 2))
+    return dfd / dfn * (1.0 / lower_beta - 1.0)
+
+
 def mahalanobis_ucl(n_samples: int, used_components: int, alpha: float) -> float:
     """Return the F-distribution upper control limit for new observations.
 
@@ -215,9 +242,7 @@ def mahalanobis_ucl(n_samples: int, used_components: int, alpha: float) -> float
             "used component count must be less than the fitted sample count "
             f"(used_components={used_components}, n_samples={n_samples})"
         )
-    quantile = float(
-        f_distribution.ppf(1.0 - float(alpha), used_components, denominator_dof)
-    )
+    quantile = f_upper_quantile(float(alpha), used_components, denominator_dof)
     scale = (
         used_components
         * (n_samples + 1)
@@ -260,6 +285,9 @@ def mahalanobis_threshold(
 ) -> float:
     """Return the upper control limit for a fitted PCA.
 
+    The used components are checked the same way as for the distance, so a
+    selector that makes the distance diverge is rejected here as well.
+
     Parameters
     ----------
     pca : PCA
@@ -273,11 +301,22 @@ def mahalanobis_threshold(
     -------
     float
         Upper control limit of the squared Mahalanobis distance.
+
+    Raises
+    ------
+    ValueError
+        If ``alpha`` or the selector is out of range, the used component
+        count is not below the fitted sample count, or a used component has
+        non-finite or near-zero variance.
     """
     used_components = resolve_mahalanobis_components(
         pca, cumulative_explained_variance
     )
-    return mahalanobis_ucl(int(pca.n_samples_), used_components, alpha)
+    ucl = mahalanobis_ucl(int(pca.n_samples_), used_components, alpha)
+    _validate_variances(
+        np.asarray(pca.explained_variance_, dtype=float)[:used_components]
+    )
+    return ucl
 
 
 def pca_mahalanobis_distance_sq(
@@ -344,13 +383,7 @@ def validate_mahalanobis_request(
     colliding = [name for name in config.column_names if name in existing_columns]
     if colliding:
         raise ValueError(f"Mahalanobis columns collide with existing columns: {colliding}")
-    used_components = resolve_mahalanobis_components(
-        pca, config.cumulative_explained_variance
-    )
-    mahalanobis_ucl(int(pca.n_samples_), used_components, config.alpha)
-    _validate_variances(
-        np.asarray(pca.explained_variance_, dtype=float)[:used_components]
-    )
+    mahalanobis_threshold(pca, config.alpha, config.cumulative_explained_variance)
 
 
 def mahalanobis_score_columns(
