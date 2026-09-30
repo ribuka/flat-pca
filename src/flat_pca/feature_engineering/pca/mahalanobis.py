@@ -32,7 +32,7 @@ from .analysis import resolve_used_components
 RELATIVE_VARIANCE_TOLERANCE = 1e-12
 
 
-def _validate_alpha(alpha: float) -> None:
+def validate_alpha(alpha: float) -> None:
     """Check that a significance level lies strictly between 0 and 1.
 
     Parameters
@@ -50,6 +50,28 @@ def _validate_alpha(alpha: float) -> None:
         raise ValueError("alpha must satisfy 0 < alpha < 1")  # noqa: TRY004
     if not 0 < float(alpha) < 1:
         raise ValueError("alpha must satisfy 0 < alpha < 1")
+
+
+def validate_output_column_names(column_names: tuple[str, ...], label: str) -> None:
+    """Check that appended column names are non-empty and distinct.
+
+    Parameters
+    ----------
+    column_names : tuple[str, ...]
+        Output column names of one config.
+    label : str
+        Name of the statistic used in error messages, e.g. ``"Mahalanobis"``.
+
+    Raises
+    ------
+    ValueError
+        If a column name is empty or not a string, or the names repeat.
+    """
+    for column_name in column_names:
+        if not isinstance(column_name, str) or not column_name:
+            raise ValueError(f"{label} column names must be non-empty strings")
+    if len(set(column_names)) != len(column_names):
+        raise ValueError(f"{label} column names must be distinct")
 
 
 @dataclass(frozen=True)
@@ -95,13 +117,8 @@ class MahalanobisConfig:
             If ``alpha`` is out of range, or a column name is empty or
             repeated.
         """
-        _validate_alpha(self.alpha)
-        column_names = self.column_names
-        for column_name in column_names:
-            if not isinstance(column_name, str) or not column_name:
-                raise ValueError("Mahalanobis column names must be non-empty strings")
-        if len(set(column_names)) != len(column_names):
-            raise ValueError("Mahalanobis column names must be distinct")
+        validate_alpha(self.alpha)
+        validate_output_column_names(self.column_names, "Mahalanobis")
 
     @property
     def column_names(self) -> tuple[str, str, str]:
@@ -239,7 +256,7 @@ def mahalanobis_ucl(n_samples: int, used_components: int, alpha: float) -> float
         ``used_components >= n_samples`` leaves no F-distribution degrees of
         freedom.
     """
-    _validate_alpha(alpha)
+    validate_alpha(alpha)
     if used_components < 1:
         raise ValueError("used_components must be at least 1")
     denominator_dof = n_samples - used_components

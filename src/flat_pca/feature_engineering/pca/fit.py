@@ -18,6 +18,7 @@ from .mahalanobis import (
 )
 from .missing_rows import collect_complete_rows, select_rows
 from .model import PcaModel
+from .spe import SpeConfig, spe_score_columns, validate_spe_request
 
 
 def _validate_columns(df: pl.LazyFrame, columns: list[str]) -> None:
@@ -366,6 +367,7 @@ def transform_pca(
     pca_model: PcaModel,
     *,
     mahalanobis: MahalanobisConfig | None = None,
+    spe: SpeConfig | None = None,
 ) -> pl.LazyFrame:
     """Apply a fitted PCA pipeline and append score columns.
 
@@ -379,31 +381,37 @@ def transform_pca(
         If given, append the squared Mahalanobis distance in PCA score
         space, its upper control limit, and the exceeds-limit flag after the
         score columns. ``None`` leaves the output unchanged.
+    spe : SpeConfig | None, default None
+        If given, append the Q statistic (squared reconstruction error of
+        the preprocessed features from the leading components), its upper
+        control limit, and the exceeds-limit flag after the score and
+        Mahalanobis columns. ``None`` leaves the output unchanged.
 
     Returns
     -------
     pl.LazyFrame
         Prepared input columns with PCA score columns appended, followed by
-        the Mahalanobis columns when ``mahalanobis`` is given.
+        the Mahalanobis columns when ``mahalanobis`` is given and the SPE
+        columns when ``spe`` is given.
 
     Raises
     ------
     ValueError
         If input data are incompatible, no rows remain after preparation, or
-        the Mahalanobis request is invalid for the model or collides with
-        existing columns.
+        the Mahalanobis or SPE request is invalid for the model or collides
+        with existing columns.
     """
     columns = list(pca_model.columns)
 
     # The fitted model already carries validated settings, so only the input
     # frame's columns still need checking here.
     _validate_columns(df, columns)
+    existing_columns = [*df.collect_schema().names(), *pca_model.pca_column_names]
     if mahalanobis is not None:
-        validate_mahalanobis_request(
-            pca_model.pca,
-            mahalanobis,
-            [*df.collect_schema().names(), *pca_model.pca_column_names],
-        )
+        validate_mahalanobis_request(pca_model.pca, mahalanobis, existing_columns)
+        existing_columns.extend(mahalanobis.column_names)
+    if spe is not None:
+        validate_spe_request(pca_model.pca, spe, existing_columns)
 
     standardized_values: np.ndarray
     if _drops_missing_rows_in_numpy(
@@ -469,6 +477,11 @@ def transform_pca(
                 if mahalanobis is not None
                 else {}
             ),
+            **(
+                spe_score_columns(pca_model.pca, standardized_values, scores, spe)
+                if spe is not None
+                else {}
+            ),
         }
     )
 
@@ -491,6 +504,7 @@ def fit_and_transform_pca(
     *,
     impute_kmeans_n_clusters: int | None = None,
     mahalanobis: MahalanobisConfig | None = None,
+    spe: SpeConfig | None = None,
 ) -> pl.LazyFrame:
     """Fit and apply PCA in one call.
 
@@ -521,12 +535,16 @@ def fit_and_transform_pca(
     mahalanobis : MahalanobisConfig | None, default None
         Mahalanobis distance settings forwarded to ``transform_pca``.
         ``None`` leaves the output unchanged.
+    spe : SpeConfig | None, default None
+        Q statistic settings forwarded to ``transform_pca``. ``None`` leaves
+        the output unchanged.
 
     Returns
     -------
     pl.LazyFrame
         Prepared input columns with fitted PCA score columns appended,
-        followed by the Mahalanobis columns when ``mahalanobis`` is given.
+        followed by the Mahalanobis columns when ``mahalanobis`` is given and
+        the SPE columns when ``spe`` is given.
 
     Raises
     ------
@@ -544,4 +562,4 @@ def fit_and_transform_pca(
         iqr_multiplier=iqr_multiplier,
         scaling_strategy=scaling_strategy,
     )
-    return transform_pca(df, pca_model, mahalanobis=mahalanobis)
+    return transform_pca(df, pca_model, mahalanobis=mahalanobis, spe=spe)
