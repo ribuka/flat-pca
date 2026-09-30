@@ -11,6 +11,11 @@ from sklearn.decomposition import PCA
 from ..outlier import OutlierBounds, OutlierStrategy, prepare_outlier_frame
 from ..scaling import ScalingStrategy, apply_scaler, fit_scaler
 from .impute import ImputeStrategy, apply_kmeans_impute, fit_kmeans_impute
+from .mahalanobis import (
+    MahalanobisConfig,
+    mahalanobis_score_columns,
+    validate_mahalanobis_request,
+)
 from .missing_rows import collect_complete_rows, select_rows
 from .model import PcaModel
 
@@ -359,6 +364,8 @@ def fit_pca(
 def transform_pca(
     df: pl.LazyFrame,
     pca_model: PcaModel,
+    *,
+    mahalanobis: MahalanobisConfig | None = None,
 ) -> pl.LazyFrame:
     """Apply a fitted PCA pipeline and append score columns.
 
@@ -368,22 +375,35 @@ def transform_pca(
         Input data containing the model's feature columns.
     pca_model : PcaModel
         Fitted preprocessing and PCA state.
+    mahalanobis : MahalanobisConfig | None, default None
+        If given, append the squared Mahalanobis distance in PCA score
+        space, its upper control limit, and the exceeds-limit flag after the
+        score columns. ``None`` leaves the output unchanged.
 
     Returns
     -------
     pl.LazyFrame
-        Prepared input columns with PCA score columns appended.
+        Prepared input columns with PCA score columns appended, followed by
+        the Mahalanobis columns when ``mahalanobis`` is given.
 
     Raises
     ------
     ValueError
-        If input data are incompatible or no rows remain after preparation.
+        If input data are incompatible, no rows remain after preparation, or
+        the Mahalanobis request is invalid for the model or collides with
+        existing columns.
     """
     columns = list(pca_model.columns)
 
     # The fitted model already carries validated settings, so only the input
     # frame's columns still need checking here.
     _validate_columns(df, columns)
+    if mahalanobis is not None:
+        validate_mahalanobis_request(
+            pca_model.pca,
+            mahalanobis,
+            [*df.collect_schema().names(), *pca_model.pca_column_names],
+        )
 
     standardized_values: np.ndarray
     if _drops_missing_rows_in_numpy(
@@ -444,6 +464,11 @@ def transform_pca(
                     pca_model.pca_column_names
                 )
             },
+            **(
+                mahalanobis_score_columns(pca_model.pca, scores, mahalanobis)
+                if mahalanobis is not None
+                else {}
+            ),
         }
     )
 
@@ -465,6 +490,7 @@ def fit_and_transform_pca(
     scaling_strategy: ScalingStrategy = "robust",
     *,
     impute_kmeans_n_clusters: int | None = None,
+    mahalanobis: MahalanobisConfig | None = None,
 ) -> pl.LazyFrame:
     """Fit and apply PCA in one call.
 
@@ -492,11 +518,15 @@ def fit_and_transform_pca(
         ``None`` for any other strategy. Keyword-only so it can be added
         without disturbing existing positional ``fit_and_transform_pca``
         calls.
+    mahalanobis : MahalanobisConfig | None, default None
+        Mahalanobis distance settings forwarded to ``transform_pca``.
+        ``None`` leaves the output unchanged.
 
     Returns
     -------
     pl.LazyFrame
-        Prepared input columns with fitted PCA score columns appended.
+        Prepared input columns with fitted PCA score columns appended,
+        followed by the Mahalanobis columns when ``mahalanobis`` is given.
 
     Raises
     ------
@@ -514,4 +544,4 @@ def fit_and_transform_pca(
         iqr_multiplier=iqr_multiplier,
         scaling_strategy=scaling_strategy,
     )
-    return transform_pca(df, pca_model)
+    return transform_pca(df, pca_model, mahalanobis=mahalanobis)

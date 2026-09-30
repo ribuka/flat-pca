@@ -78,6 +78,10 @@ result: pl.LazyFrame = append_pca_scores(pca, flattened)
 components: pl.DataFrame = reshape_pca_components(pca, flattened)
 ```
 
+### 異常検知（マハラノビス距離）
+
+- PCA スコア空間のマハラノビス距離と管理限界（UCL）を出力できます。使い方は [docs/usage/anomaly-detection.md](docs/usage/anomaly-detection.md) を参照してください。
+
 ### 可視化
 
 - `flat_pca.visualize.create_heatmap` は、波長方向を横軸、時間方向を縦軸としたヒートマップ(`plotly.graph_objects.Figure`)を作成します。

@@ -191,6 +191,7 @@ dependencies = [
     { name = "plotly" },
     { name = "polars" },
     { name = "scikit-learn" },
+    { name = "scipy" },
 ]
 
 [package.dev-dependencies]
@@ -212,6 +213,7 @@ requires-dist = [
     { name = "plotly", specifier = "==7.0.0" },
     { name = "polars", specifier = "==1.44.2" },
     { name = "scikit-learn", specifier = "==1.9.1" },
+    { name = "scipy", specifier = "==1.18.1" },
 ]
 
 [package.metadata.requires-dev]
