@@ -8,7 +8,13 @@ import polars as pl
 
 from flat_pca.spectral.schema import flattened_feature_columns
 
-from ..pca import ImputeStrategy, PcaModel, fit_pca, transform_pca
+from ..pca import (
+    ImputeStrategy,
+    MahalanobisConfig,
+    PcaModel,
+    fit_pca,
+    transform_pca,
+)
 
 
 def fit_flattened_pca(
@@ -73,6 +79,8 @@ def fit_flattened_pca(
 def append_pca_scores(
     pca_model: PcaModel,
     flattened: pl.LazyFrame,
+    *,
+    mahalanobis: MahalanobisConfig | None = None,
 ) -> pl.LazyFrame:
     """Append PCA scores to flattened features, applying the fitted impute strategy.
 
@@ -88,11 +96,15 @@ def append_pca_scores(
         Fitted PCA pipeline state.
     flattened : pl.LazyFrame
         Flattened spectral features with a ``source`` column.
+    mahalanobis : MahalanobisConfig | None, default None
+        Mahalanobis distance settings forwarded to ``transform_pca``.
+        ``None`` leaves the output unchanged.
 
     Returns
     -------
     pl.LazyFrame
-        ``source``, flattened feature columns, and ``pca-1`` onward scores.
+        ``source``, flattened feature columns, and ``pca-1`` onward scores,
+        followed by the Mahalanobis columns when ``mahalanobis`` is given.
         Feature-column values reflect ``pca_model.impute_strategy``: unchanged
         for ``"drop"`` (rows with remaining missing values are excluded
         instead), or filled with the fitted median for ``"median"``.
@@ -100,8 +112,9 @@ def append_pca_scores(
     Raises
     ------
     ValueError
-        If the PCA feature count differs from the flattened feature count, or
-        if no rows remain after missing-value handling.
+        If the PCA feature count differs from the flattened feature count,
+        if no rows remain after missing-value handling, or if the
+        Mahalanobis request is invalid.
     """
     feature_columns = flattened_feature_columns(flattened.collect_schema().names())
     if pca_model.pca.n_features_in_ != len(feature_columns):
@@ -109,4 +122,4 @@ def append_pca_scores(
             "PCA feature count does not match flattened feature count"
         )
 
-    return transform_pca(flattened, pca_model)
+    return transform_pca(flattened, pca_model, mahalanobis=mahalanobis)

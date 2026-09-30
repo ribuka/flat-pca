@@ -53,6 +53,8 @@ def flatten_pca(
 def append_pca_scores(
     pca_model: PcaModel,
     flattened: pl.LazyFrame,
+    *,
+    mahalanobis: MahalanobisConfig | None = None,
 ) -> pl.LazyFrame:
     ...
 
@@ -81,7 +83,7 @@ def reshape_pca_components(
 - `w_normalization_range`はw方向規格化に用いる閉区間`(w1, w2)`を指定し、`None`の場合は適用しない。
 - `t_downsampling_stride`はt方向の間引き間隔を指定する。`1`の場合は間引かない。
 - `w_downsampling_stride`はw方向の間引き間隔を指定する。`1`の場合は間引かない。
-- `append_pca_scores`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、`source`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。`flattened`に残る欠損値（異なる入力ファイル間の`(Step, Sequence, StepTime)`集合の差異に由来するものを含む）は、fit時と同じ`pca_model.impute_strategy`に従って処理する（`transform_pca`と同じ規則）。`"drop"`の場合、欠損が残る行は出力から除外されるため、戻り値の行数が`flattened`の行数より少なくなることがある。`"median"`の場合、特徴量列の値は補完後の値になる。`"kmeans"`の場合、特徴量列の値はfit時に得たクラスタ中心を用いた補完後の値になる（詳細は「欠損値補完仕様」を参照）。欠損処理後に1行も残らない場合は`ValueError`を送出する。
+- `append_pca_scores`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、`source`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。キーワード専用引数`mahalanobis`（既定値`None`）に`MahalanobisConfig`を渡した場合は、スコア列の後ろに距離列・UCL列・UCL超過フラグ列の3列を追加する（「マハラノビス距離仕様」を参照）。`None`の場合は3列を追加しない。`flattened`に残る欠損値（異なる入力ファイル間の`(Step, Sequence, StepTime)`集合の差異に由来するものを含む）は、fit時と同じ`pca_model.impute_strategy`に従って処理する（`transform_pca`と同じ規則）。`"drop"`の場合、欠損が残る行は出力から除外されるため、戻り値の行数が`flattened`の行数より少なくなることがある。`"median"`の場合、特徴量列の値は補完後の値になる。`"kmeans"`の場合、特徴量列の値はfit時に得たクラスタ中心を用いた補完後の値になる（詳細は「欠損値補完仕様」を参照）。欠損処理後に1行も残らない場合は`ValueError`を送出する。
 - `materialize_once`（既定値`True`）が`True`の場合、`preprocess_and_flatten`はflatten完了後に一度だけ`.collect().lazy()`を行い、結果をメモリ上の`pl.DataFrame`起点の`pl.LazyFrame`として返す。これにより、戻り値をPCAのfitやスコア付与などで再利用しても、Parquet読み込みからflattenまでのクエリが再実行されない。`False`の場合は未実行のflattenクエリをそのまま返す。いずれの場合も戻り値の型は`pl.LazyFrame`であり、flatten結果・列順は一致する。`flatten_pca`が`paths`を指定する場合、`materialize_once`は同じ意味で内部の`preprocess_and_flatten`へ伝播する。`flattened`を指定する場合、`materialize_once`は使用しない。
 - `reshape_pca_components`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、後述の座標へ展開した`pca_model.pca.components_`を`pl.DataFrame`として返す。
 
@@ -257,6 +259,25 @@ def apply_w_downsampling(
 - PCA solverはscikit-learnのデフォルトである`svd_solver="auto"`を使用する。
 - `append_pca_scores`は、flatten特徴量を`pca_model.pca.transform`へ渡して得たスコアを、入力の行順を維持して追加する。`pca_model.pca.n_features_in_`と特徴量列数が異なる場合は`ValueError`を送出する。
 - PCA成分の符号は一意に定まらないため、テストでは主成分やスコアの符号そのものを固定値と単純比較しない。
+
+### マハラノビス距離仕様
+
+- PCAスコア空間では共分散行列が対角行列となり、対角成分は主成分ごとの分散`pca.explained_variance_`である。元の特徴量空間では次元数がサンプル数を上回ると共分散行列が特異になるため、距離はPCAスコア空間で計算する。
+- マハラノビス距離の二乗（Hotelling T²と同じ形）は $D^2 = \sum_{j=1}^{k} t_j^2 / \lambda_j$ とする。$t_j$は第$j$主成分のスコア、$\lambda_j$は`pca.explained_variance_[j]`、$k$は使う主成分数である。
+- 管理限界（UCL）は新しい観測値に対するF分布の式 $\mathrm{UCL} = \frac{k (n+1)(n-1)}{n (n-k)} F_{1-\alpha}(k,\ n-k)$ とする。$n$はfit時のサンプル数`pca.n_samples_`であり、分位点は`scipy.stats.f.ppf`で求める。学習データそのものを評価する場合、このUCLはやや保守的になる。
+- `MahalanobisConfig`はfrozen dataclassとし、`flat_pca.feature_engineering.pca`から公開する。属性は次のとおり。
+  - `cumulative_explained_variance`（既定値`0.9`）：使う主成分の選択。`get_feature_contribution_ranking`と同じ規則（`resolve_used_components`）に従う。
+  - `alpha`（既定値`0.01`）：UCLの有意水準。`0 < alpha < 1`でなければ`ValueError`を送出する。
+  - `distance_column`（既定値`"mahalanobis_sq"`）、`ucl_column`（既定値`"mahalanobis_ucl"`）、`exceeds_ucl_column`（既定値`"mahalanobis_exceeds_ucl"`）：追加する列名。空文字列または互いに重複する場合は`ValueError`を送出する。
+- 主成分数の既定値`0.9`は`get_feature_contribution_ranking`の既定値（`None`）と意図的に異なる。`flatten_pca`は既定で主成分数をサンプル数までfitするため、全成分を使うと最後の成分の分散がほぼ0となって距離が発散し、また$k = n-1$では学習データの$D^2$が全サンプルで$(n-1)^2/n$となり異常を区別できないためである。
+- `transform_pca`・`fit_and_transform_pca`・`append_pca_scores`はキーワード専用引数`mahalanobis: MahalanobisConfig | None = None`を受け取る。`None`の場合は出力を変更しない。`MahalanobisConfig`を渡した場合、PCAスコア列の後ろに距離の二乗（float）、UCL（全行で同じ値）、`距離 > UCL`を表すbool列をこの順に追加する。
+- `PcaModel.get_mahalanobis_threshold(alpha=0.01, cumulative_explained_variance=0.9)`はUCLをスカラー（`float`）で返す。
+- 次の場合は`ValueError`を送出する。
+  - 使う主成分数$k$がfit時のサンプル数$n$以上で、F分布の自由度$n-k$が0以下になる場合。
+  - 使う主成分の中に分散がほぼ0（最大分散に対する比が`1e-12`以下）の成分が含まれる場合。
+  - 追加する列名が、入力フレームの既存の列名またはPCAスコア列名と衝突する場合。
+- `pca.whiten`が`True`のモデル（復元したモデルを含む）では、スコアが既に$\sqrt{\lambda_j}$で除算されているため、分散を1として距離を計算する。
+- T²は学習時の変動パターンの範囲内での振れ幅の大きさのみを捉える。部分空間外の残差（Q統計量、SPE）は本仕様の対象外とする。
 
 ### 欠損値補完仕様
 
