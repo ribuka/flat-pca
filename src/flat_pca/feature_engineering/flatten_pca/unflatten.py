@@ -1,5 +1,7 @@
 """Convert flattened spectral features back to coordinate-based layouts."""
 
+from __future__ import annotations
+
 import polars as pl
 
 from flat_pca.spectral.schema import (
@@ -149,6 +151,8 @@ def flatten_to_wide(
     wavelengths = sorted(layout["wavelength"].unique().to_list())
     wavelength_names = [f"{wavelength:.1f}nm" for wavelength in wavelengths]
     long = _as_long(frame, layout, "__flatten_value")
+    # A lazy pivot cannot infer its output schema from data. The validated
+    # feature names give us the wavelength columns before executing the query.
     result = long.group_by(_ROW, SOURCE_COLUMN, "Step", "Sequence", "StepTime").agg(
         pl.col("__flatten_value")
         .filter(pl.col("wavelength") == wavelength)
