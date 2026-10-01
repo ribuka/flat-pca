@@ -2,7 +2,7 @@
 /AGENTS.md export-ignore
 /CLAUDE.md export-ignore
 /tests/ export-ignore
-/docs/ export-ignore
+/.agents/ export-ignore
 /wiggum/ export-ignore
 /.gitattributes export-ignore
 /.claude/ export-ignore

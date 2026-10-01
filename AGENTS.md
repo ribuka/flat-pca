@@ -10,7 +10,7 @@
 
 ### Python coding
 
-- When working python coding, read `docs/agents/python.md` and follow it.
+- When working python coding, read `.agents/docs/python.md` and follow it.
 
 ### Verification commands
 
@@ -22,23 +22,23 @@
 #### Test execution
 
 - **NEVER** run pytest inside the Codex Windows sandbox.
-- Before running any pytest command, read `docs/agents/pytest.md` and follow it.
+- Before running any pytest command, read `.agents/docs/pytest.md` and follow it.
 
 ## Code navigation
 
 - Before exploring code with Grep/Glob/Read, orient with graphify
   (`graphify query "<question>"`, `graphify explain "<symbol>"`, `graphify affected "<symbol>"`).
-- Read `docs/agents/graphify.md` and follow it.
+- Read `.agents/docs/graphify.md` and follow it.
 
 ## Github
 
 ### Commit
 
-- Before creating a commit, read `docs/agents/commit.md` and follow it.
+- Before creating a commit, read `.agents/docs/commit.md` and follow it.
 
 ### Pull request
 
-- When creating a pull request, read `docs/agents/pull-request.md` and follow it.
+- When creating a pull request, read `.agents/docs/pull-request.md` and follow it.
 
 ## Temporary files
 
