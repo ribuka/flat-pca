@@ -1,11 +1,15 @@
 """Spectral column conventions shared across the flat-pca workflows."""
 
+import re
 from math import isfinite
 
 SOURCE_COLUMN = "source"
 METADATA_COLUMNS = ("Time", "Step", "Sequence")
 STEP_TIME_COLUMNS = ("StepTime", "ReverseStepTime")
 NON_SPECTRAL_COLUMNS = METADATA_COLUMNS + STEP_TIME_COLUMNS
+_FEATURE_NAME_PATTERN = re.compile(
+    r"(?P<wavelength>[^_]+)_(?P<step>-?\d+)_(?P<sequence>-?\d+)_(?P<time>-?\d+\.\d{2})"
+)
 
 
 def parse_wavelength(column: str) -> float:
@@ -96,3 +100,39 @@ def flattened_feature_columns(columns: list[str]) -> list[str]:
         Column names other than ``SOURCE_COLUMN``, in their existing order.
     """
     return [column for column in columns if column != SOURCE_COLUMN]
+
+
+def parse_feature_coordinate(column: str) -> tuple[float, int, int, float]:
+    """Decode a canonical flattened feature name.
+
+    Parameters
+    ----------
+    column : str
+        Flattened spectral feature name.
+
+    Returns
+    -------
+    tuple[float, int, int, float]
+        Wavelength, Step, Sequence, and StepTime coordinates.
+
+    Raises
+    ------
+    ValueError
+        If the name is not the unique canonical flatten representation.
+    """
+    match = _FEATURE_NAME_PATTERN.fullmatch(column)
+    if match is None:
+        raise ValueError(f"cannot uniquely decode flattened feature name: {column!r}")
+    wavelength_name = match["wavelength"]
+    try:
+        wavelength = parse_wavelength(wavelength_name)
+        step = int(match["step"])
+        sequence = int(match["sequence"])
+        time = float(match["time"])
+    except ValueError as error:
+        raise ValueError(
+            f"cannot uniquely decode flattened feature name: {column!r}"
+        ) from error
+    if column != f"{wavelength_name}_{step}_{sequence}_{time:.2f}":
+        raise ValueError(f"cannot uniquely decode flattened feature name: {column!r}")
+    return wavelength, step, sequence, time

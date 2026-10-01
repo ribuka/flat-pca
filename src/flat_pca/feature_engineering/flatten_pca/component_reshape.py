@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-import re
-
 import numpy as np
 import polars as pl
 
-from flat_pca.spectral.schema import flattened_feature_columns, parse_wavelength
+from flat_pca.spectral.schema import flattened_feature_columns, parse_feature_coordinate
 
 from ..pca import PcaModel
-
-_FEATURE_NAME_PATTERN = re.compile(
-    r"(?P<wavelength>[^_]+)_(?P<step>-?\d+)_(?P<sequence>-?\d+)_(?P<time>-?\d+\.\d{2})"
-)
 
 
 def reshape_pca_components(
@@ -44,7 +38,7 @@ def reshape_pca_components(
     """
     feature_columns = flattened_feature_columns(flattened.collect_schema().names())
     components = _validated_components(pca_model, len(feature_columns))
-    coordinates = [_parse_feature_coordinate(column) for column in feature_columns]
+    coordinates = [parse_feature_coordinate(column) for column in feature_columns]
     axes, order = _sorted_feature_order(coordinates)
     steps, sequences, times, wavelengths = axes
     n_components = components.shape[0]
@@ -155,40 +149,3 @@ def _validated_components(pca_model: PcaModel, feature_count: int) -> np.ndarray
     if n_features != feature_count or components.shape[1] != feature_count:
         raise ValueError("PCA feature count does not match flattened feature count")
     return components
-
-
-def _parse_feature_coordinate(column: str) -> tuple[float, int, int, float]:
-    """Decode one canonical flattened feature name into numeric coordinates.
-
-    Parameters
-    ----------
-    column : str
-        Flattened spectral feature name.
-
-    Returns
-    -------
-    tuple[float, int, int, float]
-        Wavelength, Step, Sequence, and StepTime coordinates.
-
-    Raises
-    ------
-    ValueError
-        If the name is not the unique canonical flatten representation.
-    """
-    match = _FEATURE_NAME_PATTERN.fullmatch(column)
-    if match is None:
-        raise ValueError(f"cannot uniquely decode flattened feature name: {column!r}")
-    wavelength_name = match["wavelength"]
-    try:
-        wavelength = parse_wavelength(wavelength_name)
-        step = int(match["step"])
-        sequence = int(match["sequence"])
-        time = float(match["time"])
-    except ValueError as error:
-        raise ValueError(
-            f"cannot uniquely decode flattened feature name: {column!r}"
-        ) from error
-    canonical_name = f"{wavelength_name}_{step}_{sequence}_{time:.2f}"
-    if column != canonical_name:
-        raise ValueError(f"cannot uniquely decode flattened feature name: {column!r}")
-    return wavelength, step, sequence, time
