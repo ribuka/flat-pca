@@ -19,7 +19,6 @@ uv sync
 ### 開発環境（任意）
 
 コーディングエージェント向けに [graphify](https://github.com/Graphify-Labs/graphify) のコードグラフを使います。
-詳細は `docs/agents/graphify.md` を参照してください。
 
 ```bash
 uv tool install graphifyy
