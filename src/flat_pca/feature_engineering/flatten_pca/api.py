@@ -37,6 +37,7 @@ from .numpy_preprocessing import (
     all_wavelength_columns_are_float,
     build_numpy_prepared_inputs,
 )
+from .parallel import validate_workers
 from .pca_scores import fit_flattened_pca
 from .preprocess_config import PreprocessConfig
 
@@ -60,6 +61,7 @@ def flatten_pca(
     validate_metadata_uniqueness: bool = False,
     validate_metadata_alignment: bool = False,
     materialize_once: bool = True,
+    workers: int = 1,
     impute_strategy: ImputeStrategy = "drop",
     impute_kmeans_n_clusters: int | None = None,
 ) -> PcaModel:
@@ -120,6 +122,10 @@ def flatten_pca(
         Forwarded to ``preprocess_and_flatten`` when ``paths`` is specified;
         ignored when ``flattened`` is specified. See
         ``preprocess_and_flatten`` for details.
+    workers : int, default 1
+        Forwarded to ``preprocess_and_flatten`` when ``paths`` is specified;
+        ignored when ``flattened`` is specified. See
+        ``preprocess_and_flatten`` for details.
     impute_strategy : {"drop", "median", "kmeans"}, default "drop"
         Missing-value handling forwarded to PCA fitting for any nulls that
         remain after ``max_null_ratio`` pruning. ``"drop"`` discards rows
@@ -163,7 +169,7 @@ def flatten_pca(
             validate_metadata_alignment=validate_metadata_alignment,
         )
         flattened = _preprocess_and_flatten(
-            paths, config, materialize_once=materialize_once
+            paths, config, materialize_once=materialize_once, workers=workers
         )
     return fit_flattened_pca(
         flattened,
@@ -190,6 +196,7 @@ def preprocess_and_flatten(
     validate_metadata_uniqueness: bool = False,
     validate_metadata_alignment: bool = False,
     materialize_once: bool = True,
+    workers: int = 1,
 ) -> pl.LazyFrame:
     """Build a lazy preprocessing and deterministic flattening query.
 
@@ -258,6 +265,25 @@ def preprocess_and_flatten(
         the preprocessing up to normalization during this call even when
         ``materialize_once`` is ``False``; only the stages from flatten
         onward stay deferred.
+    workers : int, default 1
+        Number of threads used to read, validate, and preprocess input
+        files in parallel, one file per task. Must be an integer of at
+        least 1; ``None`` is rejected. ``1`` (the default) disables
+        parallelism and runs the sequential loop without creating a thread
+        pool. The result, including which error is raised when several
+        files are invalid, does not depend on ``workers``. Only the NumPy
+        fast path (``materialize_once=True`` with floating-point wavelength
+        columns) is parallelized; the legacy polars pipeline
+        (``materialize_once=False``, or the fallback for non-floating-point
+        wavelength columns) ignores ``workers`` and processes files
+        sequentially. A value of 2 to 4 is recommended: polars already
+        reads each file with multiple threads and part of the per-file work
+        holds the GIL, so measured speedups peaked at about 1.4x with 2
+        workers (64 real files of 119 rows x ~6950 wavelength columns) and
+        1.5x with 4 workers (32 synthetic files of 3010 rows x 1201
+        columns) on a 12-core machine, and more workers were slightly
+        slower. Peak memory grows roughly in proportion to ``workers`` (one
+        file's working arrays per worker).
 
     Returns
     -------
@@ -293,7 +319,9 @@ def preprocess_and_flatten(
         validate_metadata_uniqueness=validate_metadata_uniqueness,
         validate_metadata_alignment=validate_metadata_alignment,
     )
-    return _preprocess_and_flatten(paths, config, materialize_once=materialize_once)
+    return _preprocess_and_flatten(
+        paths, config, materialize_once=materialize_once, workers=workers
+    )
 
 
 def _preprocess_and_flatten(
@@ -301,6 +329,7 @@ def _preprocess_and_flatten(
     config: PreprocessConfig,
     *,
     materialize_once: bool,
+    workers: int,
 ) -> pl.LazyFrame:
     """Build the preprocessing and flattening query from a validated config.
 
@@ -316,12 +345,21 @@ def _preprocess_and_flatten(
         Validated preprocessing parameters.
     materialize_once : bool
         See ``preprocess_and_flatten``.
+    workers : int
+        See ``preprocess_and_flatten``. Validated here, before any input
+        file is read.
 
     Returns
     -------
     pl.LazyFrame
         Deferred one-row-per-file flattened features with ``source`` first.
+
+    Raises
+    ------
+    ValueError
+        If ``workers`` is not an integer of at least 1.
     """
+    validate_workers(workers)
     if materialize_once:
         resolved_paths = resolve_and_check_paths(
             paths, stem_uniqueness=config.stem_uniqueness
@@ -337,7 +375,9 @@ def _preprocess_and_flatten(
             # reproduces Float32/Float64 input exactly (see
             # numpy_preprocessing.py), so it is only used when every
             # wavelength column already has a floating-point dtype.
-            prepared_inputs = build_numpy_prepared_inputs(resolved_paths, config)
+            prepared_inputs = build_numpy_prepared_inputs(
+                resolved_paths, config, workers=workers
+            )
         else:
             # An integer or decimal wavelength dtype would be corrupted by
             # the NumPy fast path's float64 conversion (silently rounding
