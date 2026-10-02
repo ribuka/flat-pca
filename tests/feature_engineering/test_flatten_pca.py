@@ -72,6 +72,7 @@ def test_public_import_and_signature_are_stable(
         "validate_metadata_uniqueness",
         "validate_metadata_alignment",
         "materialize_once",
+        "workers",
         "impute_strategy",
         "impute_kmeans_n_clusters",
     ]
@@ -87,6 +88,7 @@ def test_public_import_and_signature_are_stable(
     assert parameters["validate_metadata_uniqueness"].default is False
     assert parameters["validate_metadata_alignment"].default is False
     assert parameters["materialize_once"].default is True
+    assert parameters["workers"].default == 1
     assert parameters["impute_strategy"].default == "drop"
     assert parameters["impute_kmeans_n_clusters"].default is None
 

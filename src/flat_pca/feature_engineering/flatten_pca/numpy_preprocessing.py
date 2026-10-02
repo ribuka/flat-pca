@@ -39,6 +39,7 @@ from ..preprocess.step_time import add_step_time_columns
 from ..preprocess.trim import apply_edge_trim
 from .input import read_parquet, validate_frame_schema
 from .input import validate_metadata_alignment as _validate_metadata_alignment
+from .parallel import run_per_file
 from .preprocess_config import PreprocessConfig
 
 MetadataGroups = dict[tuple[object, object], list[int]]
@@ -573,6 +574,8 @@ def _process_file(
 def build_numpy_prepared_inputs(
     paths: Sequence[Path],
     config: PreprocessConfig,
+    *,
+    workers: int = 1,
 ) -> list[tuple[Path, pl.DataFrame]]:
     """Validate and preprocess Flatten-PCA inputs through the NumPy fast path.
 
@@ -593,12 +596,17 @@ def build_numpy_prepared_inputs(
         Validated preprocessing parameters. ``stem_uniqueness`` and
         ``max_null_ratio`` are not used here; they are applied by
         ``resolve_and_check_paths`` and ``flatten_and_prune_inputs``.
+    workers : int, default 1
+        Validated number of threads for the per-file read/validate/process
+        stage (see ``run_per_file``). Schema validation, the metadata
+        pre-read, and shared-grid resolution always run sequentially first.
 
     Returns
     -------
     list[tuple[Path, pl.DataFrame]]
         Each input path paired with its fully preprocessed, downsampled
-        per-file frame, ready for ``flatten_and_prune_inputs``.
+        per-file frame, in ``paths`` order, ready for
+        ``flatten_and_prune_inputs``.
 
     Raises
     ------
@@ -670,8 +678,8 @@ def build_numpy_prepared_inputs(
 
     value_check_columns = [*METADATA_COLUMNS, *first_selected]
 
-    prepared: list[tuple[Path, pl.DataFrame]] = []
-    for path, _ in trimmed_metadata:
+    def _prepare_one_file(path: Path) -> tuple[Path, pl.DataFrame]:
+        """Read, validate, and preprocess one file against the shared grids."""
         file_native_columns = _selected_native_columns(path)
         combined_raw = (
             read_parquet(path)
@@ -682,7 +690,7 @@ def build_numpy_prepared_inputs(
         if config.validate_metadata_uniqueness:
             _validate_no_duplicate_metadata(path, combined_raw)
 
-        prepared.append((
+        return (
             path,
             _process_file(
                 combined_raw,
@@ -691,5 +699,8 @@ def build_numpy_prepared_inputs(
                 selected_wavelengths=selected_wavelengths,
                 wavelength_columns_native=file_native_columns,
             ),
-        ))
-    return prepared
+        )
+
+    return run_per_file(
+        _prepare_one_file, [path for path, _ in trimmed_metadata], workers
+    )

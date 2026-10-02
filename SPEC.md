@@ -27,6 +27,7 @@ def preprocess_and_flatten(
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
     materialize_once: bool = True,
+    workers: int = 1,
 ) -> pl.LazyFrame:
     ...
 
@@ -46,6 +47,7 @@ def flatten_pca(
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
     materialize_once: bool = True,
+    workers: int = 1,
 ) -> PcaModel:
     ...
 
@@ -86,6 +88,7 @@ def reshape_pca_components(
 - `w_downsampling_stride`はw方向の間引き間隔を指定する。`1`の場合は間引かない。
 - `append_pca_scores`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、`source`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。キーワード専用引数`mahalanobis`（既定値`None`）に`MahalanobisConfig`を渡した場合は、スコア列の後ろに距離列・UCL列・UCL超過フラグ列の3列を追加する（「マハラノビス距離仕様」を参照）。`None`の場合は3列を追加しない。キーワード専用引数`spe`（既定値`None`）に`SpeConfig`を渡した場合は、さらにその後ろ（`mahalanobis`を渡した場合はマハラノビス距離の3列の後ろ）にQ統計量列・UCL列・UCL超過フラグ列の3列を追加する（「Q統計量（SPE）仕様」を参照）。`None`の場合は3列を追加しない。`flattened`に残る欠損値（異なる入力ファイル間の`(Step, Sequence, StepTime)`集合の差異に由来するものを含む）は、fit時と同じ`pca_model.impute_strategy`に従って処理する（`transform_pca`と同じ規則）。`"drop"`の場合、欠損が残る行は出力から除外されるため、戻り値の行数が`flattened`の行数より少なくなることがある。`"median"`の場合、特徴量列の値は補完後の値になる。`"kmeans"`の場合、特徴量列の値はfit時に得たクラスタ中心を用いた補完後の値になる（詳細は「欠損値補完仕様」を参照）。欠損処理後に1行も残らない場合は`ValueError`を送出する。
 - `materialize_once`（既定値`True`）が`True`の場合、`preprocess_and_flatten`はflatten完了後に一度だけ`.collect().lazy()`を行い、結果をメモリ上の`pl.DataFrame`起点の`pl.LazyFrame`として返す。これにより、戻り値をPCAのfitやスコア付与などで再利用しても、Parquet読み込みからflattenまでのクエリが再実行されない。`False`の場合は未実行のflattenクエリをそのまま返す。いずれの場合も戻り値の型は`pl.LazyFrame`であり、flatten結果・列順は一致する。`flatten_pca`が`paths`を指定する場合、`materialize_once`は同じ意味で内部の`preprocess_and_flatten`へ伝播する。`flattened`を指定する場合、`materialize_once`は使用しない。
+- `workers`（既定値`1`）は、入力ファイル単位の読み込み・値検査・前処理を並列実行するスレッド数を指定する。1以上の整数のみ受け付け、0・負数・非整数・`bool`・`None`は入力ファイルを読む前に`ValueError`を送出する。`1`の場合はスレッドプールを生成せず逐次に処理する。並列化するのは`materialize_once=True`のNumPy高速経路のみで、スキーマ検証・メタデータ先読み・共有Time/波長配列の確定は並列区間の前に逐次で完了させる。従来のpolars経路（`materialize_once=False`、および波長列が浮動小数点型でない場合のフォールバック）では`workers`を指定しても逐次に処理する。出力（行順・列・列順・値・null位置）は`workers`の値によらず一致し、複数ファイルが不正な場合も入力パス順で最初に失敗したファイルのエラーを送出する。`flatten_pca`が`paths`を指定する場合、`workers`は同じ意味で内部の`preprocess_and_flatten`へ伝播する。`flattened`を指定する場合、`workers`は使用しない。
 - `reshape_pca_components`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、後述の座標へ展開した`pca_model.pca.components_`を`pl.DataFrame`として返す。
 
 ### LazyFrameとメモリ使用
