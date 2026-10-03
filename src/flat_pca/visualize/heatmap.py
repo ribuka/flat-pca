@@ -8,9 +8,11 @@ import plotly.graph_objects as go
 import polars as pl
 from loguru import logger
 
-from flat_pca.spectral.schema import METADATA_COLUMNS as SPECTRAL_METADATA_COLUMNS
+from flat_pca.spectral.schema import (
+    NON_SPECTRAL_COLUMNS as SPECTRAL_NON_SPECTRAL_COLUMNS,
+)
 
-METADATA_COLUMNS = frozenset(SPECTRAL_METADATA_COLUMNS)
+NON_SPECTRAL_COLUMNS = frozenset(SPECTRAL_NON_SPECTRAL_COLUMNS)
 
 
 def _symmetric_color_range(z: np.ndarray, quantile: float) -> tuple[float, float]:
@@ -30,7 +32,7 @@ def create_heatmap(
     y_name: str = "Time",
     z_name: str = "intensity",
     strip_suffix: str | None = "nm",
-    metadata_columns: Collection[str] = METADATA_COLUMNS,
+    metadata_columns: Collection[str] = NON_SPECTRAL_COLUMNS,
     color_continuous_scale: str | None = None,
     range_color: tuple[float, float] | list[float] | None = None,
     symmetric_range_quantile: float = 0.995,
@@ -41,16 +43,18 @@ def create_heatmap(
     ----------
     spectra : pl.DataFrame
         Either wide-format spectral data with ``Time``, ``Step``, and
-        ``Sequence`` metadata columns, where every other column name is a
-        numeric wavelength with an optional ``"nm"`` suffix, or already
+        ``Sequence`` metadata columns (and optionally ``StepTime`` and
+        ``ReverseStepTime``), where every other column name is a numeric
+        wavelength with an optional ``"nm"`` suffix, or already
         long-format data containing ``x_name``, ``y_name``, and ``z_name``
         columns.
     x_name, y_name, z_name : str, optional
         Long-format column names for wavelength, time, and intensity, by
         default ``"wavelength"``, ``"Time"``, and ``"intensity"``.
     metadata_columns : Collection[str], optional
-        Metadata columns to exclude from the spectral data, by default
-        ``METADATA_COLUMNS``.
+        Non-spectral columns (metadata and StepTime columns) to exclude from
+        the wavelength columns of wide-format data, by default
+        ``NON_SPECTRAL_COLUMNS``.
     strip_suffix : str | None, optional
         Suffix to strip from ``x_name`` values before casting to float, by
         default ``"nm"``. If ``None``, the column is left as-is.
