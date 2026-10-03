@@ -1,7 +1,7 @@
 """Per-file parallel execution for Flatten-PCA preprocessing.
 
-Generic over the per-file work so both the NumPy fast path and, later, the
-legacy polars pipeline (#76) can reuse it.
+Generic over the per-file work so both the NumPy fast path and the legacy
+polars pipeline can reuse it.
 """
 
 from __future__ import annotations

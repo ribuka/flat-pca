@@ -1,4 +1,4 @@
-"""Tests for per-file parallel execution of Flatten-PCA preprocessing (#30)."""
+"""Tests for per-file parallel execution of Flatten-PCA preprocessing (#30, #76)."""
 
 import threading
 from pathlib import Path
@@ -8,6 +8,7 @@ import pytest
 
 from flat_pca.feature_engineering import flatten_pca, preprocess_and_flatten
 from flat_pca.feature_engineering.flatten_pca import parallel
+from flat_pca.feature_engineering.flatten_pca.input import load_and_validate_inputs
 from flat_pca.feature_engineering.flatten_pca.parallel import (
     run_per_file,
     validate_workers,
@@ -143,29 +144,130 @@ def test_public_api_rejects_invalid_workers_before_reading_input(
         flatten_pca(missing, workers=workers)  # type: ignore[arg-type]
 
 
-def test_legacy_path_ignores_workers(
-    tmp_path: Path, real_fixture_paths: list[Path]
-) -> None:
-    """Keep legacy-path results unchanged when workers is specified."""
-    deferred = [
-        preprocess_and_flatten(
-            real_fixture_paths, materialize_once=False, workers=workers
-        ).collect()
-        for workers in (1, 4)
-    ]
-    assert deferred[1].equals(deferred[0])
+def _write_integer_copy(source: Path, destination: Path) -> Path:
+    """Write a copy of ``source`` with scaled Int64 spectral columns.
 
-    integer_path = tmp_path / "integer.parquet"
-    pl.DataFrame(
-        {
-            "Time": [0.0, 1.0],
-            "Step": [0, 0],
-            "Sequence": [0, 0],
-            "500.0nm": pl.Series([1, 2], dtype=pl.Int64),
-        }
-    ).write_parquet(integer_path)
-    fallback = [
-        preprocess_and_flatten([integer_path], workers=workers).collect()
-        for workers in (1, 4)
+    Non-floating-point wavelength columns route ``materialize_once=True``
+    through the legacy polars pipeline instead of the NumPy fast path.
+    """
+    frame = pl.read_parquet(source)
+    spectra = [
+        column for column in frame.columns if column not in {"Time", "Step", "Sequence"}
     ]
-    assert fallback[1].equals(fallback[0])
+    frame.with_columns(
+        (pl.col(spectra) * 1_000_000).round().cast(pl.Int64)
+    ).write_parquet(destination)
+    return destination
+
+
+@pytest.fixture(scope="module")
+def integer_fixture_paths(
+    tmp_path_factory: pytest.TempPathFactory, real_fixture_paths: list[Path]
+) -> list[Path]:
+    """Return Int64-spectra copies of the real fixtures."""
+    directory = tmp_path_factory.mktemp("integer_fixtures")
+    return [_write_integer_copy(path, directory / path.name) for path in real_fixture_paths]
+
+
+@pytest.mark.parametrize("normalize", [False, True], ids=["no-norm", "norm"])
+@pytest.mark.parametrize("route", ["deferred", "fallback"])
+def test_legacy_path_matches_across_worker_counts(
+    route: str,
+    normalize: bool,
+    real_fixture_paths: list[Path],
+    integer_fixture_paths: list[Path],
+) -> None:
+    """Produce identical legacy-path output for 1, 2, and 4 workers."""
+    paths = real_fixture_paths if route == "deferred" else integer_fixture_paths
+    kwargs: dict[str, object] = {
+        "t_downsampling_stride": 2,
+        "w_downsampling_stride": 2,
+        "max_null_ratio": 1.0,
+        "materialize_once": route == "fallback",
+    }
+    if route == "deferred":
+        # Smoothing is skipped for the Int64 fallback inputs: the lazy
+        # smoothing stages declare an unchanged output schema, which polars
+        # rejects when they turn Int64 columns into Float64.
+        kwargs["t_smoothing_window"] = 10000.0
+        kwargs["w_smoothing_window"] = 50.0
+    if normalize:
+        kwargs["t_normalization_range"] = (0.0, 20000.0)
+        kwargs["w_normalization_range"] = (600.0, 700.0)
+    results = [
+        preprocess_and_flatten(paths, workers=workers, **kwargs).collect()  # type: ignore[arg-type]
+        for workers in (1, 2, 4)
+    ]
+
+    assert results[0].height == len(paths)
+    for result in results[1:]:
+        assert result.schema == results[0].schema
+        assert result.equals(results[0])
+
+
+@pytest.mark.parametrize("workers", [1, 2, 4])
+@pytest.mark.parametrize("route", ["deferred", "fallback"])
+def test_legacy_path_reports_first_invalid_file_regardless_of_workers(
+    route: str,
+    workers: int,
+    tmp_path: Path,
+    real_fixture_paths: list[Path],
+    integer_fixture_paths: list[Path],
+) -> None:
+    """Report the first invalid file in path order on the legacy pipeline."""
+    sources = real_fixture_paths if route == "deferred" else integer_fixture_paths
+    first_invalid = _write_invalid_copy(real_fixture_paths[0], tmp_path / "a.parquet")
+    second_invalid = _write_invalid_copy(real_fixture_paths[1], tmp_path / "b.parquet")
+    paths = [*sources[2:], first_invalid, second_invalid]
+
+    with pytest.raises(ValueError, match="null, NaN, or infinite") as error:
+        preprocess_and_flatten(
+            paths, materialize_once=route == "fallback", workers=workers
+        )
+
+    assert first_invalid.name in str(error.value)
+    assert second_invalid.name not in str(error.value)
+
+
+@pytest.mark.parametrize("workers", [1, 2, 4])
+def test_load_and_validate_inputs_keeps_sequential_error_order(
+    workers: int, tmp_path: Path, real_fixture_paths: list[Path]
+) -> None:
+    """Raise an earlier file's wavelength mismatch before a later file's value error."""
+    first = pl.read_parquet(real_fixture_paths[0])
+    first.write_parquet(tmp_path / "a.parquet")
+    first.drop(first.columns[-1]).write_parquet(tmp_path / "b.parquet")
+    _write_invalid_copy(real_fixture_paths[0], tmp_path / "c.parquet")
+    paths = [tmp_path / name for name in ("a.parquet", "b.parquet", "c.parquet")]
+
+    with pytest.raises(ValueError, match="input wavelength sets must match"):
+        load_and_validate_inputs(paths, workers=workers)
+
+
+@pytest.mark.parametrize("workers", [1, 2, 4])
+def test_load_and_validate_inputs_reports_first_missing_file(
+    workers: int, tmp_path: Path, real_fixture_paths: list[Path]
+) -> None:
+    """Raise FileNotFoundError for the first missing path in path order."""
+    valid = tmp_path / "0_valid.parquet"
+    pl.read_parquet(real_fixture_paths[0]).write_parquet(valid)
+    paths = [
+        valid,
+        tmp_path / "a_missing.parquet",
+        tmp_path / "b_missing.parquet",
+    ]
+
+    with pytest.raises(FileNotFoundError, match="a_missing"):
+        load_and_validate_inputs(paths, workers=workers)
+
+
+@pytest.mark.parametrize("workers", INVALID_WORKERS)
+def test_load_and_validate_inputs_rejects_invalid_workers(
+    workers: object, tmp_path: Path
+) -> None:
+    """Raise ValueError for invalid workers before touching a missing path."""
+    with pytest.raises(ValueError, match="workers must be an integer >= 1"):
+        load_and_validate_inputs(
+            [tmp_path / "missing.parquet"],
+            workers=workers,  # type: ignore[arg-type]
+        )
