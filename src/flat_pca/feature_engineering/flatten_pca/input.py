@@ -18,6 +18,7 @@ from flat_pca.spectral.schema import (
 from flat_pca.utils import get_schema_from_polars
 
 from ..preprocess.wavelength_filter import validate_wavelength_range
+from .parallel import run_per_file, validate_workers
 
 StemUniquenessCheck = Literal["skip", "warn", "error"]
 
@@ -259,6 +260,7 @@ def load_and_validate_inputs(
     stem_uniqueness: StemUniquenessCheck = "skip",
     validate_metadata_uniqueness: bool = False,
     wavelength_range: tuple[float, float] | None = None,
+    workers: int = 1,
 ) -> list[tuple[Path, pl.LazyFrame]]:
     """Load and validate Flatten-PCA Parquet inputs deterministically.
 
@@ -281,6 +283,12 @@ def load_and_validate_inputs(
         every wavelength column. Forwarded to ``validate_frame`` to limit the
         null/NaN/infinite-value check to wavelength columns within this
         range; see ``validate_frame`` for details.
+    workers : int, default 1
+        Number of threads used to validate files in parallel, one file per
+        task (see ``run_per_file``). The first file is always validated
+        alone so the other files can be compared against its wavelength set
+        inside their own task; the error raised when several files are
+        invalid is therefore the same as with ``1``.
 
     Returns
     -------
@@ -293,15 +301,16 @@ def load_and_validate_inputs(
     FileNotFoundError
         If an input path does not exist.
     ValueError
-        If paths are empty, ``stem_uniqueness="error"`` and stems repeat, or
+        If paths are empty, ``stem_uniqueness="error"`` and stems repeat,
         input data violates the schema, value, requested uniqueness, or
-        cross-file consistency requirements.
+        cross-file consistency requirements, or ``workers`` is not an
+        integer of at least 1.
     """
+    validate_workers(workers)
     normalized_paths = resolve_and_check_paths(paths, stem_uniqueness=stem_uniqueness)
 
-    loaded: list[tuple[Path, pl.LazyFrame]] = []
-    expected_wavelengths: frozenset[str] | None = None
-    for path in normalized_paths:
+    def _read_and_validate(path: Path) -> tuple[pl.LazyFrame, frozenset[str]]:
+        """Scan one file and validate it, returning its wavelength set."""
         frame = read_parquet(path)
         wavelengths = validate_frame(
             path,
@@ -309,10 +318,19 @@ def load_and_validate_inputs(
             validate_metadata_uniqueness=validate_metadata_uniqueness,
             wavelength_range=wavelength_range,
         )
-        if expected_wavelengths is None:
-            expected_wavelengths = wavelengths
-        elif wavelengths != expected_wavelengths:
-            raise ValueError("input wavelength sets must match")
-        loaded.append((path, frame))
+        return frame, wavelengths
 
-    return loaded
+    first_path = normalized_paths[0]
+    first_frame, expected_wavelengths = _read_and_validate(first_path)
+
+    def _load_one_file(path: Path) -> tuple[Path, pl.LazyFrame]:
+        """Validate one later file and compare it with the first file."""
+        frame, wavelengths = _read_and_validate(path)
+        if wavelengths != expected_wavelengths:
+            raise ValueError("input wavelength sets must match")
+        return path, frame
+
+    return [
+        (first_path, first_frame),
+        *run_per_file(_load_one_file, normalized_paths[1:], workers),
+    ]

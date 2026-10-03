@@ -37,7 +37,7 @@ from .numpy_preprocessing import (
     all_wavelength_columns_are_float,
     build_numpy_prepared_inputs,
 )
-from .parallel import validate_workers
+from .parallel import run_per_file, validate_workers
 from .pca_scores import fit_flattened_pca
 from .preprocess_config import PreprocessConfig
 
@@ -271,19 +271,28 @@ def preprocess_and_flatten(
         least 1; ``None`` is rejected. ``1`` (the default) disables
         parallelism and runs the sequential loop without creating a thread
         pool. The result, including which error is raised when several
-        files are invalid, does not depend on ``workers``. Only the NumPy
+        files are invalid, does not depend on ``workers``. A value of 2 to 4
+        is recommended: polars already reads each file with multiple
+        threads and part of the per-file work holds the GIL, so on the NumPy
         fast path (``materialize_once=True`` with floating-point wavelength
-        columns) is parallelized; the legacy polars pipeline
-        (``materialize_once=False``, or the fallback for non-floating-point
-        wavelength columns) ignores ``workers`` and processes files
-        sequentially. A value of 2 to 4 is recommended: polars already
-        reads each file with multiple threads and part of the per-file work
-        holds the GIL, so measured speedups peaked at about 1.4x with 2
-        workers (64 real files of 119 rows x ~6950 wavelength columns) and
-        1.5x with 4 workers (32 synthetic files of 3010 rows x 1201
-        columns) on a 12-core machine, and more workers were slightly
-        slower. Peak memory grows roughly in proportion to ``workers`` (one
-        file's working arrays per worker).
+        columns) measured speedups peaked at about 1.4x with 2 workers (64
+        real files of 119 rows x ~6950 wavelength columns) and 1.5x with 4
+        workers (32 synthetic files of 3010 rows x 1201 columns) on a
+        12-core machine, and more workers were slightly slower. Peak memory
+        grows roughly in proportion to ``workers`` (one file's working
+        arrays per worker).
+        The legacy polars pipeline (``materialize_once=False``, or the
+        fallback for non-floating-point wavelength columns) parallelizes
+        each file's input validation scan and, when a normalization range
+        is set, the per-file preprocessing up to normalization (which
+        collects each file); the fallback also collects each preprocessed
+        file in parallel. With ``materialize_once=False`` and no
+        normalization range, the preprocessing itself still runs inside the
+        caller's ``collect()`` of the returned query, so only validation is
+        parallelized. On the same 64 real files and machine, 4 workers gave
+        about 1.4x to 1.5x for the fallback, 1.3x for
+        ``materialize_once=False`` with ``t_normalization_range``, and 1.1x
+        for ``materialize_once=False`` without normalization.
 
     Returns
     -------
@@ -388,22 +397,44 @@ def _preprocess_and_flatten(
             # dtypes through its own dtype-preserving row-dict path (see
             # flatten.py's _has_float_spectral_columns).
             legacy_prepared_inputs = _build_legacy_prepared_inputs(
-                resolved_paths, config
+                resolved_paths, config, workers=workers
             )
-            prepared_inputs = [
-                (path, frame.collect()) for path, frame in legacy_prepared_inputs
-            ]
+            prepared_inputs = run_per_file(
+                _collect_prepared_input, legacy_prepared_inputs, workers
+            )
         return flatten_and_prune_inputs(prepared_inputs, config.max_null_ratio).lazy()
 
-    prepared_inputs = _build_legacy_prepared_inputs(paths, config)
+    prepared_inputs = _build_legacy_prepared_inputs(paths, config, workers=workers)
     flattened = flatten_inputs(prepared_inputs)
     assert isinstance(flattened, pl.LazyFrame)
     return drop_sparse_feature_columns(flattened, config.max_null_ratio)
 
 
+def _collect_prepared_input(
+    prepared_input: tuple[Path, pl.LazyFrame],
+) -> tuple[Path, pl.DataFrame]:
+    """Collect one legacy-pipeline per-file query, keeping its path.
+
+    Parameters
+    ----------
+    prepared_input : tuple[Path, pl.LazyFrame]
+        Path paired with its preprocessed per-file query, as returned by
+        ``_build_legacy_prepared_inputs``.
+
+    Returns
+    -------
+    tuple[Path, pl.DataFrame]
+        The same path paired with the collected frame.
+    """
+    path, frame = prepared_input
+    return path, frame.collect()
+
+
 def _build_legacy_prepared_inputs(
     paths: Sequence[str | Path],
     config: PreprocessConfig,
+    *,
+    workers: int = 1,
 ) -> list[tuple[Path, pl.LazyFrame]]:
     """Validate and preprocess inputs through the original polars pipeline.
 
@@ -420,6 +451,12 @@ def _build_legacy_prepared_inputs(
     config : PreprocessConfig
         Validated preprocessing parameters. ``max_null_ratio`` is not used
         here; the caller applies it after flattening.
+    workers : int, default 1
+        Validated number of threads for the per-file validation loop of
+        ``load_and_validate_inputs`` and the per-file
+        smoothing/normalization/downsampling loop (see ``run_per_file``).
+        Normalization collects each file's query, so that loop is where the
+        preceding stages actually run when a normalization range is set.
 
     Returns
     -------
@@ -433,6 +470,7 @@ def _build_legacy_prepared_inputs(
         stem_uniqueness=config.stem_uniqueness,
         validate_metadata_uniqueness=config.validate_metadata_uniqueness,
         wavelength_range=config.wavelength_range,
+        workers=workers,
     )
     filtered_inputs: list[tuple[Path, pl.LazyFrame]] = [
         (path, filter_target_steps(frame, config.target_steps))
@@ -453,8 +491,12 @@ def _build_legacy_prepared_inputs(
     frames = [frame for _, frame in step_time_inputs]
     unique_times = collect_unique_times(frames)
     unique_wavelengths = collect_unique_wavelengths(frames)
-    prepared_inputs: list[tuple[Path, pl.LazyFrame]] = []
-    for path, frame in step_time_inputs:
+
+    def _prepare_one_file(
+        step_time_input: tuple[Path, pl.LazyFrame],
+    ) -> tuple[Path, pl.LazyFrame]:
+        """Smooth, normalize, and downsample one file against the shared grids."""
+        path, frame = step_time_input
         prepared = apply_t_smoothing(frame, config.t_smoothing_window)
         prepared = apply_w_smoothing(prepared, config.w_smoothing_window)
         prepared = apply_t_normalization(prepared, config.t_normalization_range)
@@ -469,8 +511,9 @@ def _build_legacy_prepared_inputs(
             unique_wavelengths,
             config.w_downsampling_stride,
         )
-        prepared_inputs.append((path, prepared))
-    return prepared_inputs
+        return path, prepared
+
+    return run_per_file(_prepare_one_file, step_time_inputs, workers)
 
 
 def materialize_flattened(flattened: pl.LazyFrame) -> pl.LazyFrame:
