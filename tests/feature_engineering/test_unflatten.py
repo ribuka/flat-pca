@@ -104,3 +104,154 @@ def test_unflatten_rejects_noncanonical_columns(name: str) -> None:
         flatten_to_long(frame)
     with pytest.raises(ValueError, match="uniquely decode"):
         flatten_to_wide(frame.lazy())
+
+
+@pytest.fixture
+def indexed_flattened() -> pl.DataFrame:
+    """Return flattened features with metadata columns, including a list column."""
+    return pl.DataFrame(
+        {
+            "label": ["x", "y"],
+            "source": ["a", "b"],
+            "650.0nm_1_1_0.00": [1.0, None],
+            "651.0nm_1_1_0.00": [2.0, None],
+            "lot": [10, 20],
+            "650.0nm_1_1_0.50": [None, 3.0],
+            "651.0nm_1_1_0.50": [None, 4.0],
+            "tags": [["p"], ["q", "r"]],
+        }
+    )
+
+
+@pytest.mark.parametrize("lazy", [False, True])
+def test_flatten_to_long_retains_index_columns(
+    indexed_flattened: pl.DataFrame, lazy: bool
+) -> None:
+    """Repeat each input row's index values on its long rows in the given order."""
+    frame = indexed_flattened.lazy() if lazy else indexed_flattened
+    result = flatten_to_long(frame, index=["lot", "tags", "label"])
+    assert isinstance(result, pl.LazyFrame if lazy else pl.DataFrame)
+    if isinstance(result, pl.LazyFrame):
+        result = result.collect()
+    assert result.columns == [
+        "source", "lot", "tags", "label",
+        "Step", "Sequence", "StepTime", "wavelength", "intensity",
+    ]
+    assert result.height == 8
+    assert result.filter(pl.col("source") == "a")["lot"].to_list() == [10] * 4
+    assert result.filter(pl.col("source") == "b")["label"].to_list() == ["y"] * 4
+    assert result.filter(pl.col("source") == "b")["tags"].to_list() == [["q", "r"]] * 4
+
+
+@pytest.mark.parametrize("lazy", [False, True])
+def test_flatten_to_wide_retains_index_columns(
+    indexed_flattened: pl.DataFrame, lazy: bool
+) -> None:
+    """Keep ungroupable index columns on every wide grid row in the given order."""
+    frame = indexed_flattened.lazy() if lazy else indexed_flattened
+    result = flatten_to_wide(frame, index=["tags", "lot", "label"])
+    assert isinstance(result, pl.LazyFrame if lazy else pl.DataFrame)
+    if isinstance(result, pl.LazyFrame):
+        result = result.collect()
+    expected = pl.DataFrame(
+        {
+            "source": ["a", "a", "b", "b"],
+            "tags": [["p"], ["p"], ["q", "r"], ["q", "r"]],
+            "lot": [10, 10, 20, 20],
+            "label": ["x", "x", "y", "y"],
+            "Step": [1, 1, 1, 1],
+            "Sequence": [1, 1, 1, 1],
+            "StepTime": [0.0, 0.5, 0.0, 0.5],
+            "650.0nm": [1.0, None, None, 3.0],
+            "651.0nm": [2.0, None, None, 4.0],
+        }
+    )
+    assert result.equals(expected)
+
+
+@pytest.mark.parametrize("lazy", [False, True])
+def test_flatten_to_wide_drops_null_rows_ignoring_index(
+    indexed_flattened: pl.DataFrame, lazy: bool
+) -> None:
+    """Drop grid rows by wavelength values only, even with non-null index values."""
+    flattened = indexed_flattened.drop("label", "tags")
+    frame = flattened.lazy() if lazy else flattened
+    result = flatten_to_wide(frame, index="lot", drop_all_null_rows=True)
+    if isinstance(result, pl.LazyFrame):
+        result = result.collect()
+    expected = pl.DataFrame(
+        {
+            "source": ["a", "b"],
+            "lot": [10, 20],
+            "Step": [1, 1],
+            "Sequence": [1, 1],
+            "StepTime": [0.0, 0.5],
+            "650.0nm": [1.0, 3.0],
+            "651.0nm": [2.0, 4.0],
+        }
+    )
+    assert result.equals(expected)
+
+
+@pytest.mark.parametrize(
+    ("index", "match"),
+    [
+        (["lot", "lot"], "must be unique"),
+        (["missing"], "not found"),
+        ("source", "conflict"),
+        ("Step", "conflict"),
+        ("Sequence", "conflict"),
+        ("StepTime", "conflict"),
+        ("wavelength", "conflict"),
+        ("__flatten_source_row", "conflict"),
+        ("__flatten_feature", "conflict"),
+        ("__flatten_value", "conflict"),
+    ],
+)
+def test_unflatten_rejects_invalid_index(index: str | list[str], match: str) -> None:
+    """Reject duplicated, missing, and reserved index column names."""
+    frame = pl.DataFrame(
+        {
+            "source": ["a"],
+            "650.0nm_1_1_0.00": [1.0],
+            "lot": [1],
+            "Step": [1],
+            "Sequence": [1],
+            "StepTime": [0.0],
+            "wavelength": [650.0],
+            "__flatten_source_row": [0],
+            "__flatten_feature": ["f"],
+            "__flatten_value": [0.0],
+        }
+    )
+    with pytest.raises(ValueError, match=match):
+        flatten_to_long(frame, index=index)
+    with pytest.raises(ValueError, match=match):
+        flatten_to_wide(frame.lazy(), index=index)
+
+
+def test_flatten_to_long_rejects_index_conflicting_with_value_name() -> None:
+    """Reject an index column with the same name as the long value column."""
+    frame = pl.DataFrame({"source": ["a"], "650.0nm_1_1_0.00": [1.0], "value": [1]})
+    with pytest.raises(ValueError, match="conflict"):
+        flatten_to_long(frame, value_name="value", index="value")
+    assert flatten_to_wide(frame, index="value").columns[1] == "value"
+
+
+def test_flatten_to_wide_rejects_index_conflicting_with_wavelength() -> None:
+    """Reject an index column with the same name as an output wavelength column."""
+    frame = pl.DataFrame({"source": ["a"], "650.0nm_1_1_0.00": [1.0], "650.0nm": [1]})
+    with pytest.raises(ValueError, match="conflict"):
+        flatten_to_wide(frame, index="650.0nm")
+    assert flatten_to_long(frame, index="650.0nm").columns[1] == "650.0nm"
+
+
+def test_unflatten_rejects_columns_outside_index() -> None:
+    """Keep rejecting non-feature columns that are not listed in index."""
+    frame = pl.DataFrame(
+        {"source": ["a"], "650.0nm_1_1_0.00": [1.0], "lot": [1], "label": ["x"]}
+    )
+    with pytest.raises(ValueError, match="uniquely decode"):
+        flatten_to_long(frame, index="lot")
+    with pytest.raises(ValueError, match="uniquely decode"):
+        flatten_to_wide(frame.lazy(), index=["label"])
