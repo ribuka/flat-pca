@@ -38,6 +38,27 @@ def test_create_spectra_heatmap_ignores_metadata_columns() -> None:
     assert figure.layout.coloraxis.cmax is None
 
 
+def test_create_heatmap_ignores_step_time_columns() -> None:
+    """Exclude StepTime and ReverseStepTime from the wavelength columns."""
+    spectra = pl.DataFrame(
+        {
+            "Time": [0.0, 1.0],
+            "Step": [1, 1],
+            "Sequence": [0, 0],
+            "StepTime": [0.0, 1.0],
+            "ReverseStepTime": [1.0, 0.0],
+            "651.0nm": [30.0, 40.0],
+            "650.0nm": [10.0, 20.0],
+        }
+    )
+
+    figure = create_heatmap(spectra)
+
+    heatmap = figure.data[0]
+    assert list(heatmap.x) == [650.0, 651.0]
+    assert heatmap.z.tolist() == [[10.0, 30.0], [20.0, 40.0]]
+
+
 def test_create_heatmap_auto_applies_diverging_scale_for_coefficient() -> None:
     """z_name='coefficient' should get a symmetric RdBu_r color range."""
     spectra = pl.DataFrame(
