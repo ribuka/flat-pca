@@ -97,6 +97,30 @@ def test_file_table_lists_files_and_metadata_warnings(
     assert "<li>ghost</li>" in text
 
 
+def test_category_filters_follow_catalog_and_keep_selection(
+    client: TestClient, wait_for: Wait
+) -> None:
+    """Category choices reload after a catalog update, keeping chosen values."""
+    page = client.get("/").text
+    assert 'id="category-filters"' in page
+    assert 'hx-trigger="catalog-updated from:body"' in page
+    assert '<option value="A"' not in page
+    workspace = _workspace(client)
+    wait_for(workspace.database, workspace.submit_catalog())
+
+    response = client.get("/catalog/category-filters", params={"eq__lot": "B"})
+
+    assert response.status_code == 200
+    assert '<option value="A" >' in response.text
+    assert '<option value="B" selected>' in response.text
+    stale = client.get("/catalog/category-filters", params={"eq__lot": "Z"}).text
+    assert '<option value="Z" selected>' in stale
+    assert (
+        client.get("/catalog/category-filters", params={"eq__unknown": "x"}).status_code
+        == 400
+    )
+
+
 def test_file_table_applies_filters(cataloged_client: TestClient) -> None:
     """Query parameters filter the table."""
     response = cataloged_client.get(

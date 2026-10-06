@@ -70,7 +70,48 @@ def data_selection_page(
             "columns": workspace.settings.metadata_columns,
             "sort_columns": [*FILE_SORT_COLUMNS, *workspace.settings.metadata_columns],
             "options": category_options(workspace.database),
+            "current_values": {},
             "selected": workspace.selection.stems,
+        },
+    )
+
+
+@router.get("/catalog/category-filters", response_class=HTMLResponse)
+def category_filters(request: Request, workspace: WorkspaceDependency) -> HTMLResponse:
+    """Render the category filter selects with the current catalog values.
+
+    Requested after a catalog update so the choices follow the new metadata.
+
+    Parameters
+    ----------
+    request : Request
+        Current request carrying the filter form's values, parsed by
+        ``parse_file_query``; the selected category values are kept.
+    workspace : Workspace
+        Application workspace.
+
+    Returns
+    -------
+    HTMLResponse
+        Category filter partial.
+
+    Raises
+    ------
+    HTTPException
+        With status 400 if the query parameters are invalid.
+    """
+    try:
+        query = parse_file_query(
+            request.query_params, workspace.settings.metadata_columns
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return templates.TemplateResponse(
+        request,
+        "partials/category_filters.html",
+        {
+            "options": category_options(workspace.database),
+            "current_values": query.equals,
         },
     )
 

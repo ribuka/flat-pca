@@ -12,24 +12,18 @@
         hx-get="/catalog/files" hx-target="#file-table"
         hx-trigger="change, input delay:300ms, submit">
     <label>ファイル名 <input type="search" name="q" placeholder="含む文字列"></label>
-    {% for name, column in columns.items() %}
-      {% if column.type == "category" %}
-        <label>{{ name }}
-          <select name="eq__{{ name }}">
-            <option value="">(すべて)</option>
-            {% for value in options.get(name, []) %}
-              <option value="{{ value }}">{{ value }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      {% else %}
-        {% set input_type = "datetime-local" if column.type == "datetime" else "number" %}
-        <label>{{ name }}
-          <input type="{{ input_type }}" name="min__{{ name }}" step="any" aria-label="{{ name }} 下限">
-          〜
-          <input type="{{ input_type }}" name="max__{{ name }}" step="any" aria-label="{{ name }} 上限">
-        </label>
-      {% endif %}
+    <span id="category-filters" class="filters"
+          hx-get="/catalog/category-filters" hx-include="#file-filter"
+          hx-trigger="catalog-updated from:body">
+      {% include "partials/category_filters.html" %}
+    </span>
+    {% for name, column in columns.items() if column.type != "category" %}
+      {% set input_type = "datetime-local" if column.type == "datetime" else "number" %}
+      <label>{{ name }}
+        <input type="{{ input_type }}" name="min__{{ name }}" step="any" aria-label="{{ name }} 下限">
+        〜
+        <input type="{{ input_type }}" name="max__{{ name }}" step="any" aria-label="{{ name }} 上限">
+      </label>
     {% endfor %}
     <label>ソート
       <select name="sort">

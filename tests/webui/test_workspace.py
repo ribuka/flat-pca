@@ -15,7 +15,7 @@ from flat_pca.webui.services.runs import (
     insert_run,
     update_run,
 )
-from flat_pca.webui.settings import Settings
+from flat_pca.webui.settings import MetadataColumnSettings, Settings
 from flat_pca.webui.workspace import CATALOG_JOB, Workspace
 
 Wait = Callable[..., dict[str, object]]
@@ -43,6 +43,47 @@ def test_workspace_fails_runs_left_active_by_previous_process(
     assert statuses["a"]["error"] == INTERRUPTED_ERROR
     assert statuses["b"]["status"] == "failed"
     assert statuses["c"]["status"] == "succeeded"
+
+
+def test_database_rebuilds_file_metadata_when_column_type_changes(
+    settings: Settings,
+) -> None:
+    """Changing a column's type empties ``file_metadata`` with the new SQL type."""
+    category = {"lot": MetadataColumnSettings(type="category")}
+    database = Database(settings.database_path, category)
+    database.execute("INSERT INTO file_metadata VALUES ('run-1', 'A')")
+    database.close()
+
+    database = Database(
+        settings.database_path, {"lot": MetadataColumnSettings(type="number")}
+    )
+    try:
+        rows = database.fetch_dicts("SELECT * FROM file_metadata")
+        types = database.fetch_dicts(
+            "SELECT data_type FROM information_schema.columns "
+            "WHERE table_name = 'file_metadata' AND column_name = 'lot'"
+        )
+    finally:
+        database.close()
+
+    assert rows == []
+    assert types == [{"data_type": "DOUBLE"}]
+
+
+def test_database_keeps_file_metadata_when_columns_match(settings: Settings) -> None:
+    """Reopening with the same columns keeps the imported rows."""
+    category = {"lot": MetadataColumnSettings(type="category")}
+    database = Database(settings.database_path, category)
+    database.execute("INSERT INTO file_metadata VALUES ('run-1', 'A')")
+    database.close()
+
+    database = Database(settings.database_path, category)
+    try:
+        rows = database.fetch_dicts("SELECT * FROM file_metadata")
+    finally:
+        database.close()
+
+    assert rows == [{"stem": "run-1", "lot": "A"}]
 
 
 def test_workspace_rebuilds_file_metadata_when_columns_change(

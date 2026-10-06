@@ -102,18 +102,25 @@ class Database:
         self._create_schema()
 
     def _create_schema(self) -> None:
-        """Create the tables, rebuilding ``file_metadata`` if its columns changed."""
+        """Create the tables, rebuilding ``file_metadata`` if its columns changed.
+
+        ``file_metadata`` is rebuilt (empty) when its column names, order, or
+        SQL types differ from the configured metadata columns.
+        """
         with self.transaction() as connection:
             for statement in _STATIC_SCHEMA:
                 connection.execute(statement)
-            expected = ["stem", *self.metadata_columns]
-            existing = [
-                row[0]
-                for row in connection.execute(
-                    "SELECT column_name FROM information_schema.columns "
-                    "WHERE table_name = 'file_metadata' ORDER BY ordinal_position"
-                ).fetchall()
+            expected = [
+                ("stem", "VARCHAR"),
+                *(
+                    (name, METADATA_SQL_TYPES[column.type])
+                    for name, column in self.metadata_columns.items()
+                ),
             ]
+            existing = connection.execute(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_name = 'file_metadata' ORDER BY ordinal_position"
+            ).fetchall()
             if existing != expected:
                 connection.execute(
                     "CREATE OR REPLACE TABLE file_metadata "

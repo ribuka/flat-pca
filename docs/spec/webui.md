@@ -79,6 +79,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 ```
 
 - 型`category`・`number`・`datetime`のみを受け付ける。`format`は`datetime`のみに指定でき、省略時は形式を推定する。
+- メタデータ列名に、結合キー列名と、ファイル一覧の列名（`stem`・`path`・`n_rows`・`n_steps`・`n_segments`）は使えない。
 - `workspace.dir`・`data.root`・`metadata.csv`の相対パスは、settings.tomlのあるディレクトリ基準で解決する。未知のキーはエラーとする。
 - メタデータの結合キーは`Path.stem`とする。`data.root`配下でstemが重複する場合はcatalog構築をエラーとする（UI経由の実行では`stem_uniqueness="error"`を使う）。
 - メタデータCSVの結合キーが空または重複する場合、取り込む列が無い場合、値を型に変換できない場合はcatalog構築をエラーとする。
@@ -88,7 +89,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 - 状態は1つの`Workspace`オブジェクト（DuckDB接続、表示用キャッシュ、ジョブ実行器）に集約し、グローバル変数に分散させない。
 - DuckDBファイルは`{workspace.dir}/flatpca.duckdb`とする。書き込みは親プロセスのみが行う。
-- スキーマに版管理・マイグレーションは持たない。スキーマを変えたときはWorkspaceを作り直す。`file_metadata`だけは、settings.tomlの列定義と食い違う場合に起動時に空で作り直す（次のcatalog更新で埋まる）。
+- スキーマに版管理・マイグレーションは持たない。スキーマを変えたときはWorkspaceを作り直す。`file_metadata`だけは、settings.tomlの列定義（列名・順序・SQL型）と食い違う場合に起動時に空で作り直す（次のcatalog更新で埋まる）。
 - テーブル：
   - `files`：`stem`、`path`、`size`、`mtime_ns`、波長数・最小・最大、行数
   - `segments`：`stem`、`Step`、`Sequence`、行数、StepTime最大値

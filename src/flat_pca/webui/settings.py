@@ -17,7 +17,10 @@ from pydantic import (
 )
 
 MetadataColumnType = Literal["category", "number", "datetime"]
-RESERVED_METADATA_COLUMNS = frozenset({"stem"})
+# Join key and file-list columns that metadata columns would overwrite.
+RESERVED_METADATA_COLUMNS = frozenset(
+    {"stem", "path", "n_rows", "n_steps", "n_segments"}
+)
 
 
 class SettingsError(ValueError):
