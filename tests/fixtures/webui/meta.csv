@@ -1,0 +1,4 @@
+file_name,lot,date,yield_pct,note
+run-1,A,2026-01-02 03:04:05,91.5,ignored
+run-2,B,2026-02-03 04:05:06,88,ignored
+ghost,A,2026-03-04 05:06:07,,ignored
