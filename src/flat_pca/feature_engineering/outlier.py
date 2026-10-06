@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 import polars as pl
+
+from .payload import read_float_map
 
 OutlierStrategy = Literal["winsorize", "drop"] | None
 
@@ -170,4 +172,132 @@ def prepare_outlier_frame(
             ]
         ),
         resolved_bounds,
+    )
+
+
+@dataclass(frozen=True)
+class OutlierModel:
+    """Store fitted outlier-handling state.
+
+    Attributes
+    ----------
+    strategy : OutlierStrategy
+        Fitted outlier-handling strategy.
+    iqr_multiplier : float
+        IQR multiplier used to determine outlier bounds.
+    bounds : OutlierBounds
+        Fitted thresholds, empty when ``strategy`` is ``None``.
+    """
+
+    strategy: OutlierStrategy
+    iqr_multiplier: float
+    bounds: OutlierBounds
+
+    def apply(self, df: pl.LazyFrame, columns: list[str]) -> pl.LazyFrame:
+        """Apply the fitted outlier handling to selected columns.
+
+        Parameters
+        ----------
+        df : pl.LazyFrame
+            Input data containing the selected columns.
+        columns : list[str]
+            Numeric columns to inspect for outliers.
+
+        Returns
+        -------
+        pl.LazyFrame
+            Data handled with the fitted thresholds.
+        """
+        prepared, _ = prepare_outlier_frame(
+            df,
+            columns,
+            self.strategy,
+            self.iqr_multiplier,
+            self.bounds,
+        )
+        return prepared
+
+    def to_payload(self) -> dict[str, object]:
+        """Return the fitted outlier state as flat payload entries.
+
+        Returns
+        -------
+        dict[str, object]
+            ``outlier_strategy``, ``iqr_multiplier``, and the four
+            ``*_bounds`` entries.
+        """
+        return {
+            "outlier_strategy": self.strategy,
+            "iqr_multiplier": self.iqr_multiplier,
+            "outlier_lower_bounds": self.bounds.outlier_lower,
+            "outlier_upper_bounds": self.bounds.outlier_upper,
+            "winsor_lower_bounds": self.bounds.winsor_lower,
+            "winsor_upper_bounds": self.bounds.winsor_upper,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> OutlierModel:
+        """Restore fitted outlier state from flat payload entries.
+
+        Every entry is optional so that payloads written before outlier
+        handling existed stay readable: a missing or ``"none"`` strategy
+        means no handling, a missing multiplier means ``1.5``, and missing
+        bounds are empty.
+
+        Parameters
+        ----------
+        payload : dict[str, object]
+            Serialized state holding the entries of :meth:`to_payload`.
+
+        Returns
+        -------
+        OutlierModel
+            Restored outlier state.
+        """
+        raw_strategy = payload.get("outlier_strategy", None)
+        if raw_strategy == "none":
+            raw_strategy = None
+        return cls(
+            strategy=cast(OutlierStrategy, raw_strategy),
+            iqr_multiplier=float(cast(float, payload.get("iqr_multiplier", 1.5))),
+            bounds=OutlierBounds(
+                outlier_lower=read_float_map(payload, "outlier_lower_bounds"),
+                outlier_upper=read_float_map(payload, "outlier_upper_bounds"),
+                winsor_lower=read_float_map(payload, "winsor_lower_bounds"),
+                winsor_upper=read_float_map(payload, "winsor_upper_bounds"),
+            ),
+        )
+
+
+def fit_outlier(
+    df: pl.LazyFrame,
+    columns: list[str],
+    strategy: OutlierStrategy,
+    iqr_multiplier: float,
+) -> tuple[pl.LazyFrame, OutlierModel]:
+    """Fit outlier thresholds on the data and handle its outliers.
+
+    Parameters
+    ----------
+    df : pl.LazyFrame
+        Input data containing the selected columns.
+    columns : list[str]
+        Numeric columns to inspect for outliers.
+    strategy : OutlierStrategy
+        ``None`` to leave the data untouched without reading it, ``"drop"``
+        to remove rows with any outlier value, or ``"winsorize"`` to clip
+        those rows' values to the percentile bounds.
+    iqr_multiplier : float
+        Positive multiplier applied to the interquartile range.
+
+    Returns
+    -------
+    tuple[pl.LazyFrame, OutlierModel]
+        Handled data and the fitted outlier state.
+    """
+    prepared, bounds = prepare_outlier_frame(df, columns, strategy, iqr_multiplier)
+    return prepared, OutlierModel(
+        strategy=strategy,
+        iqr_multiplier=iqr_multiplier,
+        bounds=bounds,
     )

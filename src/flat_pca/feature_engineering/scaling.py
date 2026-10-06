@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 import polars as pl
+
+from .payload import read_float_map
 
 ScalingStrategy = Literal["none", "z-score", "minmax", "robust", "pareto"]
 
@@ -27,6 +29,62 @@ class ScalingModel:
     strategy: ScalingStrategy
     centers: dict[str, float]
     scales: dict[str, float]
+
+    def apply(self, df: pl.LazyFrame, columns: list[str]) -> pl.LazyFrame:
+        """Apply the fitted scaling to selected columns.
+
+        Parameters
+        ----------
+        df : pl.LazyFrame
+            Input data containing the selected columns.
+        columns : list[str]
+            Numeric columns to transform.
+
+        Returns
+        -------
+        pl.LazyFrame
+            Input data with the selected columns transformed.
+        """
+        return apply_scaler(df, columns, self)
+
+    def to_payload(self) -> dict[str, object]:
+        """Return the fitted scaling state in JSON-compatible form.
+
+        Returns
+        -------
+        dict[str, object]
+            ``strategy``, ``centers``, and ``scales`` entries.
+        """
+        return {
+            "strategy": self.strategy,
+            "centers": self.centers,
+            "scales": self.scales,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> ScalingModel:
+        """Restore fitted scaling state from its serialized form.
+
+        Parameters
+        ----------
+        payload : dict[str, object]
+            State previously produced by :meth:`to_payload`.
+
+        Returns
+        -------
+        ScalingModel
+            Restored scaling state.
+
+        Raises
+        ------
+        KeyError
+            If an entry is missing.
+        """
+        return cls(
+            strategy=cast(ScalingStrategy, payload["strategy"]),
+            centers=read_float_map(payload, "centers", required=True),
+            scales=read_float_map(payload, "scales", required=True),
+        )
 
 
 def _center_and_scale_exprs(

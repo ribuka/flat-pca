@@ -360,6 +360,8 @@ def apply_w_downsampling(
   6. 出力の行順および行数は入力と同じとする。
 - `transform_pca`（`append_pca_scores`を含む）が`impute_strategy="kmeans"`の`pca_model`を用いて欠損値を補完する場合、fit時に得たクラスタ中心をそのまま再利用し、再fitは行わない。上記5の手順のみを適用する。
 - `PcaModel`は`impute_kmeans_n_clusters`（fit時に確定したクラスタ数、`"kmeans"`以外では`None`）と`impute_kmeans_centroids`（クラスタごとの列→値マッピングのリスト、`"kmeans"`以外では空リスト）を保持する。`to_transform_payload`・`from_transform_payload`・`to_transform_json`・`from_transform_json`はこれらを含めて往復可能とする。
+- PCA前段の前処理は、補完（`ImputeModel`）→外れ値処理（`OutlierModel`）→スケーリング（`ScalingModel`）の3段階とし、各段階はfitで得た状態と、それを適用する`apply(df, columns)`、ペイロード変換（`to_payload`・`from_payload`）を持つ。`PcaModel`はこれらを`impute_model`・`outlier_model`・`scaling_model`として保持し、`transform_pca`はこの順に`apply`する。
+- `PcaModel`の`impute_strategy`・`impute_values`・`impute_kmeans_n_clusters`・`impute_kmeans_centroids`・`outlier_strategy`・`iqr_multiplier`・`outlier_lower_bounds`・`outlier_upper_bounds`・`winsor_lower_bounds`・`winsor_upper_bounds`は、各段階の状態を参照する読み取り専用属性として引き続き提供する。保存されるJSONは各段階の項目を最上位に並べた平たい形式のまま変えない。
 
 ### PCA成分のreshape仕様
 

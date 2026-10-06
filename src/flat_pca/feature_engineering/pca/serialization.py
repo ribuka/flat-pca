@@ -12,73 +12,12 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 from sklearn.decomposition import PCA
 
-from ..outlier import OutlierStrategy
-from ..scaling import ScalingModel, ScalingStrategy
-from .impute import ImputeStrategy
+from ..outlier import OutlierModel
+from ..scaling import ScalingModel
+from .impute import ImputeModel
 
 if TYPE_CHECKING:
     from .model import PcaModel
-
-
-def _float_map(
-    payload: dict[str, object],
-    key: str,
-    *,
-    required: bool = False,
-) -> dict[str, float]:
-    """Read one payload entry as a column-to-float mapping.
-
-    Parameters
-    ----------
-    payload : dict[str, object]
-        Serialized state to read from.
-    key : str
-        Entry name.
-    required : bool, default False
-        If ``True``, a missing entry raises ``KeyError``. If ``False``, a
-        missing entry is treated as an empty mapping, which keeps payloads
-        written before the optional entries existed readable.
-
-    Returns
-    -------
-    dict[str, float]
-        Per-column floating-point values.
-
-    Raises
-    ------
-    KeyError
-        If ``required`` is ``True`` and the entry is missing.
-    """
-    raw = cast(
-        dict[str, float],
-        payload[key] if required else payload.get(key, {}),
-    )
-    return {column: float(value) for column, value in raw.items()}
-
-
-def _kmeans_centroids(payload: dict[str, object]) -> list[dict[str, float]]:
-    """Read the ``impute_kmeans_centroids`` entry as per-cluster float maps.
-
-    Parameters
-    ----------
-    payload : dict[str, object]
-        Serialized state to read from.
-
-    Returns
-    -------
-    list[dict[str, float]]
-        One column-to-float mapping per cluster centroid. Empty if the
-        entry is missing, which keeps payloads written before kmeans
-        imputation existed readable.
-    """
-    raw = cast(
-        list[dict[str, float]],
-        payload.get("impute_kmeans_centroids", []),
-    )
-    return [
-        {column: float(value) for column, value in centroid.items()}
-        for centroid in raw
-    ]
 
 
 def _float_array(payload: dict[str, object], key: str) -> np.ndarray:
@@ -115,21 +54,9 @@ def build_transform_payload(model: PcaModel) -> dict[str, object]:
     return {
         "columns": list(model.columns),
         "n_component": model.n_component,
-        "impute_strategy": model.impute_strategy,
-        "impute_values": model.impute_values,
-        "impute_kmeans_n_clusters": model.impute_kmeans_n_clusters,
-        "impute_kmeans_centroids": model.impute_kmeans_centroids,
-        "outlier_strategy": model.outlier_strategy,
-        "iqr_multiplier": model.iqr_multiplier,
-        "outlier_lower_bounds": model.outlier_lower_bounds,
-        "outlier_upper_bounds": model.outlier_upper_bounds,
-        "winsor_lower_bounds": model.winsor_lower_bounds,
-        "winsor_upper_bounds": model.winsor_upper_bounds,
-        "scaling_model": {
-            "strategy": model.scaling_model.strategy,
-            "centers": model.scaling_model.centers,
-            "scales": model.scaling_model.scales,
-        },
+        **model.impute_model.to_payload(),
+        **model.outlier_model.to_payload(),
+        "scaling_model": model.scaling_model.to_payload(),
         "pca_column_names": list(model.pca_column_names),
         "pca": {
             "components": model.pca.components_.tolist(),
@@ -143,26 +70,6 @@ def build_transform_payload(model: PcaModel) -> dict[str, object]:
             "whiten": bool(model.pca.whiten),
         },
     }
-
-
-def _restore_scaling_model(payload: dict[str, object]) -> ScalingModel:
-    """Rebuild fitted feature-scaling state from its serialized form.
-
-    Parameters
-    ----------
-    payload : dict[str, object]
-        ``scaling_model`` entry of a transform payload.
-
-    Returns
-    -------
-    ScalingModel
-        Restored scaling state.
-    """
-    return ScalingModel(
-        strategy=cast(ScalingStrategy, payload["strategy"]),
-        centers=_float_map(payload, "centers", required=True),
-        scales=_float_map(payload, "scales", required=True),
-    )
 
 
 def _restore_pca(payload: dict[str, object], n_component: int) -> PCA:
@@ -208,31 +115,12 @@ def parse_transform_payload(payload: dict[str, object]) -> dict[str, object]:
     """
     n_component = int(payload["n_component"])
 
-    raw_outlier_strategy = payload.get("outlier_strategy", None)
-    if raw_outlier_strategy == "none":
-        raw_outlier_strategy = None
-
     return {
         "columns": tuple(cast(list[str], payload["columns"])),
         "n_component": n_component,
-        "impute_strategy": cast(
-            ImputeStrategy,
-            payload["impute_strategy"],
-        ),
-        "impute_values": _float_map(payload, "impute_values", required=True),
-        "impute_kmeans_n_clusters": (
-            int(cast(int, payload["impute_kmeans_n_clusters"]))
-            if payload.get("impute_kmeans_n_clusters") is not None
-            else None
-        ),
-        "impute_kmeans_centroids": _kmeans_centroids(payload),
-        "outlier_strategy": cast(OutlierStrategy, raw_outlier_strategy),
-        "iqr_multiplier": float(payload.get("iqr_multiplier", 1.5)),
-        "outlier_lower_bounds": _float_map(payload, "outlier_lower_bounds"),
-        "outlier_upper_bounds": _float_map(payload, "outlier_upper_bounds"),
-        "winsor_lower_bounds": _float_map(payload, "winsor_lower_bounds"),
-        "winsor_upper_bounds": _float_map(payload, "winsor_upper_bounds"),
-        "scaling_model": _restore_scaling_model(
+        "impute_model": ImputeModel.from_payload(payload),
+        "outlier_model": OutlierModel.from_payload(payload),
+        "scaling_model": ScalingModel.from_payload(
             cast(dict[str, object], payload["scaling_model"])
         ),
         "pca": _restore_pca(cast(dict[str, object], payload["pca"]), n_component),
