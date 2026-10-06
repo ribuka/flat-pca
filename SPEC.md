@@ -8,6 +8,7 @@
 - v1の公開APIは、学習済みPCAモデルの永続化および未知データへのtransformを扱わない。
 - t方向およびw方向のsmoothingと規格化は、任意の前処理としてv1の対象に含める。
 - CLIおよびNotebookは成果物に含めない。
+- Web UIはoptional dependency `webui`として提供する。仕様は[docs/spec/webui.md](docs/spec/webui.md)に記す。
 
 ### 公開API
 
