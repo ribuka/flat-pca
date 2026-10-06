@@ -7,7 +7,7 @@ from typing import Literal
 
 import polars as pl
 
-ScalingStrategy = Literal["none", "z-score", "minmax", "robust"]
+ScalingStrategy = Literal["none", "z-score", "minmax", "robust", "pareto"]
 
 
 @dataclass(frozen=True)
@@ -52,6 +52,9 @@ def _center_and_scale_exprs(
     if strategy == "z-score":
         centers = [pl.col(column).mean() for column in columns]
         scales = [pl.col(column).std() for column in columns]
+    elif strategy == "pareto":
+        centers = [pl.col(column).mean() for column in columns]
+        scales = [pl.col(column).std().sqrt() for column in columns]
     elif strategy == "minmax":
         centers = [pl.col(column).min() for column in columns]
         scales = [pl.col(column).max() - pl.col(column).min() for column in columns]
@@ -213,3 +216,28 @@ def robust_scale(
         Input data with robust-scaled selected columns.
     """
     return apply_scaler(df, columns, fit_scaler(df, columns, "robust"))
+
+
+def pareto_scale(
+    df: pl.LazyFrame,
+    columns: list[str],
+) -> pl.LazyFrame:
+    """Apply Pareto scaling to selected columns.
+
+    Each column is centered by its mean and divided by the square root of
+    its standard deviation, which weights columns between unscaled data and
+    z-score standardization.
+
+    Parameters
+    ----------
+    df : pl.LazyFrame
+        Input data containing the selected columns.
+    columns : list[str]
+        Numeric columns to scale.
+
+    Returns
+    -------
+    pl.LazyFrame
+        Input data with Pareto-scaled selected columns.
+    """
+    return apply_scaler(df, columns, fit_scaler(df, columns, "pareto"))

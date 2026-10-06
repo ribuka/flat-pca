@@ -16,6 +16,7 @@ from ..pca import (
     fit_pca,
     transform_pca,
 )
+from ..scaling import ScalingStrategy
 
 
 def fit_flattened_pca(
@@ -23,6 +24,7 @@ def fit_flattened_pca(
     n_component: int | None,
     impute_strategy: ImputeStrategy = "drop",
     impute_kmeans_n_clusters: int | None = None,
+    scaling_strategy: ScalingStrategy = "none",
 ) -> PcaModel:
     """Fit PCA from the non-source columns of flattened features.
 
@@ -43,6 +45,9 @@ def fit_flattened_pca(
     impute_kmeans_n_clusters : int | None, default None
         Requested cluster count for ``impute_strategy="kmeans"``, forwarded
         to ``fit_pca``. Must be ``None`` for any other strategy.
+    scaling_strategy : {"none", "z-score", "minmax", "robust", "pareto"}, default "none"
+        Column scaling forwarded to ``fit_pca``. The default ``"none"``
+        leaves centering to PCA itself.
 
     Returns
     -------
@@ -52,7 +57,8 @@ def fit_flattened_pca(
     Raises
     ------
     ValueError
-        If ``n_component`` is not an integer in the permitted range.
+        If ``n_component`` is not an integer in the permitted range, or if
+        ``scaling_strategy`` is not a supported strategy.
     """
     feature_columns = flattened_feature_columns(flattened.collect_schema().names())
     if isinstance(n_component, bool) or (
@@ -73,7 +79,7 @@ def fit_flattened_pca(
         impute_strategy=impute_strategy,
         impute_kmeans_n_clusters=impute_kmeans_n_clusters,
         outlier_strategy=None,
-        scaling_strategy="none",
+        scaling_strategy=scaling_strategy,
     )
 
 

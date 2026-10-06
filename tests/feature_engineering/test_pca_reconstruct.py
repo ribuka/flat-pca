@@ -199,7 +199,9 @@ class TestReconstruct:
         )
         np.testing.assert_allclose(result.select(FEATURES).to_numpy(), expected)
 
-    @pytest.mark.parametrize("scaling_strategy", ["z-score", "minmax", "robust"])
+    @pytest.mark.parametrize(
+        "scaling_strategy", ["z-score", "minmax", "robust", "pareto"]
+    )
     def test_all_components_recover_original_features(
         self, frame: pl.DataFrame, scaling_strategy: ScalingStrategy
     ) -> None:
@@ -314,7 +316,7 @@ class TestReconstruct:
             result.to_numpy(), whitened.inverse_transform(score_matrix)
         )
 
-    @pytest.mark.parametrize("scaling_strategy", ["none", "z-score"])
+    @pytest.mark.parametrize("scaling_strategy", ["none", "z-score", "pareto"])
     def test_json_round_trip_gives_same_results(
         self, frame: pl.DataFrame, scaling_strategy: ScalingStrategy
     ) -> None:

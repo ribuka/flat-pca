@@ -17,6 +17,11 @@ INVALID_ARGUMENTS = [
     ("w_smoothing_window", float("inf")),
     ("t_normalization_range", (1.0, 0.0)),
     ("w_normalization_range", "0,1"),
+    ("intensity_transform", "log"),
+    ("intensity_transform", None),
+    ("intensity_transform_scale", 0.0),
+    ("intensity_transform_scale", float("nan")),
+    ("intensity_transform_scale", True),
     ("t_downsampling_stride", 0),
     ("w_downsampling_stride", True),
     ("max_null_ratio", 1.5),
@@ -34,6 +39,8 @@ def test_preprocess_config_defaults_match_public_api_defaults() -> None:
     assert config.w_smoothing_window is None
     assert config.t_normalization_range is None
     assert config.w_normalization_range is None
+    assert config.intensity_transform == "none"
+    assert config.intensity_transform_scale == 1.0
     assert config.t_downsampling_stride == 1
     assert config.w_downsampling_stride == 1
     assert config.max_null_ratio == 0.1
@@ -51,6 +58,8 @@ def test_preprocess_config_stores_coerced_values() -> None:
         w_smoothing_window=3,
         t_normalization_range=[0, 5],
         w_normalization_range=(500, 600),
+        intensity_transform="asinh",
+        intensity_transform_scale=2,
         t_downsampling_stride=np.int64(2),
         w_downsampling_stride=3,
     )
@@ -62,6 +71,9 @@ def test_preprocess_config_stores_coerced_values() -> None:
     assert config.w_smoothing_window == 3.0
     assert config.t_normalization_range == (0.0, 5.0)
     assert config.w_normalization_range == (500.0, 600.0)
+    assert config.intensity_transform == "asinh"
+    assert config.intensity_transform_scale == 2.0
+    assert isinstance(config.intensity_transform_scale, float)
     assert config.t_downsampling_stride == 2
     assert type(config.t_downsampling_stride) is int
     assert config.w_downsampling_stride == 3

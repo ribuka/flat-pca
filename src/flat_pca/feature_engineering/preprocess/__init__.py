@@ -7,6 +7,11 @@ from .downsampling import (
     collect_unique_wavelengths,
 )
 from .filter import filter_target_steps
+from .intensity_transform import (
+    IntensityTransform,
+    apply_intensity_transform,
+    validate_intensity_transform,
+)
 from .normalization import apply_t_normalization, apply_w_normalization
 from .smoothing import apply_t_smoothing, apply_w_smoothing
 from .sparse_columns import drop_sparse_feature_columns, validate_max_null_ratio
@@ -15,8 +20,10 @@ from .trim import apply_edge_trim
 from .wavelength_filter import apply_wavelength_range_filter, validate_wavelength_range
 
 __all__ = [
+    "IntensityTransform",
     "add_step_time_columns",
     "apply_edge_trim",
+    "apply_intensity_transform",
     "apply_t_downsampling",
     "apply_t_normalization",
     "apply_t_smoothing",
@@ -28,6 +35,7 @@ __all__ = [
     "collect_unique_wavelengths",
     "drop_sparse_feature_columns",
     "filter_target_steps",
+    "validate_intensity_transform",
     "validate_max_null_ratio",
     "validate_wavelength_range",
 ]

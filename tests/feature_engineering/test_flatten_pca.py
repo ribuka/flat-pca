@@ -65,6 +65,8 @@ def test_public_import_and_signature_are_stable(
         "w_smoothing_window",
         "t_normalization_range",
         "w_normalization_range",
+        "intensity_transform",
+        "intensity_transform_scale",
         "t_downsampling_stride",
         "w_downsampling_stride",
         "max_null_ratio",
@@ -75,12 +77,15 @@ def test_public_import_and_signature_are_stable(
         "workers",
         "impute_strategy",
         "impute_kmeans_n_clusters",
+        "scaling_strategy",
     ]
     assert parameters["paths"].kind is Parameter.POSITIONAL_OR_KEYWORD
     for parameter in list(parameters.values())[1:]:
         assert parameter.kind is Parameter.KEYWORD_ONLY
     for name in list(parameters)[0:10]:
         assert parameters[name].default is None
+    assert parameters["intensity_transform"].default == "none"
+    assert parameters["intensity_transform_scale"].default == 1.0
     assert parameters["t_downsampling_stride"].default == 1
     assert parameters["w_downsampling_stride"].default == 1
     assert parameters["max_null_ratio"].default == 0.1
@@ -91,6 +96,7 @@ def test_public_import_and_signature_are_stable(
     assert parameters["workers"].default == 1
     assert parameters["impute_strategy"].default == "drop"
     assert parameters["impute_kmeans_n_clusters"].default is None
+    assert parameters["scaling_strategy"].default == "none"
 
     result = flatten_pca(real_fixture_paths, n_component=1)
     assert isinstance(result, PcaModel)
@@ -175,6 +181,43 @@ def test_fit_flattened_pca_delegates_to_common_pca_configuration(
     assert captured["outlier_strategy"] is None
     assert captured["scaling_strategy"] == "none"
     assert captured["max_n_component"] is None
+
+
+def test_flatten_pca_forwards_scaling_strategy_to_pca_fitting(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Fit PCA on Pareto-scaled features when ``scaling_strategy`` is given."""
+    flattened = preprocess_and_flatten(real_fixture_paths)
+
+    default_model = flatten_pca(flattened=flattened, n_component=2)
+    pareto_model = flatten_pca(
+        flattened=flattened, n_component=2, scaling_strategy="pareto"
+    )
+
+    assert default_model.scaling_model.strategy == "none"
+    assert pareto_model.scaling_model.strategy == "pareto"
+    feature_values = flattened.drop("source").collect().to_numpy()
+    expected_scales = np.sqrt(feature_values.std(axis=0, ddof=1))
+    np.testing.assert_allclose(
+        list(pareto_model.scaling_model.scales.values()), expected_scales
+    )
+    np.testing.assert_allclose(
+        list(pareto_model.scaling_model.centers.values()), feature_values.mean(axis=0)
+    )
+
+
+def test_flatten_pca_rejects_unknown_scaling_strategy(
+    real_fixture_paths: list[Path],
+) -> None:
+    """Reject a scaling strategy outside the supported set."""
+    flattened = preprocess_and_flatten(real_fixture_paths[:3])
+
+    with pytest.raises(ValueError, match="scaling_strategy"):
+        flatten_pca(
+            flattened=flattened,
+            n_component=1,
+            scaling_strategy="log",  # type: ignore[arg-type]
+        )
 
 
 def _expected_flatten_pca(

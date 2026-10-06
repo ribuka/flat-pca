@@ -6,7 +6,7 @@
 - v1では、複数のParquetファイルに前処理とflattenを適用し、その結果にPCAをfitする。
 - `flatten_pca`はfit済みの`PcaModel`を返す。flatten結果およびPCAスコアを結合した`pl.DataFrame`は別の公開関数で取得する。
 - v1の公開APIは、学習済みPCAモデルの永続化および未知データへのtransformを扱わない。
-- t方向およびw方向のsmoothingと規格化は、任意の前処理としてv1の対象に含める。
+- t方向およびw方向のsmoothingと規格化、および強度変換は、任意の前処理としてv1の対象に含める。
 - CLIおよびNotebookは成果物に含めない。
 - Web UIはoptional dependency `webui`として提供する。仕様は[docs/spec/webui.md](docs/spec/webui.md)に記す。
 
@@ -25,6 +25,8 @@ def preprocess_and_flatten(
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
     w_normalization_range: tuple[float, float] | None = None,
+    intensity_transform: Literal["none", "sqrt", "log1p", "asinh"] = "none",
+    intensity_transform_scale: float = 1.0,
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
     materialize_once: bool = True,
@@ -45,10 +47,13 @@ def flatten_pca(
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
     w_normalization_range: tuple[float, float] | None = None,
+    intensity_transform: Literal["none", "sqrt", "log1p", "asinh"] = "none",
+    intensity_transform_scale: float = 1.0,
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
     materialize_once: bool = True,
     workers: int = 1,
+    scaling_strategy: ScalingStrategy = "none",
 ) -> PcaModel:
     ...
 
@@ -85,11 +90,13 @@ def reshape_pca_components(
 - `w_smoothing_window`はw方向smoothingの片側窓幅を波長と同じ単位で指定し、`None`の場合は適用しない。
 - `t_normalization_range`はt方向規格化に用いる閉区間`(t1, t2)`を指定し、`None`の場合は適用しない。
 - `w_normalization_range`はw方向規格化に用いる閉区間`(w1, w2)`を指定し、`None`の場合は適用しない。
+- `intensity_transform`および`intensity_transform_scale`は、規格化の後にスペクトル強度へ要素ごとに適用する強度変換を指定する。`intensity_transform="none"`の場合は適用しない。詳細は「強度変換」に従う。
 - `t_downsampling_stride`はt方向の間引き間隔を指定する。`1`の場合は間引かない。
 - `w_downsampling_stride`はw方向の間引き間隔を指定する。`1`の場合は間引かない。
 - `append_pca_scores`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、`source`、flatten特徴量列およびPCAスコア列を持つ`pl.LazyFrame`を返す。スコア列は`pca-1`、`pca-2`、...、`pca-{n_component}`とする。キーワード専用引数`mahalanobis`（既定値`None`）に`MahalanobisConfig`を渡した場合は、スコア列の後ろに距離列・UCL列・UCL超過フラグ列の3列を追加する（「マハラノビス距離仕様」を参照）。`None`の場合は3列を追加しない。キーワード専用引数`spe`（既定値`None`）に`SpeConfig`を渡した場合は、さらにその後ろ（`mahalanobis`を渡した場合はマハラノビス距離の3列の後ろ）にQ統計量列・UCL列・UCL超過フラグ列の3列を追加する（「Q統計量（SPE）仕様」を参照）。`None`の場合は3列を追加しない。`flattened`に残る欠損値（異なる入力ファイル間の`(Step, Sequence, StepTime)`集合の差異に由来するものを含む）は、fit時と同じ`pca_model.impute_strategy`に従って処理する（`transform_pca`と同じ規則）。`"drop"`の場合、欠損が残る行は出力から除外されるため、戻り値の行数が`flattened`の行数より少なくなることがある。`"median"`の場合、特徴量列の値は補完後の値になる。`"kmeans"`の場合、特徴量列の値はfit時に得たクラスタ中心を用いた補完後の値になる（詳細は「欠損値補完仕様」を参照）。欠損処理後に1行も残らない場合は`ValueError`を送出する。
 - `materialize_once`（既定値`True`）が`True`の場合、`preprocess_and_flatten`はflatten完了後に一度だけ`.collect().lazy()`を行い、結果をメモリ上の`pl.DataFrame`起点の`pl.LazyFrame`として返す。これにより、戻り値をPCAのfitやスコア付与などで再利用しても、Parquet読み込みからflattenまでのクエリが再実行されない。`False`の場合は未実行のflattenクエリをそのまま返す。いずれの場合も戻り値の型は`pl.LazyFrame`であり、flatten結果・列順は一致する。`flatten_pca`が`paths`を指定する場合、`materialize_once`は同じ意味で内部の`preprocess_and_flatten`へ伝播する。`flattened`を指定する場合、`materialize_once`は使用しない。
 - `workers`（既定値`1`）は、入力ファイル単位の読み込み・値検査・前処理を並列実行するスレッド数を指定する。1以上の整数のみ受け付け、0・負数・非整数・`bool`・`None`は入力ファイルを読む前に`ValueError`を送出する。`1`の場合はスレッドプールを生成せず逐次に処理する。`materialize_once=True`のNumPy高速経路では、スキーマ検証・メタデータ先読み・共有Time/波長配列の確定を並列区間の前に逐次で完了させ、その後のファイル単位の読み込み・値検査・前処理を並列化する。従来のpolars経路（`materialize_once=False`、および波長列が浮動小数点型でない場合のフォールバック）では、ファイル単位の入力検査（先頭ファイルのみ逐次で検査し、波長集合の比較基準とする）と、平滑化・規格化・間引きのファイル単位ループ（規格化を指定した場合、ここで各ファイルの読み込みから規格化までが実行される）を並列化する。フォールバックでは各ファイルの`collect()`も並列化する。`materialize_once=False`かつ規格化を指定しない場合、前処理は戻り値の`collect()`時にpolars内で実行されるため、並列化されるのは入力検査のみである。出力（行順・列・列順・値・null位置）は`workers`の値によらず一致し、複数ファイルが不正な場合も入力パス順で最初に失敗したファイルのエラーを送出する。`flatten_pca`が`paths`を指定する場合、`workers`は同じ意味で内部の`preprocess_and_flatten`へ伝播する。`flattened`を指定する場合、`workers`は使用しない。
+- `flatten_pca`の`scaling_strategy`（既定値`"none"`）は、PCAのfit前に特徴量列へ適用する列方向のスケーリングを指定する。`paths`と`flattened`のどちらを指定した場合も使用し、`fit_flattened_pca`を経て`fit_pca`へそのまま転送する。詳細は「PCA仕様」に従う。
 - `reshape_pca_components`は、fit済み`pca_model`とflatten済み`flattened`を受け取り、後述の座標へ展開した`pca_model.pca.components_`を`pl.DataFrame`として返す。
 
 ### LazyFrameとメモリ使用
@@ -97,6 +104,7 @@ def reshape_pca_components(
 - `preprocess_and_flatten`では、Parquetの読み込みに`pl.scan_parquet`を使用し、前処理、間引きおよびflattenの列演算を可能な限り`pl.LazyFrame`のまま構成する。
 - 入力検証、共通のUnique配列の確定、PCAのfit・transformなど、結果値が必要な境界でのみ必要最小限のcollectを行う。前処理済みの全入力フレームを一括で`pl.DataFrame`へmaterializeしてはならない。
 - t/w方向規格化は、参照区間から算出した統計値の検証に実値を必要とするため、`pl.LazyFrame`を受け取った場合は入力ファイル単位で一度だけcollectし、結果を`.lazy()`で包み直して返す。これは`materialize_once`の値によらず適用される収集境界である。検証のためだけにcollectしたうえで未実行のクエリを返すと、呼び出し側のcollectで規格化より前段の処理がもう一度実行されるため、これを行ってはならない。
+- 強度変換（`intensity_transform`が`"none"`以外）も、`"log1p"`の定義域検査に実値を必要とするため、規格化と同様に`pl.LazyFrame`を受け取った場合は入力ファイル単位で一度だけcollectし、結果を`.lazy()`で包み直して返す。この収集境界も`materialize_once`の値によらず適用される。
 - `preprocess_and_flatten`、`append_pca_scores`は呼び出し側がcollectの時点と実行方法を選べるよう、常に`pl.LazyFrame`を返す。
 - `preprocess_and_flatten`は既定（`materialize_once=True`）で、flatten完了後に一度だけcollectしメモリ上に固定した結果を`pl.LazyFrame`として返す。これはメモリ消費と引き換えに、戻り値を複数回collectしても前処理・flattenを再実行しないための挙動である。完全な遅延実行が必要な場合は`materialize_once=False`を指定する。
 - `materialize_once=True`の場合、内部では入力ファイルごとに1回のPandas/Polars読み込みで値を取得するNumPyベースの高速経路（`numpy_preprocessing`）を用いる。まずメタデータ列（`Time`・`Step`・`Sequence`）のみを安価に先読みして、`target_steps`・StepTime生成・`edge_trim`適用後の共有Time配列およびwavelength_range適用後の共有波長配列を確定する。続いて各ファイルにつき`wavelength_range`で絞った波長列のみを1回読み込み、その読み込み結果に対して値検査（null・NaN・無限値）を行う（`validate_frame`相当の検査をこの読み込みに統合し、別読み込みでの重複検査は行わない）。smoothingおよび規格化は、間引き後に残る行・列と規格化の参照区間に必要な行・列の和集合に対してのみ計算し、各段のブール窓判定・グループ化・平均計算は`preprocess`パッケージの対応する関数（`apply_t_smoothing`等）と同一の演算をその位置に限定して行うため、結果は`materialize_once=False`側とビット単位で一致する。（(波長列数 × ファイル間でunionした`(Step, Sequence, StepTime)`組み合わせ数)に比例した個別のlazy式を積み上げる方式は、実用的なファイル数・波長数の組み合わせで著しく遅いため使用しない。）そのため`materialize_once=True`では、`preprocess_and_flatten`の呼び出し自体でflatten対象ファイルの読み込みと前処理・flatten処理が完了し、以降collectを遅延できるのはsparse列の間引き以降の段のみとなる。`materialize_once=False`の場合はこの限りではなく、`preprocess`パッケージの元のpolars実装をそのまま用い、flattenを含め呼び出し側の最初の`.collect()`までファイルの読み込みを一切行わない。ただし`t_normalization_range`または`w_normalization_range`を指定した場合は、前述の規格化の収集境界により、`materialize_once=False`であっても`preprocess_and_flatten`の呼び出し時点で各入力ファイルの読み込みと規格化までの前処理が実行される。flatten以降の段は`materialize_once=False`の規定どおり遅延する。
@@ -158,6 +166,7 @@ def reshape_pca_components(
 - smoothingおよび規格化は入力検証後、間引きおよびflatten前に任意で適用する。
 - 複数の前処理を併用する場合は、t方向smoothing、w方向smoothing、t方向規格化、w方向規格化の順に適用する。
 - smoothingおよび規格化はスペクトル強度だけを変更し、`Time`、`Step`および`Sequence`の値、行数、波長列数は変更しない。
+- 強度変換は規格化の後に適用する（「強度変換」を参照）。
 
 #### t方向smoothing
 
@@ -193,9 +202,22 @@ def reshape_pca_components(
   - `w1`および`w2`は有限値でなければならない。
   - 指定区間に該当する波長がない場合、または算出した統計値が0もしくは有限値でない場合は`ValueError`を送出する。
 
+#### 強度変換
+
+- 一部の波長の非常に強いピークにPCAのローディングが集中することを緩和するため、各スペクトル強度`x`を要素ごとに変換する。列ごとにfitする状態は持たない。
+- `intensity_transform="none"`の場合は適用しない。
+- `intensity_transform`は`"none"`、`"sqrt"`、`"log1p"`、`"asinh"`のいずれかとする。それ以外は`ValueError`を送出する。
+  - `"sqrt"`: `sign(x) * sqrt(|x|)`。ノイズによる負値でも失敗しないよう符号付きとする。
+  - `"log1p"`: `log1p(x / intensity_transform_scale)`。`x / intensity_transform_scale <= -1`となる値がある場合は`ValueError`を送出する。負値が出るデータには`"asinh"`を用いる。
+  - `"asinh"`: `asinh(x / intensity_transform_scale)`。負値も扱え、`intensity_transform_scale`でどの強度から圧縮が始まるかを調整する。
+- `intensity_transform_scale`（既定値`1.0`）は有限かつ0より大きい値とする。それ以外は`ValueError`を送出する。`"none"`および`"sqrt"`では使用しない。
+- 強度変換はt/w方向規格化の後に適用する。これにより規格化の参照平均は生強度の平均のまま変わらず、`intensity_transform_scale`を規格化後の単位（1 = 参照平均）で指定できる。
+- 強度変換は要素ごとの変換であり、間引き前に適用しても後に適用しても値は一致する。そのため実装では間引きで残る値に対して適用し、`"log1p"`の定義域検査も間引きで残る値だけを対象とする。NumPy高速経路とpolars経路は同じ値に同じ`float64`演算を適用するため、結果はビット単位で一致し、`ValueError`を送出する条件も一致する。
+- 変換後の波長列は`Float64`とする。
+
 ### 間引き仕様
 
-- 間引きはすべてのsmoothingおよび規格化の後、flattenの直前に適用する。
+- 間引きはすべてのsmoothingおよび規格化の後、flattenの直前に適用する。強度変換は要素ごとの変換のため、間引きで残る値に対して適用する（「強度変換」を参照）。
 - t方向の間引き、w方向の間引きの順に適用する。
 - Unique配列は公開APIの引数にせず、検証済みの全入力から内部で一度だけ生成し、すべての入力ファイルに共通して使用する。
 - `t_downsampling_stride`および`w_downsampling_stride`はboolではない1以上の整数でなければならない。それ以外は`ValueError`を送出する。
@@ -256,9 +278,11 @@ def apply_w_downsampling(
 - PCAの入力には`source`を除くすべてのflatten特徴量列を使用する。
 - `flatten_pca`は`fit_pca`でPCAをfitし、そのfit済み`PcaModel`を返す。
 - `fit_flattened_pca`は、PCAのfitに`src/flat_pca/feature_engineering/pca.py`の`fit_pca`を使用しなければならない。`sklearn.decomposition.PCA`を直接生成・fitしてはならない。
-- `fit_flattened_pca`は`fit_pca`に、flatten特徴量列、`impute_strategy`（既定値`"drop"`）、`impute_kmeans_n_clusters`（既定値`None`）、`outlier_strategy=None`、`scaling_strategy="none"`および`max_n_component=None`を指定し、返却された`PcaModel`をそのまま返す。`impute_strategy`および`impute_kmeans_n_clusters`は公開APIの`flatten_pca`から`fit_flattened_pca`を経てそのまま`fit_pca`へ転送される。
-- `scaling_strategy="none"`相当とし、PCA前の中心化および尺度変換は行わない。
-- 平均中心化は`sklearn.decomposition.PCA`内部の処理に任せ、分散による標準化は行わない。
+- `fit_flattened_pca`は`fit_pca`に、flatten特徴量列、`impute_strategy`（既定値`"drop"`）、`impute_kmeans_n_clusters`（既定値`None`）、`outlier_strategy=None`、`scaling_strategy`（既定値`"none"`）および`max_n_component=None`を指定し、返却された`PcaModel`をそのまま返す。`impute_strategy`、`impute_kmeans_n_clusters`および`scaling_strategy`は公開APIの`flatten_pca`から`fit_flattened_pca`を経てそのまま`fit_pca`へ転送される。
+- `scaling_strategy`は`"none"`、`"z-score"`、`"minmax"`、`"robust"`、`"pareto"`のいずれかとする。それ以外は`ValueError`を送出する。
+- 既定値の`scaling_strategy="none"`では、PCA前の中心化および尺度変換は行わない。平均中心化は`sklearn.decomposition.PCA`内部の処理に任せ、分散による標準化は行わない。
+- `scaling_strategy="pareto"`では、各特徴量列を列平均で中心化し、列の標準偏差の平方根で割る。`"z-score"`と`"none"`の中間の重み付けとなり、強いピーク列の分散を圧縮しつつ、ノイズしかない暗い列をz-scoreほど増幅しない。標準偏差が0の列は尺度を1とする。fitした中心・尺度は`ScalingModel`に保存され、JSON保存・読み込みおよび`reconstruct`で他の方式と同様に扱われる。
+- `scaling_strategy`が`"none"`以外の場合、欠損行の除去をNumPy行列上で行う高速経路は使用されず、PCAのfitが遅くなることがある。
 - `n_component`には公開APIで受け取った値を指定し、追加の上限は設けない。
 - 入力検証でnullとNaNを拒否するため、PCAのfitおよびtransform時に欠損値補完や行削除は行わない。外れ値処理も行わない。
 - PCA solverはscikit-learnのデフォルトである`svd_solver="auto"`を使用する。
@@ -355,7 +379,7 @@ def apply_w_downsampling(
 ### 完了条件
 
 - 公開APIと公開される関数・クラスには型ヒントとNumPy形式のdocstringがある。
-- 正常系、入力検証、`Sequence`、Step行フィルタ、StepTime・ReverseStepTime列生成、edge_trimによる行処理、wavelength_rangeによる列フィルタ、t/w方向smoothing、t/w方向規格化、t/w方向の間引き、並び順、LazyFrameの遅延実行、flatten結果、PCAのfit、PCAスコアの結合およびPCA成分のreshapeを対象とした自動テストがある。
+- 正常系、入力検証、`Sequence`、Step行フィルタ、StepTime・ReverseStepTime列生成、edge_trimによる行処理、wavelength_rangeによる列フィルタ、t/w方向smoothing、t/w方向規格化、強度変換、t/w方向の間引き、並び順、LazyFrameの遅延実行、flatten結果、PCAのfit、PCAスコアの結合およびPCA成分のreshapeを対象とした自動テストがある。
 - t/w方向の間引きテストは、間引き間隔`1`、`2`、入力不正、および末尾が選択indexに該当しない場合を対象とする。
 - `tests/fixtures/real_subset`のParquetを使用し、複数ファイルを入力するend-to-endテストがある。
 - PCAのテストは、符号反転を許容しながら分散、部分空間、再構成結果またはreshape後の係数配置を検証する。
