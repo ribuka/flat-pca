@@ -6,6 +6,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ..preprocess.downsampling import validate_downsampling_stride
+from ..preprocess.intensity_transform import (
+    IntensityTransform,
+    validate_intensity_transform,
+)
 from ..preprocess.ranges import (
     validate_finite_bounds,
     validate_ordered_range,
@@ -42,6 +46,11 @@ class PreprocessConfig:
     t_normalization_range, w_normalization_range : tuple[float, float] | None, default None
         Inclusive normalization ranges, or ``None``. Stored as ordered,
         finite ``float`` bounds.
+    intensity_transform : {"none", "sqrt", "log1p", "asinh"}, default "none"
+        Element-wise intensity transform applied after normalization.
+    intensity_transform_scale : float, default 1.0
+        Positive finite divisor used by ``"log1p"`` and ``"asinh"``. Stored
+        as ``float``.
     t_downsampling_stride, w_downsampling_stride : int, default 1
         Positive intervals in the shared sorted Time and wavelength arrays.
         Stored as built-in ``int``.
@@ -74,6 +83,8 @@ class PreprocessConfig:
     w_smoothing_window: float | None = None
     t_normalization_range: tuple[float, float] | None = None
     w_normalization_range: tuple[float, float] | None = None
+    intensity_transform: IntensityTransform = "none"
+    intensity_transform_scale: float = 1.0
     t_downsampling_stride: int = 1
     w_downsampling_stride: int = 1
     max_null_ratio: float = 0.1
@@ -101,6 +112,11 @@ class PreprocessConfig:
             reference_range = getattr(self, name)
             if reference_range is not None:
                 self._set(name, validate_ordered_range(reference_range, name))
+        transform, scale = validate_intensity_transform(
+            self.intensity_transform, self.intensity_transform_scale
+        )
+        self._set("intensity_transform", transform)
+        self._set("intensity_transform_scale", scale)
         for name in ("t_downsampling_stride", "w_downsampling_stride"):
             self._set(name, validate_downsampling_stride(getattr(self, name), name))
         validate_max_null_ratio(self.max_null_ratio)

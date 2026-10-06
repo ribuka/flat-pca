@@ -9,8 +9,10 @@ import polars as pl
 
 from ..pca import ImputeStrategy, PcaModel
 from ..preprocess import (
+    IntensityTransform,
     add_step_time_columns,
     apply_edge_trim,
+    apply_intensity_transform,
     apply_t_downsampling,
     apply_t_normalization,
     apply_t_smoothing,
@@ -24,6 +26,7 @@ from ..preprocess import (
     filter_target_steps,
     validate_max_null_ratio,
 )
+from ..scaling import ScalingStrategy
 from .flatten import flatten_and_prune_inputs, flatten_inputs
 from .input import (
     StemUniquenessCheck,
@@ -54,6 +57,8 @@ def flatten_pca(
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
     w_normalization_range: tuple[float, float] | None = None,
+    intensity_transform: IntensityTransform = "none",
+    intensity_transform_scale: float = 1.0,
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
     max_null_ratio: float = 0.1,
@@ -64,6 +69,7 @@ def flatten_pca(
     workers: int = 1,
     impute_strategy: ImputeStrategy = "drop",
     impute_kmeans_n_clusters: int | None = None,
+    scaling_strategy: ScalingStrategy = "none",
 ) -> PcaModel:
     """Preprocess, flatten, and fit PCA across spectral Parquet files.
 
@@ -98,6 +104,14 @@ def flatten_pca(
         Inclusive time interval used for normalization, or ``None``.
     w_normalization_range : tuple[float, float] | None, default None
         Inclusive wavelength interval used for normalization, or ``None``.
+    intensity_transform : {"none", "sqrt", "log1p", "asinh"}, default "none"
+        Element-wise intensity transform applied after normalization.
+        Forwarded to ``preprocess_and_flatten`` when ``paths`` is specified;
+        ignored when ``flattened`` is specified. See
+        ``preprocess_and_flatten`` for details.
+    intensity_transform_scale : float, default 1.0
+        Forwarded to ``preprocess_and_flatten`` when ``paths`` is specified;
+        ignored when ``flattened`` is specified.
     t_downsampling_stride : int, default 1
         Interval between retained values in the shared sorted Time array.
     w_downsampling_stride : int, default 1
@@ -136,6 +150,15 @@ def flatten_pca(
     impute_kmeans_n_clusters : int | None, default None
         Requested cluster count for ``impute_strategy="kmeans"``, forwarded
         to PCA fitting. Must be ``None`` for any other strategy.
+    scaling_strategy : {"none", "z-score", "minmax", "robust", "pareto"}, default "none"
+        Column scaling applied before PCA fitting, forwarded to
+        ``fit_flattened_pca``. ``"none"`` leaves centering to PCA itself.
+        ``"pareto"`` divides each mean-centered column by the square root
+        of its standard deviation, damping high-variance columns such as
+        strong emission peaks less aggressively than ``"z-score"``. Any
+        value other than ``"none"`` disables the NumPy missing-row fast
+        path of PCA fitting, so fitting may be slower. Applies whether
+        ``paths`` or ``flattened`` is specified.
 
     Returns
     -------
@@ -161,6 +184,8 @@ def flatten_pca(
             w_smoothing_window=w_smoothing_window,
             t_normalization_range=t_normalization_range,
             w_normalization_range=w_normalization_range,
+            intensity_transform=intensity_transform,
+            intensity_transform_scale=intensity_transform_scale,
             t_downsampling_stride=t_downsampling_stride,
             w_downsampling_stride=w_downsampling_stride,
             max_null_ratio=max_null_ratio,
@@ -176,6 +201,7 @@ def flatten_pca(
         n_component,
         impute_strategy=impute_strategy,
         impute_kmeans_n_clusters=impute_kmeans_n_clusters,
+        scaling_strategy=scaling_strategy,
     )
 
 
@@ -189,6 +215,8 @@ def preprocess_and_flatten(
     w_smoothing_window: float | None = None,
     t_normalization_range: tuple[float, float] | None = None,
     w_normalization_range: tuple[float, float] | None = None,
+    intensity_transform: IntensityTransform = "none",
+    intensity_transform_scale: float = 1.0,
     t_downsampling_stride: int = 1,
     w_downsampling_stride: int = 1,
     max_null_ratio: float = 0.1,
@@ -224,6 +252,24 @@ def preprocess_and_flatten(
         Positive smoothing half-windows, or ``None`` to disable each stage.
     t_normalization_range, w_normalization_range : tuple[float, float] | None, default None
         Inclusive normalization ranges, or ``None`` to disable each stage.
+    intensity_transform : {"none", "sqrt", "log1p", "asinh"}, default "none"
+        Element-wise transform of every spectral intensity ``x``, applied
+        after normalization so ``intensity_transform_scale`` is expressed
+        in normalized units (1 = the reference mean). ``"sqrt"`` computes
+        ``sign(x) * sqrt(|x|)``; ``"log1p"`` computes
+        ``log1p(x / intensity_transform_scale)`` and raises ``ValueError``
+        if any retained ``x / intensity_transform_scale <= -1``;
+        ``"asinh"`` computes ``asinh(x / intensity_transform_scale)`` and
+        accepts negative values. ``"none"`` disables the stage. The
+        transform is element-wise, so it is applied to the values retained
+        by downsampling, giving the same values as transforming before
+        downsampling. Any value other than ``"none"`` collects each input
+        file once at this stage, like the normalization stages, even when
+        ``materialize_once`` is ``False``.
+    intensity_transform_scale : float, default 1.0
+        Positive finite divisor used by ``"log1p"`` and ``"asinh"``, which
+        sets the intensity from which compression starts. Ignored by
+        ``"none"`` and ``"sqrt"``.
     t_downsampling_stride, w_downsampling_stride : int, default 1
         Positive intervals in the shared sorted Time and wavelength arrays.
     max_null_ratio : float, default 0.1
@@ -321,6 +367,8 @@ def preprocess_and_flatten(
         w_smoothing_window=w_smoothing_window,
         t_normalization_range=t_normalization_range,
         w_normalization_range=w_normalization_range,
+        intensity_transform=intensity_transform,
+        intensity_transform_scale=intensity_transform_scale,
         t_downsampling_stride=t_downsampling_stride,
         w_downsampling_stride=w_downsampling_stride,
         max_null_ratio=max_null_ratio,
@@ -495,7 +543,7 @@ def _build_legacy_prepared_inputs(
     def _prepare_one_file(
         step_time_input: tuple[Path, pl.LazyFrame],
     ) -> tuple[Path, pl.LazyFrame]:
-        """Smooth, normalize, and downsample one file against the shared grids."""
+        """Smooth, normalize, downsample, and transform one file on the shared grids."""
         path, frame = step_time_input
         prepared = apply_t_smoothing(frame, config.t_smoothing_window)
         prepared = apply_w_smoothing(prepared, config.w_smoothing_window)
@@ -510,6 +558,14 @@ def _build_legacy_prepared_inputs(
             prepared,
             unique_wavelengths,
             config.w_downsampling_stride,
+        )
+        # Element-wise, so applying it after downsampling yields the same
+        # values as before it, while checking the log1p domain on exactly
+        # the values the NumPy fast path transforms.
+        prepared = apply_intensity_transform(
+            prepared,
+            config.intensity_transform,
+            config.intensity_transform_scale,
         )
         return path, prepared
 

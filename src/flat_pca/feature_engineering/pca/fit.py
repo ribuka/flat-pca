@@ -112,9 +112,10 @@ def _validate_fit_args(
         raise ValueError("outlier_strategy must be None, 'winsorize', or 'drop'")
     if iqr_multiplier <= 0:
         raise ValueError("iqr_multiplier must be greater than 0")
-    if scaling_strategy not in {"none", "z-score", "minmax", "robust"}:
+    if scaling_strategy not in {"none", "z-score", "minmax", "robust", "pareto"}:
         raise ValueError(
-            "scaling_strategy must be 'none', 'z-score', 'minmax', or 'robust'"
+            "scaling_strategy must be 'none', 'z-score', 'minmax', 'robust', "
+            "or 'pareto'"
         )
 
     _validate_columns(df, columns)

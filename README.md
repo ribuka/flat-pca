@@ -56,6 +56,9 @@ preprocess_cfg = {
     "w_smoothing_window": 1.0,
     "t_normalization_range": None,
     "w_normalization_range": None,
+    # 強いピークを圧縮する要素ごとの強度変換（"none" | "sqrt" | "log1p" | "asinh"）
+    "intensity_transform": "none",
+    "intensity_transform_scale": 1.0,
     "t_downsampling_stride": 2,
     "w_downsampling_stride": 10,
 }
@@ -65,6 +68,8 @@ flattened: pl.LazyFrame = preprocess_and_flatten(paths, **preprocess_cfg)
 
 ## PCA を fit
 pca: "PcaModel" = flatten_pca(flattened=flattened)
+# 強いピーク列の分散を圧縮する場合は Pareto スケーリングを指定する（既定値は "none"）
+# pca: "PcaModel" = flatten_pca(flattened=flattened, scaling_strategy="pareto")
 # pca: "PcaModel" = flatten_pca(paths, **preprocess_cfg)
 
 ## 任意の成分において寄与度が大きい特徴量を確認する(1-based)

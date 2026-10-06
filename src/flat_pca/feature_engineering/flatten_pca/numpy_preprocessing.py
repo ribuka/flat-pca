@@ -35,6 +35,7 @@ from flat_pca.spectral.schema import (
 
 from ..preprocess.downsampling import collect_unique_times, resolve_downsampled_values
 from ..preprocess.filter import filter_target_steps
+from ..preprocess.intensity_transform import transform_intensity_values
 from ..preprocess.step_time import add_step_time_columns
 from ..preprocess.trim import apply_edge_trim
 from .input import read_parquet, validate_frame_schema
@@ -471,8 +472,8 @@ def _process_file(
         filtered, sorted, or trimmed.
     config : PreprocessConfig
         Validated preprocessing parameters. Only ``target_steps``,
-        ``edge_trim``, the smoothing windows, and the normalization ranges
-        are used here.
+        ``edge_trim``, the smoothing windows, the normalization ranges, and
+        the intensity transform are used here.
     selected_times_array : np.ndarray
         Shared downsampled Time values (float64), sorted ascending.
     selected_wavelengths : list[float]
@@ -556,7 +557,11 @@ def _process_file(
         wavelength_position[wavelength] for wavelength in selected_wavelengths
     ]
 
-    final_values = values[np.ix_(retained_row_positions, retained_col_positions)]
+    final_values = transform_intensity_values(
+        values[np.ix_(retained_row_positions, retained_col_positions)],
+        config.intensity_transform,
+        config.intensity_transform_scale,
+    )
     final_columns = [f"{wavelength:.1f}nm" for wavelength in selected_wavelengths]
     metadata_frame = pl.DataFrame(
         {
