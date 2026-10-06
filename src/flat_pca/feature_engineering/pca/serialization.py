@@ -54,8 +54,8 @@ def build_transform_payload(model: PcaModel) -> dict[str, object]:
     return {
         "columns": list(model.columns),
         "n_component": model.n_component,
-        **model.impute_model.to_payload(),
-        **model.outlier_model.to_payload(),
+        "impute_model": model.impute_model.to_payload(),
+        "outlier_model": model.outlier_model.to_payload(),
         "scaling_model": model.scaling_model.to_payload(),
         "pca_column_names": list(model.pca_column_names),
         "pca": {
@@ -118,8 +118,12 @@ def parse_transform_payload(payload: dict[str, object]) -> dict[str, object]:
     return {
         "columns": tuple(cast(list[str], payload["columns"])),
         "n_component": n_component,
-        "impute_model": ImputeModel.from_payload(payload),
-        "outlier_model": OutlierModel.from_payload(payload),
+        "impute_model": ImputeModel.from_payload(
+            cast(dict[str, object], payload["impute_model"])
+        ),
+        "outlier_model": OutlierModel.from_payload(
+            cast(dict[str, object], payload["outlier_model"])
+        ),
         "scaling_model": ScalingModel.from_payload(
             cast(dict[str, object], payload["scaling_model"])
         ),

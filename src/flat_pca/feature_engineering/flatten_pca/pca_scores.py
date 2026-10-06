@@ -117,7 +117,7 @@ def append_pca_scores(
         ``source``, flattened feature columns, and ``pca-1`` onward scores,
         followed by the Mahalanobis columns when ``mahalanobis`` is given and
         the SPE columns when ``spe`` is given.
-        Feature-column values reflect ``pca_model.impute_strategy``: unchanged
+        Feature-column values reflect ``pca_model.impute_model.strategy``: unchanged
         for ``"drop"`` (rows with remaining missing values are excluded
         instead), or filled with the fitted median for ``"median"``.
 

@@ -1,6 +1,7 @@
 """Tests for IQR-based outlier handling."""
 
 import polars as pl
+import pytest
 
 from flat_pca.feature_engineering.outlier import (
     OutlierBounds,
@@ -52,7 +53,7 @@ def test_none_strategy_leaves_data_and_bounds_empty() -> None:
 
 
 def test_payload_round_trip() -> None:
-    """Restore the same model from its flat payload entries."""
+    """Restore the same model from its payload."""
     _, model = fit_outlier(_training_frame().lazy(), COLUMNS, "winsorize", 2.0)
 
     payload = model.to_payload()
@@ -68,8 +69,22 @@ def test_payload_round_trip() -> None:
     assert OutlierModel.from_payload(payload) == model
 
 
-def test_legacy_payload_restores_no_handling() -> None:
-    """Read a ``"none"`` strategy and missing entries as no handling."""
-    model = OutlierModel.from_payload({"outlier_strategy": "none"})
+@pytest.mark.parametrize(
+    "key",
+    [
+        "outlier_strategy",
+        "iqr_multiplier",
+        "outlier_lower_bounds",
+        "outlier_upper_bounds",
+        "winsor_lower_bounds",
+        "winsor_upper_bounds",
+    ],
+)
+def test_from_payload_rejects_missing_entry(key: str) -> None:
+    """Raise ``KeyError`` when a payload entry is missing."""
+    _, model = fit_outlier(_training_frame().lazy(), COLUMNS, "winsorize", 2.0)
+    payload = model.to_payload()
+    del payload[key]
 
-    assert model == OutlierModel(None, 1.5, OutlierBounds.empty())
+    with pytest.raises(KeyError, match=key):
+        OutlierModel.from_payload(payload)

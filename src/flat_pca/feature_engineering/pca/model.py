@@ -17,14 +17,14 @@ from typing import cast
 import polars as pl
 from sklearn.decomposition import PCA
 
-from ..outlier import OutlierModel, OutlierStrategy
+from ..outlier import OutlierModel
 from ..scaling import ScalingModel
 from .analysis import (
     component_coefficients,
     explained_variance_table,
     feature_contribution_ranking,
 )
-from .impute import ImputeModel, ImputeStrategy
+from .impute import ImputeModel
 from .mahalanobis import mahalanobis_threshold
 from .reconstruct import reconstruct_features
 from .serialization import build_transform_payload, parse_transform_payload
@@ -51,13 +51,6 @@ class PcaModel:
         Fitted scikit-learn PCA estimator.
     pca_column_names : tuple[str, ...]
         Output score-column names.
-
-    Notes
-    -----
-    The flat attributes ``impute_strategy``, ``impute_values``,
-    ``impute_kmeans_*``, ``outlier_strategy``, ``iqr_multiplier``, and
-    ``*_bounds`` remain available as read-only properties forwarding to the
-    stage models.
     """
 
     columns: tuple[str, ...]
@@ -67,56 +60,6 @@ class PcaModel:
     scaling_model: ScalingModel
     pca: PCA
     pca_column_names: tuple[str, ...]
-
-    @property
-    def impute_strategy(self) -> ImputeStrategy:
-        """Missing-value handling strategy of ``impute_model``."""
-        return self.impute_model.strategy
-
-    @property
-    def impute_values(self) -> dict[str, float]:
-        """Per-column median-imputation values of ``impute_model``."""
-        return self.impute_model.values
-
-    @property
-    def impute_kmeans_n_clusters(self) -> int | None:
-        """Fitted kmeans cluster count of ``impute_model``, or ``None``."""
-        return self.impute_model.kmeans_n_clusters
-
-    @property
-    def impute_kmeans_centroids(self) -> list[dict[str, float]]:
-        """Fitted kmeans cluster centroids of ``impute_model``."""
-        return self.impute_model.kmeans_centroids
-
-    @property
-    def outlier_strategy(self) -> OutlierStrategy:
-        """Outlier-handling strategy of ``outlier_model``."""
-        return self.outlier_model.strategy
-
-    @property
-    def iqr_multiplier(self) -> float:
-        """IQR multiplier of ``outlier_model``."""
-        return self.outlier_model.iqr_multiplier
-
-    @property
-    def outlier_lower_bounds(self) -> dict[str, float]:
-        """Per-column lower outlier thresholds of ``outlier_model``."""
-        return self.outlier_model.bounds.outlier_lower
-
-    @property
-    def outlier_upper_bounds(self) -> dict[str, float]:
-        """Per-column upper outlier thresholds of ``outlier_model``."""
-        return self.outlier_model.bounds.outlier_upper
-
-    @property
-    def winsor_lower_bounds(self) -> dict[str, float]:
-        """Per-column lower clipping bounds of ``outlier_model``."""
-        return self.outlier_model.bounds.winsor_lower
-
-    @property
-    def winsor_upper_bounds(self) -> dict[str, float]:
-        """Per-column upper clipping bounds of ``outlier_model``."""
-        return self.outlier_model.bounds.winsor_upper
 
     def get_component_coefficients(self, component: int) -> pl.DataFrame:
         """Return coefficients for one component ordered by absolute value.

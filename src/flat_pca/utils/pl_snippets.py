@@ -10,23 +10,7 @@ import polars.selectors as cs
 
 from .natural_keys import natural_keys
 
-HOW = Literal["left", "right", "outer", "full", "inner"]
-
-
-def _normalize_join_how(how: HOW) -> Literal["left", "right", "full", "inner"]:
-    """Translate a join strategy to the name current Polars accepts.
-
-    Parameters
-    ----------
-    how : HOW
-        Requested join strategy, possibly the deprecated ``"outer"``.
-
-    Returns
-    -------
-    Literal["left", "right", "full", "inner"]
-        Equivalent strategy name, with ``"outer"`` mapped to ``"full"``.
-    """
-    return "full" if how == "outer" else how
+HOW = Literal["left", "right", "full", "inner"]
 
 
 def _join_polars_with_indicator(
@@ -49,7 +33,7 @@ def _join_polars_with_indicator(
     left_on, right_on : str | list[str] | None, default None
         Per-side key columns, used when ``on`` is empty or ``None``.
     how : HOW, default "left"
-        Join strategy; ``"outer"`` is accepted as a synonym of ``"full"``.
+        Join strategy passed to Polars.
     indicator : str | bool, default "_merge"
         Name of the merge-origin column holding ``"both"``, ``"left_only"``,
         or ``"right_only"``. Pass ``False`` to omit the column.
@@ -66,7 +50,6 @@ def _join_polars_with_indicator(
     """
     left = left.with_columns(pl.lit(True).alias("in_left"))
     right = right.with_columns(pl.lit(True).alias("in_right"))
-    how = _normalize_join_how(how)
 
     if on:
         out = left.join(right, on=on, how=how)  # ty:ignore[invalid-argument-type]
@@ -100,7 +83,7 @@ def my_merge(
     on: list[str] | None = None,
     left_on: str | None = None,
     right_on: str | None = None,
-    how: Literal["left", "right", "outer", "full", "inner"] = "left",
+    how: HOW = "left",
     indicator: str | bool = "_merge",
     show_result: bool = True,
 ) -> pl.DataFrame | pl.LazyFrame:
@@ -117,8 +100,8 @@ def my_merge(
         are used instead.
     left_on, right_on : str | None, default None
         Per-side key columns, used when ``on`` is empty.
-    how : Literal["left", "right", "outer", "full", "inner"], default "left"
-        Join strategy; ``"outer"`` is accepted as a synonym of ``"full"``.
+    how : HOW, default "left"
+        Join strategy passed to Polars.
     indicator : str | bool, default "_merge"
         Name of the merge-origin column, or ``False`` to omit it.
     show_result : bool, default True

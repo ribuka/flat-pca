@@ -218,7 +218,7 @@ class OutlierModel:
         return prepared
 
     def to_payload(self) -> dict[str, object]:
-        """Return the fitted outlier state as flat payload entries.
+        """Return the fitted outlier state in JSON-compatible form.
 
         Returns
         -------
@@ -237,29 +237,26 @@ class OutlierModel:
 
     @classmethod
     def from_payload(cls, payload: dict[str, object]) -> OutlierModel:
-        """Restore fitted outlier state from flat payload entries.
-
-        Every entry is optional so that payloads written before outlier
-        handling existed stay readable: a missing or ``"none"`` strategy
-        means no handling, a missing multiplier means ``1.5``, and missing
-        bounds are empty.
+        """Restore fitted outlier state from its serialized form.
 
         Parameters
         ----------
         payload : dict[str, object]
-            Serialized state holding the entries of :meth:`to_payload`.
+            State previously produced by :meth:`to_payload`.
 
         Returns
         -------
         OutlierModel
             Restored outlier state.
+
+        Raises
+        ------
+        KeyError
+            If an entry is missing.
         """
-        raw_strategy = payload.get("outlier_strategy", None)
-        if raw_strategy == "none":
-            raw_strategy = None
         return cls(
-            strategy=cast(OutlierStrategy, raw_strategy),
-            iqr_multiplier=float(cast(float, payload.get("iqr_multiplier", 1.5))),
+            strategy=cast(OutlierStrategy, payload["outlier_strategy"]),
+            iqr_multiplier=float(cast(float, payload["iqr_multiplier"])),
             bounds=OutlierBounds(
                 outlier_lower=read_float_map(payload, "outlier_lower_bounds"),
                 outlier_upper=read_float_map(payload, "outlier_upper_bounds"),

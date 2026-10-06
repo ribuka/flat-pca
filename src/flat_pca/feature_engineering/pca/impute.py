@@ -302,14 +302,14 @@ def _read_kmeans_centroids(payload: dict[str, object]) -> list[dict[str, float]]
     Returns
     -------
     list[dict[str, float]]
-        One column-to-float mapping per cluster centroid. Empty if the
-        entry is missing, which keeps payloads written before kmeans
-        imputation existed readable.
+        One column-to-float mapping per cluster centroid.
+
+    Raises
+    ------
+    KeyError
+        If the entry is missing.
     """
-    raw = cast(
-        list[dict[str, float]],
-        payload.get("impute_kmeans_centroids", []),
-    )
+    raw = cast(list[dict[str, float]], payload["impute_kmeans_centroids"])
     return [
         {column: float(value) for column, value in centroid.items()}
         for centroid in raw
@@ -363,7 +363,7 @@ class ImputeModel:
         return apply_median_impute(df, columns, self.values)
 
     def to_payload(self) -> dict[str, object]:
-        """Return the fitted imputation state as flat payload entries.
+        """Return the fitted imputation state in JSON-compatible form.
 
         Returns
         -------
@@ -381,14 +381,14 @@ class ImputeModel:
 
     @classmethod
     def from_payload(cls, payload: dict[str, object]) -> ImputeModel:
-        """Restore fitted imputation state from flat payload entries.
+        """Restore fitted imputation state from its serialized form.
 
         Parameters
         ----------
         payload : dict[str, object]
-            Serialized state holding the entries of :meth:`to_payload`. The
-            kmeans entries are optional so that payloads written before
-            kmeans imputation existed stay readable.
+            State previously produced by :meth:`to_payload`.
+            ``impute_kmeans_n_clusters`` is ``None`` unless the strategy is
+            ``"kmeans"``.
 
         Returns
         -------
@@ -398,12 +398,12 @@ class ImputeModel:
         Raises
         ------
         KeyError
-            If ``impute_strategy`` or ``impute_values`` is missing.
+            If an entry is missing.
         """
-        raw_n_clusters = payload.get("impute_kmeans_n_clusters")
+        raw_n_clusters = payload["impute_kmeans_n_clusters"]
         return cls(
             strategy=cast(ImputeStrategy, payload["impute_strategy"]),
-            values=read_float_map(payload, "impute_values", required=True),
+            values=read_float_map(payload, "impute_values"),
             kmeans_n_clusters=(
                 int(cast(int, raw_n_clusters)) if raw_n_clusters is not None else None
             ),
