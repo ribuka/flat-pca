@@ -5,12 +5,7 @@ from __future__ import annotations
 from typing import cast
 
 
-def read_float_map(
-    payload: dict[str, object],
-    key: str,
-    *,
-    required: bool = False,
-) -> dict[str, float]:
+def read_float_map(payload: dict[str, object], key: str) -> dict[str, float]:
     """Read one payload entry as a column-to-float mapping.
 
     Parameters
@@ -19,10 +14,6 @@ def read_float_map(
         Serialized state to read from.
     key : str
         Entry name.
-    required : bool, default False
-        If ``True``, a missing entry raises ``KeyError``. If ``False``, a
-        missing entry is treated as an empty mapping, which keeps payloads
-        written before the optional entries existed readable.
 
     Returns
     -------
@@ -32,10 +23,7 @@ def read_float_map(
     Raises
     ------
     KeyError
-        If ``required`` is ``True`` and the entry is missing.
+        If the entry is missing.
     """
-    raw = cast(
-        dict[str, float],
-        payload[key] if required else payload.get(key, {}),
-    )
+    raw = cast(dict[str, float], payload[key])
     return {column: float(value) for column, value in raw.items()}

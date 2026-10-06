@@ -82,8 +82,8 @@ class ScalingModel:
         """
         return cls(
             strategy=cast(ScalingStrategy, payload["strategy"]),
-            centers=read_float_map(payload, "centers", required=True),
-            scales=read_float_map(payload, "scales", required=True),
+            centers=read_float_map(payload, "centers"),
+            scales=read_float_map(payload, "scales"),
         )
 
 

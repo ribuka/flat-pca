@@ -2,6 +2,9 @@
 
 - A repository for developing a preprocessing workflow for time-series spectral data using Flatten-PCA.
 - Always respond in Japanese.
+- This repository is in development; backward compatibility is NOT required.
+  - NEVER add or keep compatibility layers, deprecated aliases, readers for older data formats, or tests that pin older formats.
+  - When a specification, signature, import path, or saved format changes, replace it outright and update every caller, test, and document in the same change.
 
 ## Python
 

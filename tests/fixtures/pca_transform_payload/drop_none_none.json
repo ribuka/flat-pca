@@ -99,16 +99,20 @@
       "feature_d"
     ],
     "n_component": 2,
-    "impute_strategy": "drop",
-    "impute_values": {},
-    "impute_kmeans_n_clusters": null,
-    "impute_kmeans_centroids": [],
-    "outlier_strategy": null,
-    "iqr_multiplier": 1.5,
-    "outlier_lower_bounds": {},
-    "outlier_upper_bounds": {},
-    "winsor_lower_bounds": {},
-    "winsor_upper_bounds": {},
+    "impute_model": {
+      "impute_strategy": "drop",
+      "impute_values": {},
+      "impute_kmeans_n_clusters": null,
+      "impute_kmeans_centroids": []
+    },
+    "outlier_model": {
+      "outlier_strategy": null,
+      "iqr_multiplier": 1.5,
+      "outlier_lower_bounds": {},
+      "outlier_upper_bounds": {},
+      "winsor_lower_bounds": {},
+      "winsor_upper_bounds": {}
+    },
     "scaling_model": {
       "strategy": "none",
       "centers": {

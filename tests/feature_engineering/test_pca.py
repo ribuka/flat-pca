@@ -234,10 +234,10 @@ class TestKmeansImputeStrategy:
             scaling_strategy="none",
         )
 
-        assert model.impute_strategy == "kmeans"
-        assert model.impute_kmeans_n_clusters == 2
-        assert len(model.impute_kmeans_centroids) == 2
-        assert model.impute_values == {}
+        assert model.impute_model.strategy == "kmeans"
+        assert model.impute_model.kmeans_n_clusters == 2
+        assert len(model.impute_model.kmeans_centroids) == 2
+        assert model.impute_model.values == {}
 
         result = transform_pca(frame.lazy(), model).collect()
         assert result.height == 6
@@ -261,7 +261,7 @@ class TestKmeansImputeStrategy:
             scaling_strategy="none",
         )
 
-        assert model.impute_kmeans_n_clusters == DEFAULT_KMEANS_N_CLUSTERS
+        assert model.impute_model.kmeans_n_clusters == DEFAULT_KMEANS_N_CLUSTERS
 
     def test_clips_cluster_count_to_complete_row_count(self) -> None:
         """Clip the requested cluster count to the available complete rows."""
@@ -282,7 +282,7 @@ class TestKmeansImputeStrategy:
             scaling_strategy="none",
         )
 
-        assert model.impute_kmeans_n_clusters == 2
+        assert model.impute_model.kmeans_n_clusters == 2
 
     def test_transform_reuses_fitted_centroids_without_refitting(self) -> None:
         """Fill a transform-time gap from the fitted centroids, not a refit."""
@@ -378,8 +378,8 @@ class TestKmeansImputeStrategy:
             "none",
         )
 
-        assert model.impute_strategy == "median"
-        assert model.outlier_strategy == "winsorize"
+        assert model.impute_model.strategy == "median"
+        assert model.outlier_model.strategy == "winsorize"
 
     def test_rejects_cluster_count_with_non_kmeans_strategy(self) -> None:
         """Reject specifying a cluster count outside kmeans imputation."""
@@ -413,61 +413,5 @@ class TestKmeansImputeStrategy:
         restored = PcaModel.from_transform_payload(model.to_transform_payload())
         actual = transform_pca(frame.lazy(), restored).collect()
 
-        assert restored.impute_kmeans_n_clusters == model.impute_kmeans_n_clusters
-        assert restored.impute_kmeans_centroids == model.impute_kmeans_centroids
+        assert restored.impute_model == model.impute_model
         assert actual.equals(expected)
-
-    def test_payload_without_kmeans_keys_restores_as_unused(self) -> None:
-        """Restore a payload written before kmeans imputation existed."""
-        frame = pl.DataFrame(
-            {"feature_a": [1.0, 2.0, 3.0], "feature_b": [3.0, 2.0, 1.0]}
-        )
-        model = fit_pca(
-            frame.lazy(),
-            ["feature_a", "feature_b"],
-            n_component=1,
-            max_n_component=None,
-            impute_strategy="median",
-            scaling_strategy="none",
-        )
-        payload = model.to_transform_payload()
-        del payload["impute_kmeans_n_clusters"]
-        del payload["impute_kmeans_centroids"]
-
-        restored = PcaModel.from_transform_payload(payload)
-
-        assert restored.impute_kmeans_n_clusters is None
-        assert restored.impute_kmeans_centroids == []
-
-
-def test_model_keeps_flat_attributes_as_stage_properties() -> None:
-    """Forward the flat preprocessing attributes to the stage models."""
-    frame = pl.DataFrame(
-        {
-            "feature_a": [1.0, None, 3.0, 4.0, 50.0],
-            "feature_b": [3.0, 2.0, 1.0, 0.0, -1.0],
-        }
-    )
-
-    model = fit_pca(
-        frame.lazy(),
-        ["feature_a", "feature_b"],
-        n_component=1,
-        max_n_component=None,
-        impute_strategy="median",
-        outlier_strategy="winsorize",
-        iqr_multiplier=2.0,
-        scaling_strategy="none",
-    )
-
-    assert model.impute_strategy == model.impute_model.strategy == "median"
-    assert model.impute_values is model.impute_model.values
-    assert model.impute_kmeans_n_clusters is None
-    assert model.impute_kmeans_centroids == []
-    assert model.outlier_strategy == model.outlier_model.strategy == "winsorize"
-    assert model.iqr_multiplier == 2.0
-    bounds = model.outlier_model.bounds
-    assert model.outlier_lower_bounds is bounds.outlier_lower
-    assert model.outlier_upper_bounds is bounds.outlier_upper
-    assert model.winsor_lower_bounds is bounds.winsor_lower
-    assert model.winsor_upper_bounds is bounds.winsor_upper

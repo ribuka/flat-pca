@@ -2,6 +2,7 @@
 
 import numpy as np
 import polars as pl
+import pytest
 
 from flat_pca.feature_engineering.scaling import (
     ScalingModel,
@@ -102,3 +103,15 @@ def test_scaling_model_payload_round_trip() -> None:
 
     assert payload == {"strategy": "pareto", "centers": {"a": 1.5}, "scales": {"a": 2.0}}
     assert ScalingModel.from_payload(payload) == model
+
+
+@pytest.mark.parametrize("key", ["strategy", "centers", "scales"])
+def test_scaling_model_from_payload_rejects_missing_entry(key: str) -> None:
+    """Raise ``KeyError`` when a payload entry is missing."""
+    payload = ScalingModel(
+        strategy="pareto", centers={"a": 1.5}, scales={"a": 2.0}
+    ).to_payload()
+    del payload[key]
+
+    with pytest.raises(KeyError, match=key):
+        ScalingModel.from_payload(payload)

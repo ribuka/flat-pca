@@ -99,40 +99,44 @@
       "feature_d"
     ],
     "n_component": 2,
-    "impute_strategy": "median",
-    "impute_values": {
-      "feature_a": 0.162,
-      "feature_b": 0.37550000000000006,
-      "feature_c": 0.686,
-      "feature_d": 0.8899999999999999
+    "impute_model": {
+      "impute_strategy": "median",
+      "impute_values": {
+        "feature_a": 0.162,
+        "feature_b": 0.37550000000000006,
+        "feature_c": 0.686,
+        "feature_d": 0.8899999999999999
+      },
+      "impute_kmeans_n_clusters": null,
+      "impute_kmeans_centroids": []
     },
-    "impute_kmeans_n_clusters": null,
-    "impute_kmeans_centroids": [],
-    "outlier_strategy": "winsorize",
-    "iqr_multiplier": 1.5,
-    "outlier_lower_bounds": {
-      "feature_a": -4.8875,
-      "feature_b": -5.5955,
-      "feature_c": -1.295,
-      "feature_d": -3.672
-    },
-    "outlier_upper_bounds": {
-      "feature_a": 4.9325,
-      "feature_b": 6.304500000000001,
-      "feature_c": 2.393,
-      "feature_d": 4.408
-    },
-    "winsor_lower_bounds": {
-      "feature_a": -3.791,
-      "feature_b": -2.913,
-      "feature_c": -3.024,
-      "feature_d": -30.0
-    },
-    "winsor_upper_bounds": {
-      "feature_a": 2.282,
-      "feature_b": 25.0,
-      "feature_c": 3.434,
-      "feature_d": 2.428
+    "outlier_model": {
+      "outlier_strategy": "winsorize",
+      "iqr_multiplier": 1.5,
+      "outlier_lower_bounds": {
+        "feature_a": -4.8875,
+        "feature_b": -5.5955,
+        "feature_c": -1.295,
+        "feature_d": -3.672
+      },
+      "outlier_upper_bounds": {
+        "feature_a": 4.9325,
+        "feature_b": 6.304500000000001,
+        "feature_c": 2.393,
+        "feature_d": 4.408
+      },
+      "winsor_lower_bounds": {
+        "feature_a": -3.791,
+        "feature_b": -2.913,
+        "feature_c": -3.024,
+        "feature_d": -30.0
+      },
+      "winsor_upper_bounds": {
+        "feature_a": 2.282,
+        "feature_b": 25.0,
+        "feature_c": 3.434,
+        "feature_d": 2.428
+      }
     },
     "scaling_model": {
       "strategy": "robust",

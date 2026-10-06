@@ -339,8 +339,8 @@ def transform_pca(
 
     standardized_values: np.ndarray
     if _drops_missing_rows_in_numpy(
-        pca_model.impute_strategy,
-        pca_model.outlier_strategy,
+        pca_model.impute_model.strategy,
+        pca_model.outlier_model.strategy,
         pca_model.scaling_model.strategy,
     ):
         standardized_values, complete_mask = collect_complete_rows(df, columns)

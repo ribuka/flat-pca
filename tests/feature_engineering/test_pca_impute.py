@@ -201,7 +201,7 @@ class TestImputeModel:
         )
 
     def test_payload_round_trip(self) -> None:
-        """Restore the same model from its flat payload entries."""
+        """Restore the same model from its payload."""
         model = ImputeModel(
             strategy="kmeans",
             values={},
@@ -218,3 +218,25 @@ class TestImputeModel:
             "impute_kmeans_centroids",
         ]
         assert ImputeModel.from_payload(payload) == model
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "impute_strategy",
+            "impute_values",
+            "impute_kmeans_n_clusters",
+            "impute_kmeans_centroids",
+        ],
+    )
+    def test_from_payload_rejects_missing_entry(self, key: str) -> None:
+        """Raise ``KeyError`` when a payload entry is missing."""
+        payload = ImputeModel(
+            strategy="median",
+            values={"a": 1.0},
+            kmeans_n_clusters=None,
+            kmeans_centroids=[],
+        ).to_payload()
+        del payload[key]
+
+        with pytest.raises(KeyError, match=key):
+            ImputeModel.from_payload(payload)

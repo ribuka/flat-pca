@@ -99,54 +99,58 @@
       "feature_d"
     ],
     "n_component": 2,
-    "impute_strategy": "kmeans",
-    "impute_values": {},
-    "impute_kmeans_n_clusters": 3,
-    "impute_kmeans_centroids": [
-      {
-        "feature_a": -0.5181666666666668,
-        "feature_b": -0.07999999999999985,
-        "feature_c": 0.29350000000000004,
-        "feature_d": 0.6356666666666662
+    "impute_model": {
+      "impute_strategy": "kmeans",
+      "impute_values": {},
+      "impute_kmeans_n_clusters": 3,
+      "impute_kmeans_centroids": [
+        {
+          "feature_a": -0.5181666666666668,
+          "feature_b": -0.07999999999999985,
+          "feature_c": 0.29350000000000004,
+          "feature_d": 0.6356666666666662
+        },
+        {
+          "feature_a": 2.282,
+          "feature_b": 2.42,
+          "feature_c": 2.252,
+          "feature_d": -30.0
+        },
+        {
+          "feature_a": 2.104,
+          "feature_b": 25.0,
+          "feature_c": 0.686,
+          "feature_d": -0.27900000000000014
+        }
+      ]
+    },
+    "outlier_model": {
+      "outlier_strategy": "drop",
+      "iqr_multiplier": 2.0,
+      "outlier_lower_bounds": {
+        "feature_a": -6.115,
+        "feature_b": -7.083,
+        "feature_c": -1.756,
+        "feature_d": -4.682
       },
-      {
-        "feature_a": 2.282,
-        "feature_b": 2.42,
-        "feature_c": 2.252,
+      "outlier_upper_bounds": {
+        "feature_a": 6.16,
+        "feature_b": 7.792,
+        "feature_c": 2.854,
+        "feature_d": 5.418
+      },
+      "winsor_lower_bounds": {
+        "feature_a": -3.791,
+        "feature_b": -2.913,
+        "feature_c": -3.024,
         "feature_d": -30.0
       },
-      {
-        "feature_a": 2.104,
+      "winsor_upper_bounds": {
+        "feature_a": 2.282,
         "feature_b": 25.0,
-        "feature_c": 0.686,
-        "feature_d": -0.27900000000000014
+        "feature_c": 3.434,
+        "feature_d": 2.428
       }
-    ],
-    "outlier_strategy": "drop",
-    "iqr_multiplier": 2.0,
-    "outlier_lower_bounds": {
-      "feature_a": -6.115,
-      "feature_b": -7.083,
-      "feature_c": -1.756,
-      "feature_d": -4.682
-    },
-    "outlier_upper_bounds": {
-      "feature_a": 6.16,
-      "feature_b": 7.792,
-      "feature_c": 2.854,
-      "feature_d": 5.418
-    },
-    "winsor_lower_bounds": {
-      "feature_a": -3.791,
-      "feature_b": -2.913,
-      "feature_c": -3.024,
-      "feature_d": -30.0
-    },
-    "winsor_upper_bounds": {
-      "feature_a": 2.282,
-      "feature_b": 25.0,
-      "feature_c": 3.434,
-      "feature_d": 2.428
     },
     "scaling_model": {
       "strategy": "pareto",
