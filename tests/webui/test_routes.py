@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterator
 
 import pytest
@@ -102,8 +103,12 @@ def test_category_filters_follow_catalog_and_keep_selection(
 ) -> None:
     """Category choices reload after a catalog update, keeping chosen values."""
     page = client.get("/").text
-    assert 'id="category-filters"' in page
-    assert 'hx-trigger="catalog-updated from:body"' in page
+    span = re.search(r'<span id="category-filters"[^>]*>', page)
+    assert span is not None
+    # The span sits inside #file-filter, whose hx-target would otherwise be
+    # inherited and swap the choices into the file table.
+    assert 'hx-trigger="catalog-updated from:body"' in span.group()
+    assert 'hx-target="this"' in span.group()
     assert '<option value="A"' not in page
     workspace = _workspace(client)
     wait_for(workspace.database, workspace.submit_catalog())

@@ -14,6 +14,7 @@
     <label>ファイル名 <input type="search" name="q" placeholder="含む文字列"></label>
     <span id="category-filters" class="filters"
           hx-get="/catalog/category-filters" hx-include="#file-filter"
+          hx-target="this" hx-swap="innerHTML"
           hx-trigger="catalog-updated from:body">
       {% include "partials/category_filters.html" %}
     </span>
