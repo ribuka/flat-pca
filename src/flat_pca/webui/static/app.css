@@ -1,0 +1,90 @@
+:root {
+  --fg: #1f2328;
+  --muted: #656d76;
+  --border: #d0d7de;
+  --bg: #ffffff;
+  --panel: #f6f8fa;
+  --error: #cf222e;
+  --warn-bg: #fff8c5;
+  --ok: #1a7f37;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+.app-header {
+  display: flex;
+  gap: 2rem;
+  align-items: baseline;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+main {
+  padding: 1rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--error);
+  white-space: pre-wrap;
+}
+
+.status-panel,
+.warnings {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.warnings {
+  margin-bottom: 0.5rem;
+  background: var(--warn-bg);
+}
+
+.status-succeeded {
+  color: var(--ok);
+}
+
+.status-failed {
+  color: var(--error);
+}
+
+.filters,
+.selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.file-table {
+  border-collapse: collapse;
+}
+
+.file-table th,
+.file-table td {
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.stem-list {
+  max-height: 10rem;
+  overflow-y: auto;
+}

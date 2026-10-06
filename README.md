@@ -16,6 +16,17 @@ data stored in Parquet files.
 uv sync
 ```
 
+### Web UI（任意）
+
+Web UI の依存は optional dependency `webui` です（開発用の `dev` グループにも含まれます）。
+
+```bash
+uv sync --extra webui
+uv run -m flat_pca.webui --settings settings.toml
+```
+
+`settings.toml` の書式は [docs/spec/webui.md](docs/spec/webui.md) の「設定（settings.toml）」を参照してください。相対パスは `settings.toml` のあるディレクトリ基準で解決されます。
+
 ### 開発環境（任意）
 
 コーディングエージェント向けに [graphify](https://github.com/Graphify-Labs/graphify) のコードグラフを使います。

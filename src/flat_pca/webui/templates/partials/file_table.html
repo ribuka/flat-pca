@@ -1,0 +1,45 @@
+{% if warnings and (warnings.files_without_metadata or warnings.metadata_without_files) %}
+<div class="warnings" role="alert">
+  {% if warnings.files_without_metadata %}
+    <details>
+      <summary>メタデータ CSV に無いファイル：{{ warnings.files_without_metadata|length }} 件</summary>
+      <ul class="stem-list" data-warning="files-without-metadata">
+        {% for stem in warnings.files_without_metadata %}<li>{{ stem }}</li>{% endfor %}
+      </ul>
+    </details>
+  {% endif %}
+  {% if warnings.metadata_without_files %}
+    <details>
+      <summary>ファイルが存在しない CSV 行：{{ warnings.metadata_without_files|length }} 件</summary>
+      <ul class="stem-list" data-warning="metadata-without-files">
+        {% for stem in warnings.metadata_without_files %}<li>{{ stem }}</li>{% endfor %}
+      </ul>
+    </details>
+  {% endif %}
+</div>
+{% endif %}
+<p class="muted">{{ files|length }} 件</p>
+<table class="file-table">
+  <thead>
+    <tr>
+      <th></th>
+      <th>ファイル名</th>
+      {% for name in columns %}<th>{{ name }}</th>{% endfor %}
+      <th>Step 数</th>
+      <th>(Step, Sequence) 数</th>
+      <th>行数</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for file in files %}
+      <tr data-stem="{{ file.stem }}">
+        <td><input type="checkbox" name="stems" value="{{ file.stem }}" {% if file.stem in selected %}checked{% endif %}></td>
+        <td title="{{ file.path }}">{{ file.stem }}</td>
+        {% for name in columns %}<td>{{ file[name]|cell }}</td>{% endfor %}
+        <td>{{ file.n_steps }}</td>
+        <td>{{ file.n_segments }}</td>
+        <td>{{ file.n_rows }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>

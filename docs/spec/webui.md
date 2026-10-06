@@ -27,12 +27,13 @@ src/flat_pca/
     services/                   routesから呼ぶ処理本体（catalog, runs, views）
     jobs/                       サブプロセスで実行するジョブ関数
     templates/{pages,partials}/ フルページとhtmxが差し替える断片
-    static/                     htmx.min.js, plotly.min.js, app.js, css
+    static/                     vendor/htmx.min.js, app.js, app.css（plotly.min.jsはplotlyパッケージ同梱版を/static/vendor/で配信）
 tests/webui/
 ```
 
 - UI固有の依存（`fastapi`、`uvicorn`、`jinja2`、`duckdb`、`pydantic`）はoptional dependency `webui`とし、ライブラリ本体の依存に加えない。
-- htmx・Plotly.jsは`static/`に同梱し、CDNに依存しない。
+- htmxは`static/vendor/`に同梱する。Plotly.jsはPythonの`plotly`パッケージに同梱された`plotly.min.js`を`/static/vendor/plotly.min.js`で配信し、Python側とバージョンを揃える。いずれもCDNに依存しない。
+- フォーム送信の解析に使う`python-multipart`も`webui`に含める。
 
 ### レイヤーの責務
 
@@ -77,20 +78,23 @@ artifact_dtype = "float32"            # "float32" | "float64"
 memory_warn_gb = 16                   # 実行前見積もりがこれを超えたら確認を求める
 ```
 
-- 型`category`・`number`・`datetime`のみを受け付ける。
+- 型`category`・`number`・`datetime`のみを受け付ける。`format`は`datetime`のみに指定でき、省略時は形式を推定する。
+- `workspace.dir`・`data.root`・`metadata.csv`の相対パスは、settings.tomlのあるディレクトリ基準で解決する。未知のキーはエラーとする。
 - メタデータの結合キーは`Path.stem`とする。`data.root`配下でstemが重複する場合はcatalog構築をエラーとする（UI経由の実行では`stem_uniqueness="error"`を使う）。
+- メタデータCSVの結合キーが空または重複する場合、取り込む列が無い場合、値を型に変換できない場合はcatalog構築をエラーとする。
 - CSVに無いファイル、ファイルが存在しないCSV行は件数と一覧をcatalog画面に警告表示し、処理は継続する。
 
 ## Workspace と DB
 
 - 状態は1つの`Workspace`オブジェクト（DuckDB接続、表示用キャッシュ、ジョブ実行器）に集約し、グローバル変数に分散させない。
 - DuckDBファイルは`{workspace.dir}/flatpca.duckdb`とする。書き込みは親プロセスのみが行う。
-- テーブル（案）：
-  - `files`：`stem`、`path`、`size`、`mtime`、波長数・最小・最大、行数
+- スキーマに版管理・マイグレーションは持たない。スキーマを変えたときはWorkspaceを作り直す。`file_metadata`だけは、settings.tomlの列定義と食い違う場合に起動時に空で作り直す（次のcatalog更新で埋まる）。
+- テーブル：
+  - `files`：`stem`、`path`、`size`、`mtime_ns`、波長数・最小・最大、行数
   - `segments`：`stem`、`Step`、`Sequence`、行数、StepTime最大値
   - `file_metadata`：`stem` + settings.tomlで定義した列
-  - `runs`：`run_id`、作成日時、状態（`queued`/`running`/`succeeded`/`failed`/`cancelled`）、設定JSON、対象ファイル数、特徴量数、成分数、所要時間、エラーメッセージ、成果物ディレクトリ
-- catalogは`mtime`・`size`の変化したファイルのみを再走査する差分更新とする。走査は`Time`・`Step`・`Sequence`列とスキーマのみを読む。
+  - `runs`：`run_id`、ジョブ種別（`catalog`等）、作成日時、状態（`queued`/`running`/`succeeded`/`failed`/`cancelled`）、設定JSON、対象ファイル数、特徴量数、成分数、所要時間、エラーメッセージ、成果物ディレクトリ
+- catalogは`path`・`mtime`・`size`のいずれかが変化したファイルのみを再走査する差分更新とする。走査は`Time`・`Step`・`Sequence`列とスキーマのみを読む。
 
 ## ジョブ実行
 
