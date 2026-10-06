@@ -21,6 +21,7 @@ to the ``materialize_once=False`` deferred path, not merely close to it.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -38,6 +39,7 @@ from ..preprocess.filter import filter_target_steps
 from ..preprocess.intensity_transform import transform_intensity_values
 from ..preprocess.step_time import add_step_time_columns
 from ..preprocess.trim import apply_edge_trim
+from .file_rows import FileRows
 from .input import read_parquet, validate_frame_schema
 from .input import validate_metadata_alignment as _validate_metadata_alignment
 from .parallel import run_per_file
@@ -454,6 +456,89 @@ def _apply_w_normalization_stage(
     return values / reference_mean[:, np.newaxis]
 
 
+def _extract_file_rows(trimmed: pl.DataFrame, wavelength_columns_native: list[str]) -> FileRows:
+    """Extract one file's per-row metadata and raw values as aligned arrays.
+
+    Parameters
+    ----------
+    trimmed : pl.DataFrame
+        This file's filtered, StepTime-annotated, and edge-trimmed rows.
+    wavelength_columns_native : list[str]
+        Wavelength columns of ``trimmed`` to extract, in native order.
+
+    Returns
+    -------
+    FileRows
+        ``Time`` (float64), ``Step``, ``Sequence``, ``StepTime``, and the
+        ``(row, wavelength)`` float64 value matrix.
+    """
+    return FileRows(
+        times=trimmed["Time"].cast(pl.Float64).to_numpy(),
+        steps=trimmed["Step"].to_list(),
+        sequences=trimmed["Sequence"].to_list(),
+        step_times=trimmed["StepTime"].to_numpy(),
+        values=trimmed.select(wavelength_columns_native)
+        .to_numpy()
+        .astype(np.float64, copy=False),
+    )
+
+
+def _needed_positions(
+    coordinates: np.ndarray,
+    selected: np.ndarray,
+    normalization_range: tuple[float, float] | None,
+) -> np.ndarray:
+    """Return positions kept by downsampling or used for a reference mean.
+
+    Parameters
+    ----------
+    coordinates : np.ndarray
+        Time values of every row, or wavelength values of every column.
+    selected : np.ndarray
+        Downsampled coordinate values that survive to the output.
+    normalization_range : tuple[float, float] | None
+        Validated inclusive reference interval along the same axis, or
+        ``None`` when that axis is not normalized.
+
+    Returns
+    -------
+    np.ndarray
+        Sorted positions into ``coordinates`` that later stages still need.
+    """
+    needed_mask = np.isin(coordinates, selected)
+    if normalization_range is not None:
+        lower, upper = normalization_range
+        needed_mask = needed_mask | ((coordinates >= lower) & (coordinates <= upper))
+    return np.flatnonzero(needed_mask)
+
+
+def _build_output_frame(rows: FileRows, selected_wavelengths: list[float]) -> pl.DataFrame:
+    """Assemble the per-file output frame from its final rows.
+
+    Parameters
+    ----------
+    rows : FileRows
+        Retained rows whose ``values`` columns correspond to
+        ``selected_wavelengths``, after the intensity transform.
+    selected_wavelengths : list[float]
+        Shared downsampled wavelength values, sorted ascending.
+
+    Returns
+    -------
+    pl.DataFrame
+        ``Step``, ``Sequence``, ``StepTime``, and the wavelength columns
+        named canonically, with NaN stored as null.
+    """
+    final_columns = [f"{wavelength:.1f}nm" for wavelength in selected_wavelengths]
+    metadata_frame = pl.DataFrame(
+        {"Step": rows.steps, "Sequence": rows.sequences, "StepTime": rows.step_times}
+    )
+    value_frame = pl.DataFrame(
+        rows.values, schema=final_columns, orient="row", nan_to_null=True
+    )
+    return metadata_frame.hstack(value_frame)
+
+
 def _process_file(
     combined_raw: pl.DataFrame,
     config: PreprocessConfig,
@@ -499,81 +584,66 @@ def _process_file(
     trimmed = apply_edge_trim(with_step_time, config.edge_trim)
     assert isinstance(trimmed, pl.DataFrame)
 
-    times = trimmed["Time"].cast(pl.Float64).to_numpy()
-    steps = trimmed["Step"].to_list()
-    sequences = trimmed["Sequence"].to_list()
-    step_times = trimmed["StepTime"].to_numpy()
-    raw_values = (
-        trimmed.select(wavelength_columns_native).to_numpy().astype(np.float64, copy=False)
-    )
+    rows = _extract_file_rows(trimmed, wavelength_columns_native)
     wavelengths_native = np.asarray(
         [parse_wavelength(column) for column in wavelength_columns_native]
     )
 
-    _validate_full_t_normalization_groups(
-        times, _group_row_indices(steps, sequences), t_normalization_range
+    full_groups = _group_row_indices(rows.steps, rows.sequences)
+    _validate_full_t_normalization_groups(rows.times, full_groups, t_normalization_range)
+
+    needed_row_positions = _needed_positions(
+        rows.times, selected_times_array, t_normalization_range
     )
-
-    needed_row_mask = np.isin(times, selected_times_array)
-    if t_normalization_range is not None:
-        t_lower, t_upper = t_normalization_range
-        needed_row_mask = needed_row_mask | ((times >= t_lower) & (times <= t_upper))
-    needed_row_positions = np.flatnonzero(needed_row_mask)
-
-    t_stage_values = _apply_t_stage(
-        times,
-        raw_values,
-        _group_row_indices(steps, sequences),
+    rows = rows.take(
         needed_row_positions,
-        config.t_smoothing_window,
+        values=_apply_t_stage(
+            rows.times,
+            rows.values,
+            full_groups,
+            needed_row_positions,
+            config.t_smoothing_window,
+        ),
     )
-    times = times[needed_row_positions]
-    steps = [steps[index] for index in needed_row_positions.tolist()]
-    sequences = [sequences[index] for index in needed_row_positions.tolist()]
-    step_times = step_times[needed_row_positions]
 
-    needed_col_mask = np.isin(wavelengths_native, np.asarray(selected_wavelengths))
-    if w_normalization_range is not None:
-        w_lower, w_upper = w_normalization_range
-        needed_col_mask = needed_col_mask | (
-            (wavelengths_native >= w_lower) & (wavelengths_native <= w_upper)
-        )
-    needed_col_positions = np.flatnonzero(needed_col_mask)
-
-    values = _apply_w_stage(
-        t_stage_values, wavelengths_native, needed_col_positions, config.w_smoothing_window
+    needed_col_positions = _needed_positions(
+        wavelengths_native, np.asarray(selected_wavelengths), w_normalization_range
+    )
+    rows = replace(
+        rows,
+        values=_apply_w_stage(
+            rows.values, wavelengths_native, needed_col_positions, config.w_smoothing_window
+        ),
     )
     wavelengths = wavelengths_native[needed_col_positions]
 
-    groups = _group_row_indices(steps, sequences)
-    _apply_t_normalization_stage(values, times, groups, t_normalization_range)
-    values = _apply_w_normalization_stage(values, wavelengths, w_normalization_range)
+    _apply_t_normalization_stage(
+        rows.values,
+        rows.times,
+        _group_row_indices(rows.steps, rows.sequences),
+        t_normalization_range,
+    )
+    rows = replace(
+        rows,
+        values=_apply_w_normalization_stage(rows.values, wavelengths, w_normalization_range),
+    )
 
-    retained_row_positions = np.flatnonzero(np.isin(times, selected_times_array))
+    retained_row_positions = np.flatnonzero(np.isin(rows.times, selected_times_array))
     wavelength_position = {
         wavelength: position for position, wavelength in enumerate(wavelengths.tolist())
     }
     retained_col_positions = [
         wavelength_position[wavelength] for wavelength in selected_wavelengths
     ]
-
-    final_values = transform_intensity_values(
-        values[np.ix_(retained_row_positions, retained_col_positions)],
-        config.intensity_transform,
-        config.intensity_transform_scale,
+    rows = rows.take(
+        retained_row_positions,
+        values=transform_intensity_values(
+            rows.values[np.ix_(retained_row_positions, retained_col_positions)],
+            config.intensity_transform,
+            config.intensity_transform_scale,
+        ),
     )
-    final_columns = [f"{wavelength:.1f}nm" for wavelength in selected_wavelengths]
-    metadata_frame = pl.DataFrame(
-        {
-            "Step": [steps[index] for index in retained_row_positions.tolist()],
-            "Sequence": [sequences[index] for index in retained_row_positions.tolist()],
-            "StepTime": step_times[retained_row_positions],
-        }
-    )
-    value_frame = pl.DataFrame(
-        final_values, schema=final_columns, orient="row", nan_to_null=True
-    )
-    return metadata_frame.hstack(value_frame)
+    return _build_output_frame(rows, selected_wavelengths)
 
 
 def build_numpy_prepared_inputs(
