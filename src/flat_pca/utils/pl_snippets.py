@@ -113,7 +113,8 @@ def my_merge(
     addons : list[str] | None, default None
         Columns to take from ``right``. If ``None``, every column is taken.
     on : list[str] | None, default None
-        Shared key columns, defaulting to ``["ID"]``.
+        Shared key columns. If ``None`` or empty, ``left_on``/``right_on``
+        are used instead.
     left_on, right_on : str | None, default None
         Per-side key columns, used when ``on`` is empty.
     how : Literal["left", "right", "outer", "full", "inner"], default "left"
@@ -136,9 +137,6 @@ def my_merge(
     ValueError
         If ``on`` is empty and ``left_on``/``right_on`` are not both given.
     """
-    if on is None:
-        on = ["ID"]
-
     if type(left) is not type(right):
         raise TypeError(f"df: {type(left)} and wfl: {type(right)} must be the same type")
 
