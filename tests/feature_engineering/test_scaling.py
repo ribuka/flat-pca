@@ -3,7 +3,12 @@
 import numpy as np
 import polars as pl
 
-from flat_pca.feature_engineering.scaling import apply_scaler, fit_scaler, pareto_scale
+from flat_pca.feature_engineering.scaling import (
+    ScalingModel,
+    apply_scaler,
+    fit_scaler,
+    pareto_scale,
+)
 
 
 def test_none_scaling_preserves_values_and_dtypes() -> None:
@@ -77,3 +82,23 @@ def test_pareto_scaling_uses_unit_scale_for_constant_column() -> None:
 
     assert model.scales["constant"] == 1.0
     assert result["constant"].to_list() == [0.0, 0.0, 0.0]
+
+
+def test_scaling_model_apply_matches_apply_scaler() -> None:
+    """Apply the same transformation as ``apply_scaler``."""
+    frame = pl.DataFrame({"a": [1.0, 2.0, 4.0], "b": [10.0, 30.0, 90.0]})
+    model = fit_scaler(frame.lazy(), ["a", "b"], "robust")
+
+    result = model.apply(frame.lazy(), ["a", "b"]).collect()
+
+    assert result.equals(apply_scaler(frame.lazy(), ["a", "b"], model).collect())
+
+
+def test_scaling_model_payload_round_trip() -> None:
+    """Restore the same model from its payload."""
+    model = ScalingModel(strategy="pareto", centers={"a": 1.5}, scales={"a": 2.0})
+
+    payload = model.to_payload()
+
+    assert payload == {"strategy": "pareto", "centers": {"a": 1.5}, "scales": {"a": 2.0}}
+    assert ScalingModel.from_payload(payload) == model

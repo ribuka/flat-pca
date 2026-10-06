@@ -438,3 +438,36 @@ class TestKmeansImputeStrategy:
 
         assert restored.impute_kmeans_n_clusters is None
         assert restored.impute_kmeans_centroids == []
+
+
+def test_model_keeps_flat_attributes_as_stage_properties() -> None:
+    """Forward the flat preprocessing attributes to the stage models."""
+    frame = pl.DataFrame(
+        {
+            "feature_a": [1.0, None, 3.0, 4.0, 50.0],
+            "feature_b": [3.0, 2.0, 1.0, 0.0, -1.0],
+        }
+    )
+
+    model = fit_pca(
+        frame.lazy(),
+        ["feature_a", "feature_b"],
+        n_component=1,
+        max_n_component=None,
+        impute_strategy="median",
+        outlier_strategy="winsorize",
+        iqr_multiplier=2.0,
+        scaling_strategy="none",
+    )
+
+    assert model.impute_strategy == model.impute_model.strategy == "median"
+    assert model.impute_values is model.impute_model.values
+    assert model.impute_kmeans_n_clusters is None
+    assert model.impute_kmeans_centroids == []
+    assert model.outlier_strategy == model.outlier_model.strategy == "winsorize"
+    assert model.iqr_multiplier == 2.0
+    bounds = model.outlier_model.bounds
+    assert model.outlier_lower_bounds is bounds.outlier_lower
+    assert model.outlier_upper_bounds is bounds.outlier_upper
+    assert model.winsor_lower_bounds is bounds.winsor_lower
+    assert model.winsor_upper_bounds is bounds.winsor_upper

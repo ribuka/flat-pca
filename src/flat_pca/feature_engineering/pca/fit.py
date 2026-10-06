@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 import numpy as np
 import polars as pl
 from sklearn.decomposition import PCA
 
-from ..outlier import OutlierBounds, OutlierStrategy, prepare_outlier_frame
-from ..scaling import ScalingStrategy, apply_scaler, fit_scaler
-from .impute import ImputeStrategy, apply_kmeans_impute, fit_kmeans_impute
+from ..outlier import OutlierBounds, OutlierModel, OutlierStrategy, fit_outlier
+from ..scaling import ScalingStrategy, fit_scaler
+from .impute import ImputeModel, ImputeStrategy, fit_impute
 from .mahalanobis import (
     MahalanobisConfig,
     mahalanobis_score_columns,
@@ -121,66 +119,6 @@ def _validate_fit_args(
     _validate_columns(df, columns)
 
 
-def _prepare_input_frame(
-    df: pl.LazyFrame,
-    columns: list[str],
-    impute_strategy: Literal["drop", "median"],
-    impute_values: dict[str, float] | None = None,
-) -> tuple[pl.LazyFrame, dict[str, float]]:
-    """Apply the configured missing-value handling to the feature columns.
-
-    Parameters
-    ----------
-    df : pl.LazyFrame
-        Input data containing the selected columns.
-    columns : list[str]
-        Numeric feature columns to handle.
-    impute_strategy : {"drop", "median"}
-        ``"drop"`` removes rows with any null or NaN feature; ``"median"``
-        fills them with a per-column median.
-    impute_values : dict[str, float] | None, default None
-        Previously fitted medians to reuse. If ``None``, medians are
-        computed from ``df`` itself.
-
-    Returns
-    -------
-    tuple[pl.LazyFrame, dict[str, float]]
-        Prepared data and the imputation values that were applied, which are
-        empty for ``impute_strategy="drop"``.
-    """
-    if impute_strategy == "drop":
-        missing_exprs = [
-            pl.col(column).is_null() | pl.col(column).is_nan()
-            for column in columns
-        ]
-        return df.filter(~pl.any_horizontal(missing_exprs)), {}
-
-    resolved_impute_values = impute_values
-    if resolved_impute_values is None:
-        medians = (
-            df.select([pl.col(column).median().alias(column) for column in columns])
-            .collect()
-            .row(0, named=True)
-        )
-        resolved_impute_values = {
-            column: float(medians[column]) if medians[column] is not None else 0.0
-            for column in columns
-        }
-
-    return (
-        df.with_columns(
-            [
-                pl.col(column)
-                .fill_null(resolved_impute_values[column])
-                .fill_nan(resolved_impute_values[column])
-                .alias(column)
-                for column in columns
-            ]
-        ),
-        resolved_impute_values,
-    )
-
-
 def _drops_missing_rows_in_numpy(
     impute_strategy: ImputeStrategy,
     outlier_strategy: OutlierStrategy,
@@ -276,47 +214,40 @@ def fit_pca(
         scaling_strategy,
     )
 
-    impute_kmeans_fitted_n_clusters: int | None = None
-    impute_kmeans_centroids: list[dict[str, float]] = []
-    impute_values: dict[str, float] = {}
     standardized_values: np.ndarray
     if _drops_missing_rows_in_numpy(
         impute_strategy, outlier_strategy, scaling_strategy
     ):
+        # Every stage holds no fitted values here, so build their state
+        # directly instead of the per-column drop predicate.
         standardized_values, _ = collect_complete_rows(df, columns)
-        outlier_bounds = OutlierBounds.empty()
+        impute_model = ImputeModel(
+            strategy=impute_strategy,
+            values={},
+            kmeans_n_clusters=None,
+            kmeans_centroids=[],
+        )
+        outlier_model = OutlierModel(
+            strategy=outlier_strategy,
+            iqr_multiplier=iqr_multiplier,
+            bounds=OutlierBounds.empty(),
+        )
         scaling_model = fit_scaler(df, columns, scaling_strategy)
     else:
-        if impute_strategy == "kmeans":
-            (
-                prepared_frame,
-                impute_kmeans_fitted_n_clusters,
-                impute_kmeans_centroids,
-            ) = fit_kmeans_impute(df, columns, impute_kmeans_n_clusters)
-        else:
-            prepared_frame, impute_values = _prepare_input_frame(
-                df,
-                columns,
-                impute_strategy,
-            )
-        prepared_frame, outlier_bounds = prepare_outlier_frame(
-            prepared_frame,
-            columns,
-            outlier_strategy,
-            iqr_multiplier,
+        # Each stage is fitted on the output of the previous one.
+        prepared_frame, impute_model = fit_impute(
+            df, columns, impute_strategy, impute_kmeans_n_clusters
         )
-
-        scaling_model = fit_scaler(
-            prepared_frame,
-            columns,
-            scaling_strategy,
+        prepared_frame, outlier_model = fit_outlier(
+            prepared_frame, columns, outlier_strategy, iqr_multiplier
         )
-        scaled_frame = apply_scaler(
-            prepared_frame,
-            columns,
-            scaling_model,
+        scaling_model = fit_scaler(prepared_frame, columns, scaling_strategy)
+        standardized_values = (
+            scaling_model.apply(prepared_frame, columns)
+            .select(columns)
+            .collect()
+            .to_numpy()
         )
-        standardized_values = scaled_frame.select(columns).collect().to_numpy()
 
     n_samples = standardized_values.shape[0]
     if n_samples == 0:
@@ -344,16 +275,8 @@ def fit_pca(
     return PcaModel(
         columns=tuple(columns),
         n_component=fitted_n_component,
-        impute_strategy=impute_strategy,
-        impute_values=impute_values,
-        impute_kmeans_n_clusters=impute_kmeans_fitted_n_clusters,
-        impute_kmeans_centroids=impute_kmeans_centroids,
-        outlier_strategy=outlier_strategy,
-        iqr_multiplier=iqr_multiplier,
-        outlier_lower_bounds=outlier_bounds.outlier_lower,
-        outlier_upper_bounds=outlier_bounds.outlier_upper,
-        winsor_lower_bounds=outlier_bounds.winsor_lower,
-        winsor_upper_bounds=outlier_bounds.winsor_upper,
+        impute_model=impute_model,
+        outlier_model=outlier_model,
         scaling_model=scaling_model,
         pca=pca,
         pca_column_names=tuple(
@@ -423,41 +346,14 @@ def transform_pca(
         standardized_values, complete_mask = collect_complete_rows(df, columns)
         scaled_frame = select_rows(df, complete_mask)
     else:
-        # Missing-value handling.
-        if pca_model.impute_strategy == "kmeans":
-            prepared_frame = apply_kmeans_impute(
-                df,
-                columns,
-                pca_model.impute_kmeans_centroids,
-            )
-        else:
-            prepared_frame, _ = _prepare_input_frame(
-                df,
-                columns,
-                pca_model.impute_strategy,
-                pca_model.impute_values,
-            )
-
-        # Outlier handling, reusing the thresholds fitted with the model.
-        prepared_frame, _ = prepare_outlier_frame(
-            prepared_frame,
-            columns,
-            pca_model.outlier_strategy,
-            pca_model.iqr_multiplier,
-            OutlierBounds(
-                outlier_lower=pca_model.outlier_lower_bounds,
-                outlier_upper=pca_model.outlier_upper_bounds,
-                winsor_lower=pca_model.winsor_lower_bounds,
-                winsor_upper=pca_model.winsor_upper_bounds,
-            ),
-        )
-
-        # Feature scaling.
-        scaled_frame = apply_scaler(
-            prepared_frame,
-            columns,
+        # Apply the fitted stages in the order they were fitted.
+        scaled_frame = df
+        for stage in (
+            pca_model.impute_model,
+            pca_model.outlier_model,
             pca_model.scaling_model,
-        )
+        ):
+            scaled_frame = stage.apply(scaled_frame, columns)
         standardized_values = scaled_frame.select(columns).collect().to_numpy()
 
     if standardized_values.shape[0] == 0:

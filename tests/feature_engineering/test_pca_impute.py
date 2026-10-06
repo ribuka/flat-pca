@@ -1,4 +1,4 @@
-"""Tests for k-means missing-value imputation."""
+"""Tests for missing-value imputation."""
 
 import numpy as np
 import polars as pl
@@ -6,7 +6,9 @@ import pytest
 
 from flat_pca.feature_engineering.pca.impute import (
     DEFAULT_KMEANS_N_CLUSTERS,
+    ImputeModel,
     apply_kmeans_impute,
+    fit_impute,
     fit_kmeans_impute,
     resolve_kmeans_n_clusters,
 )
@@ -149,3 +151,70 @@ class TestApplyKmeansImpute:
 
         assert result["c"][0] in (100.0, -100.0)
         assert np.isfinite(result["c"][0])
+
+
+class TestImputeModel:
+    """Tests for ``fit_impute`` and ``ImputeModel``."""
+
+    def test_median_apply_reuses_fitted_values(self) -> None:
+        """Fill new data with the medians fitted on the training data."""
+        train = pl.DataFrame({"a": [1.0, 2.0, 9.0, None], "b": [4.0, 5.0, 6.0, 7.0]})
+        prepared, model = fit_impute(train.lazy(), ["a", "b"], "median")
+
+        result = model.apply(
+            pl.DataFrame({"a": [None, float("nan")], "b": [None, 0.0]}).lazy(),
+            ["a", "b"],
+        ).collect()
+
+        assert model.values == {"a": 2.0, "b": 5.5}
+        assert prepared.collect()["a"].to_list() == [1.0, 2.0, 9.0, 2.0]
+        assert result.to_dict(as_series=False) == {"a": [2.0, 2.0], "b": [5.5, 0.0]}
+
+    def test_drop_apply_removes_missing_rows(self) -> None:
+        """Drop rows with a null or NaN feature value without fitting values."""
+        frame = pl.DataFrame({"a": [1.0, None, 3.0], "b": [1.0, 2.0, float("nan")]})
+        prepared, model = fit_impute(frame.lazy(), ["a", "b"], "drop")
+
+        assert model.values == {}
+        assert model.kmeans_n_clusters is None
+        assert prepared.collect().to_dict(as_series=False) == {"a": [1.0], "b": [1.0]}
+        assert model.apply(frame.lazy(), ["a", "b"]).collect().equals(
+            prepared.collect()
+        )
+
+    def test_kmeans_matches_fit_kmeans_impute(self) -> None:
+        """Hold the cluster count and centroids of ``fit_kmeans_impute``."""
+        frame = pl.DataFrame(
+            {"a": [0.0, 0.2, 10.0, 10.2, None], "b": [0.0, 0.1, 10.0, 9.9, 10.1]}
+        )
+        expected, n_clusters, centroids = fit_kmeans_impute(
+            frame.lazy(), ["a", "b"], n_clusters=2
+        )
+
+        prepared, model = fit_impute(frame.lazy(), ["a", "b"], "kmeans", 2)
+
+        assert model.kmeans_n_clusters == n_clusters
+        assert model.kmeans_centroids == centroids
+        assert prepared.collect().equals(expected.collect())
+        assert model.apply(frame.lazy(), ["a", "b"]).collect().equals(
+            expected.collect()
+        )
+
+    def test_payload_round_trip(self) -> None:
+        """Restore the same model from its flat payload entries."""
+        model = ImputeModel(
+            strategy="kmeans",
+            values={},
+            kmeans_n_clusters=1,
+            kmeans_centroids=[{"a": 1.0, "b": 2.0}],
+        )
+
+        payload = model.to_payload()
+
+        assert list(payload) == [
+            "impute_strategy",
+            "impute_values",
+            "impute_kmeans_n_clusters",
+            "impute_kmeans_centroids",
+        ]
+        assert ImputeModel.from_payload(payload) == model
