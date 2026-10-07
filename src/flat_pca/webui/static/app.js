@@ -16,11 +16,84 @@ document.addEventListener("click", (event) => {
   }
 });
 
+const BUSY_SHOW_DELAY_MS = 300;
+const BUSY_TICK_MS = 250;
+
+// The page-wide overlay shown while a request is pending: it greys out the
+// page, blocks input, and shows a spinner, the elapsed seconds, and a cancel
+// button. `start` takes the action of the cancel button.
+const busyOverlay = (() => {
+  const overlay = document.getElementById("busy-overlay");
+  const elapsed = document.getElementById("busy-elapsed");
+  const layout = document.querySelector(".layout");
+  let showTimer = null;
+  let tickTimer = null;
+  let cancelAction = null;
+
+  function stop() {
+    clearTimeout(showTimer);
+    clearInterval(tickTimer);
+    cancelAction = null;
+    overlay.hidden = true;
+    overlay.classList.remove("busy-visible");
+    layout.inert = false;
+  }
+
+  function start(onCancel) {
+    stop();
+    cancelAction = onCancel;
+    const startedAt = performance.now();
+    elapsed.textContent = "0";
+    // Input is blocked at once; the overlay is drawn only after the delay.
+    layout.inert = true;
+    overlay.hidden = false;
+    showTimer = setTimeout(() => {
+      overlay.classList.add("busy-visible");
+      document.getElementById("busy-cancel").focus();
+    }, BUSY_SHOW_DELAY_MS);
+    tickTimer = setInterval(() => {
+      elapsed.textContent = `${Math.floor((performance.now() - startedAt) / 1000)}`;
+    }, BUSY_TICK_MS);
+  }
+
+  document.getElementById("busy-cancel").addEventListener("click", () => {
+    const action = cancelAction;
+    stop();
+    if (action) {
+      action();
+    }
+  });
+
+  return { start, stop };
+})();
+
 // Submits a GET form whenever one of its controls changes.
 document.addEventListener("change", (event) => {
   const form = event.target.closest("form[data-auto-submit]");
   if (form) {
     form.requestSubmit();
+  }
+});
+
+// While the next page loads, the overlay covers the page. Cancelling stops
+// the load and resets the form to the shown conditions, which are its
+// defaults. The server still finishes the computation.
+document.addEventListener("submit", (event) => {
+  const form = event.target.closest("form[data-auto-submit]");
+  if (form) {
+    busyOverlay.start(() => {
+      window.stop();
+      form.reset();
+    });
+  }
+});
+
+// A page restored by "back" (from the bfcache or with restored form state)
+// keeps neither the overlay nor the conditions that were never shown.
+window.addEventListener("pageshow", () => {
+  busyOverlay.stop();
+  for (const form of document.querySelectorAll("form[data-auto-submit]")) {
+    form.reset();
   }
 });
 

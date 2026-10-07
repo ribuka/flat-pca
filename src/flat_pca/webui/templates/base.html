@@ -36,5 +36,13 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+  <div id="busy-overlay" class="busy-overlay" hidden>
+    <div class="busy-panel" role="status" aria-live="polite">
+      <div class="busy-spinner" aria-hidden="true"></div>
+      <p class="busy-message">処理中…</p>
+      <p class="busy-elapsed">経過 <output id="busy-elapsed">0</output> 秒</p>
+      <button type="button" id="busy-cancel">キャンセル</button>
+    </div>
+  </div>
 </body>
 </html>
