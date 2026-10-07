@@ -22,6 +22,7 @@ wheels/
 .copilot/
 .claude/*
 !.claude/settings.json
+!.claude/skills/
 
 # data
 /data/
@@ -42,3 +43,6 @@ wheels/
 
 # graphify
 graphify-out/
+
+# playwright
+/test-results/
