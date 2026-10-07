@@ -13,11 +13,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
-import polars as pl
 
 from flat_pca.spectral.schema import parse_feature_coordinate
 
 from .model import PcaModel
+from .prepared_rows import scale_rows
 
 
 @dataclass(frozen=True)
@@ -172,16 +172,7 @@ def partial_scores(
     ].T
     scores = np.empty((matrix.shape[0], int(order.is_last.sum()), len(indices)))
     for row in range(matrix.shape[0]):
-        scaled = (
-            model.scaling_model.apply(
-                pl.from_numpy(matrix[row : row + 1], schema=columns, orient="row").lazy(),
-                columns,
-            )
-            .select(columns)
-            .collect()
-            .to_numpy()[0]
-            .astype(np.float64)
-        )
+        scaled = scale_rows(matrix[row : row + 1], model)[0]
         centered = scaled[order.order] - mean
         running = np.cumsum(centered[:, np.newaxis] * weights, axis=0)
         scores[row] = running[order.is_last]

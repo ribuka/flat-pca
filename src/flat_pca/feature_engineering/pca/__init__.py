@@ -11,6 +11,7 @@ from .partial_scores import (
     time_point_order,
 )
 from .prepared_rows import PreparedRows, prepare_rows
+from .q_contribution import q_contribution
 from .reconstruct import component_contribution
 from .spe import SpeConfig
 from .truncate import truncate_pca_model
@@ -28,6 +29,7 @@ __all__ = [
     "fit_pca",
     "partial_scores",
     "prepare_rows",
+    "q_contribution",
     "time_point_order",
     "transform_pca",
     "truncate_pca_model",

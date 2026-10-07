@@ -56,7 +56,7 @@ NAV_ITEMS = (
     NavItem("前処理・PCA", "/fit"),
     NavItem("スペクトル探索", "/explore"),
     NavItem("スコア・ローディング", "/scores"),
-    NavItem("T² / Q", None),
+    NavItem("T² / Q", "/monitoring"),
 )
 
 templates = Jinja2Templates(directory=TEMPLATES_DIR)

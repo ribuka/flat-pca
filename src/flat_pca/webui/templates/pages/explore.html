@@ -77,6 +77,12 @@
         <p class="muted" data-view-note>先頭 1..{{ shown.component }} 成分の累積再構成です。トレンドには前処理済み（X.npy、欠損は空白）を重ねます。</p>
       {% elif shown.view == "residual" %}
         <p class="muted" data-view-note>残差 = fit 時と同じ補完・外れ値処理を適用した前処理済み − 先頭 1..{{ shown.component }} 成分の累積再構成です。</p>
+      {% elif shown.view == "q_contribution" %}
+        <p class="muted" data-view-note>
+          Q 寄与 (x<sub>f</sub> − x̂<sub>f</sub>)<sup>2</sup> は、fit 時と同じ補完・外れ値処理・スケーリングを適用した値 x と、
+          その先頭 1..{{ shown.q_components }} 成分（run の Q の設定で決まる成分数）からの再構成 x̂ との差の二乗です（スケーリングは戻しません）。
+          全特徴量の総和がそのファイルの Q です。
+        </p>
       {% endif %}
       {% if shown.skipped %}
         <p class="warnings" data-skipped>(Step, Sequence) を持たないため除外したファイル：{{ shown.skipped|join("、") }}</p>
