@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from ..database import Database
+from ..jobs.progress import read_progress
 
 RunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 ACTIVE_STATUSES: tuple[RunStatus, ...] = ("queued", "running")
@@ -135,3 +136,26 @@ def fail_interrupted_runs(database: Database) -> int:
         [INTERRUPTED_ERROR],
     )
     return len(rows)
+
+
+def latest_run_status(database: Database, kind: str) -> dict[str, object]:
+    """Return the latest run of one kind with its progress.
+
+    Parameters
+    ----------
+    database : Database
+        Workspace database.
+    kind : str
+        Job kind.
+
+    Returns
+    -------
+    dict[str, object]
+        ``run`` (the newest run's columns, or ``None``), ``active`` (whether
+        it is queued or running), and ``progress`` (its ``progress.json``
+        while active, otherwise ``None``).
+    """
+    run = latest_run(database, kind)
+    active = run is not None and run["status"] in ACTIVE_STATUSES
+    progress = read_progress(Path(str(run["artifact_dir"]))) if active else None
+    return {"run": run, "active": active, "progress": progress}

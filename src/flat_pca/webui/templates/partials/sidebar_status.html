@@ -1,0 +1,18 @@
+<dl class="sidebar-facts"
+    {% if catalog.active %}hx-get="/sidebar/status" hx-trigger="every 2s" hx-target="#sidebar-status" hx-swap="innerHTML"{% endif %}>
+  <dt>catalog</dt>
+  <dd data-sidebar="catalog">
+    {% if catalog.run is none %}
+      未作成
+    {% else %}
+      <span class="status status-{{ catalog.run.status }}">{{ catalog.run.status }}</span>
+      {% if catalog.progress %}
+        <span class="muted">{{ catalog.progress.done }} / {{ catalog.progress.total }}</span>
+      {% elif catalog.run.status == "succeeded" %}
+        <span class="muted">{{ catalog.run.n_files }} ファイル</span>
+      {% endif %}
+    {% endif %}
+  </dd>
+  <dt>選択中</dt>
+  <dd data-sidebar="selection">{{ selected_count }} ファイル</dd>
+</dl>

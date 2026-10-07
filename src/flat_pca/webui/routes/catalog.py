@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
-from ..jobs.progress import read_progress
 from ..services.catalog_query import (
     FILE_SORT_COLUMNS,
     category_options,
@@ -16,32 +14,13 @@ from ..services.catalog_query import (
     metadata_warnings,
     parse_file_query,
 )
-from ..services.runs import ACTIVE_STATUSES, latest_run
+from ..services.runs import latest_run_status
 from ..templating import templates
 from ..workspace import CATALOG_JOB, Workspace
 from .dependencies import get_workspace
 
 router = APIRouter()
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
-
-
-def _status_context(workspace: Workspace) -> dict[str, object]:
-    """Collect the latest catalog run and its progress.
-
-    Parameters
-    ----------
-    workspace : Workspace
-        Application workspace.
-
-    Returns
-    -------
-    dict[str, object]
-        ``run`` (or ``None``), ``active``, and ``progress`` (or ``None``).
-    """
-    run = latest_run(workspace.database, CATALOG_JOB)
-    active = run is not None and run["status"] in ACTIVE_STATUSES
-    progress = read_progress(Path(str(run["artifact_dir"]))) if active else None
-    return {"run": run, "active": active, "progress": progress}
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -66,7 +45,7 @@ def data_selection_page(
         request,
         "pages/data_selection.html",
         {
-            **_status_context(workspace),
+            **latest_run_status(workspace.database, CATALOG_JOB),
             "columns": workspace.settings.metadata_columns,
             "sort_columns": [*FILE_SORT_COLUMNS, *workspace.settings.metadata_columns],
             "options": category_options(workspace.database),
@@ -138,7 +117,7 @@ def catalog_status(
     HTMLResponse
         Status partial.
     """
-    context = _status_context(workspace)
+    context = latest_run_status(workspace.database, CATALOG_JOB)
     response = templates.TemplateResponse(
         request, "partials/catalog_status.html", context
     )
@@ -161,12 +140,17 @@ def refresh_catalog(request: Request, workspace: WorkspaceDependency) -> HTMLRes
     Returns
     -------
     HTMLResponse
-        Status partial of the queued (or already active) catalog run.
+        Status partial of the queued (or already active) catalog run. It
+        triggers ``catalog-started`` so the sidebar status refreshes.
     """
     workspace.submit_catalog()
-    return templates.TemplateResponse(
-        request, "partials/catalog_status.html", _status_context(workspace)
+    response = templates.TemplateResponse(
+        request,
+        "partials/catalog_status.html",
+        latest_run_status(workspace.database, CATALOG_JOB),
     )
+    response.headers["HX-Trigger"] = "catalog-started"
+    return response
 
 
 @router.get("/catalog/files", response_class=HTMLResponse)
@@ -232,9 +216,12 @@ def select_files(
     Returns
     -------
     HTMLResponse
-        Selection summary partial.
+        Selection summary partial. It triggers ``selection-updated`` so the
+        sidebar status refreshes.
     """
     selected = workspace.selection.replace(workspace.database, stems or [])
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request, "partials/selection_summary.html", {"selected": selected}
     )
+    response.headers["HX-Trigger"] = "selection-updated"
+    return response
