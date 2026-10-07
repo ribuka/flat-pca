@@ -108,14 +108,19 @@ def choose_run(workspace: WorkspaceDependency, run: Annotated[str, Form()]) -> R
 @router.post("/files")
 def choose_files(
     workspace: WorkspaceDependency,
+    run: Annotated[str, Form()],
     file: Annotated[list[str] | None, Form()] = None,
 ) -> Response:
-    """Replace the chosen files.
+    """Replace the chosen files of the run the sidebar was drawn with.
 
     Parameters
     ----------
     workspace : Workspace
         Application workspace.
+    run : str
+        Run in use when the sidebar was drawn. If the run in use has changed
+        since (in another tab, for example), the choice is left unchanged
+        and the reload shows the current one.
     file : list[str] | None, default None
         Checked stems. Stems that are not transform targets of the run in
         use are ignored, and only the first ``ui.explore_max_files`` of the
@@ -126,10 +131,14 @@ def choose_files(
     Response
         Empty response reloading the page.
     """
-    choice = current_view_choice(workspace)
-    wanted = set(file or ())
-    stems = [stem for stem in choice.file_options if stem in wanted]
-    workspace.view_selection.replace_stems(stems[: workspace.settings.ui.explore_max_files])
+    selection = workspace.view_selection
+    # Resolving the run in use and replacing its files is one step.
+    with selection.transaction():
+        choice = current_view_choice(workspace)
+        if run == choice.run_id:
+            wanted = set(file or ())
+            stems = [stem for stem in choice.file_options if stem in wanted]
+            selection.replace_stems(stems[: workspace.settings.ui.explore_max_files])
     return _reload()
 
 
@@ -164,19 +173,23 @@ def add_file(
     HTTPException
         With status 400 if ``stem`` is not a transform target of the run.
     """
-    choice = current_view_choice(workspace)
-    if run != choice.run_id:
-        return JSONResponse(
-            {
-                "added": False,
-                "message": f"サイドバーの run が {choice.run_id} に変わったため、"
-                f"run {run} の図から {stem} を追加しませんでした。ページを読み直してください。",
-            }
-        )
-    if stem not in choice.file_options:
-        raise HTTPException(status_code=400, detail=f"not a transform target: {stem}")
+    selection = workspace.view_selection
     max_files = workspace.settings.ui.explore_max_files
-    if workspace.view_selection.add_stem(stem, choice.file_options, max_files):
+    # Checking the run in use and adding to its files is one step.
+    with selection.transaction():
+        choice = current_view_choice(workspace)
+        if run != choice.run_id:
+            return JSONResponse(
+                {
+                    "added": False,
+                    "message": f"サイドバーの run が {choice.run_id} に変わったため、"
+                    f"run {run} の図から {stem} を追加しませんでした。ページを読み直してください。",
+                }
+            )
+        if stem not in choice.file_options:
+            raise HTTPException(status_code=400, detail=f"not a transform target: {stem}")
+        added = selection.add_stem(stem, choice.file_options, max_files)
+    if added:
         return JSONResponse({"added": True})
     return JSONResponse(
         {

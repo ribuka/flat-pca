@@ -17,6 +17,7 @@
   {% if choice.file_options %}
     <input type="search" class="view-file-search" placeholder="ファイル名で絞り込み" aria-label="表示ファイルの絞り込み" data-view-file-search>
     <form id="view-files-form" hx-post="/sidebar/selection/files" hx-trigger="change" hx-swap="none" data-busy-reload>
+      <input type="hidden" name="run" value="{{ choice.run_id }}">
       <ul class="view-file-list">
         {% set full = choice.files|length >= max_files %}
         {% for stem in choice.file_options %}

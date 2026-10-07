@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,13 +19,27 @@ class ViewSelection:
 
     The choice is shared by every display screen and every browser tab, and
     lives for the lifetime of the workspace. It is distinct from the file
-    set selected for fitting (``FileSelection``).
+    set selected for fitting (``FileSelection``). The lock is re-entrant, so
+    a caller can hold ``transaction()`` while it resolves the run in use and
+    updates the choice, and no other request changes the choice between.
     """
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._run_id: str | None = None
         self._stems: list[str] = []
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Hold the lock across several reads and updates of the choice.
+
+        Yields
+        ------
+        None
+            Control while the lock is held.
+        """
+        with self._lock:
+            yield
 
     @property
     def run_id(self) -> str | None:

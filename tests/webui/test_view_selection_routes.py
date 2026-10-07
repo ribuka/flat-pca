@@ -15,6 +15,7 @@ from spectra import SPECTRA_FILE_COUNT
 from view_choice import choose_view
 
 from flat_pca.webui.app import create_app
+from flat_pca.webui.routes import view_selection as view_selection_routes
 from flat_pca.webui.services.view_selection import ViewSelection
 from flat_pca.webui.settings import Settings, UiSettings
 from flat_pca.webui.workspace import Workspace
@@ -121,7 +122,8 @@ def test_choosing_files_keeps_transform_targets_and_reloads(
     _register(client, settings, spectra_paths, "fit-1")
 
     response = client.post(
-        "/sidebar/selection/files", data={"file": ["s-10", "ghost", "s-02"]}
+        "/sidebar/selection/files",
+        data={"run": "fit-1", "file": ["s-10", "ghost", "s-02"]},
     )
 
     assert response.status_code == 200
@@ -247,6 +249,63 @@ def test_a_figure_of_another_run_adds_nothing(
     assert response.json()["added"] is False
     assert "fit-2" in response.json()["message"]
     assert _workspace(client).view_selection.stems == []
+
+
+def test_a_sidebar_of_another_run_changes_nothing(
+    client: TestClient, settings: Settings, spectra_paths: list[Path]
+) -> None:
+    """Checkboxes drawn before the run changed (in another tab) keep the choice."""
+    _register(client, settings, spectra_paths, "fit-1")
+    _register(client, settings, spectra_paths, "fit-2")
+    choose_view(client, run="fit-2", files=["s-02"])
+    assert 'name="run" value="fit-2"' in client.get("/sidebar/selection").text
+
+    response = client.post(
+        "/sidebar/selection/files", data={"run": "fit-1", "file": ["s-01"]}
+    )
+
+    assert response.headers["HX-Refresh"] == "true"
+    assert _workspace(client).view_selection.stems == ["s-02"]
+
+
+def test_a_run_change_waits_for_an_addition(
+    client: TestClient,
+    settings: Settings,
+    spectra_paths: list[Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run chosen while a file is being added applies after the addition.
+
+    The addition checks the run in use and adds to its files in one step,
+    so the run change cannot slip in between and keep a file of the old run.
+    """
+    _register(client, settings, spectra_paths, "fit-1")
+    _register(client, settings, spectra_paths, "fit-2")
+    choose_view(client, run="fit-1")
+    selection = _workspace(client).view_selection
+    resolve = view_selection_routes.current_view_choice
+    switch = threading.Thread(target=selection.choose_run, args=("fit-2",))
+
+    def resolve_then_switch(workspace: Workspace) -> object:
+        """Resolve the choice, then change the run from another thread."""
+        choice = resolve(workspace)
+        switch.start()
+        switch.join(timeout=0.2)
+        assert switch.is_alive(), "the run changed during the addition"
+        return choice
+
+    monkeypatch.setattr(
+        view_selection_routes, "current_view_choice", resolve_then_switch
+    )
+
+    response = client.post(
+        "/sidebar/selection/files/add", data={"run": "fit-1", "stem": "s-01"}
+    )
+    switch.join()
+
+    assert response.json() == {"added": True}
+    assert selection.run_id == "fit-2"
+    assert selection.stems == []
 
 
 def test_concurrent_additions_keep_each_other() -> None:

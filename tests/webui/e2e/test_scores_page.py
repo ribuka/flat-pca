@@ -84,3 +84,21 @@ def test_choices_redraw_the_trajectories(page: Page, fitted_server_url: str) -> 
     expect(legend.nth(1)).to_contain_text(SHORT)
     expect(page.locator("#scores-trajectories .xtitle")).to_have_text("PC1")
     expect(page.locator("#scores-trajectories .ytitle")).to_have_text("PC3")
+
+
+def test_a_failed_click_request_releases_the_page(
+    page: Page, fitted_server_url: str
+) -> None:
+    """When the request of a clicked point fails, the overlay goes and a warning shows."""
+    url = f"{fitted_server_url}/scores?color="
+    _open(page, url)
+    page.evaluate("() => { window.fetch = () => Promise.reject(new TypeError('offline')); }")
+
+    _click_point(page, 1)
+
+    warning = page.locator("#plot-select-warning")
+    expect(warning).to_be_visible()
+    expect(warning).to_contain_text("s-01 を表示ファイルに追加できませんでした")
+    expect(page.locator("#busy-overlay")).to_be_hidden()
+    expect(page.locator(".layout")).not_to_have_attribute("inert", "")
+    assert page.url == url

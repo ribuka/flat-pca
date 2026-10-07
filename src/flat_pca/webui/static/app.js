@@ -187,11 +187,16 @@ async function selectClickedFile(target, stem) {
   const warning = document.getElementById("plot-select-warning");
   // The overlay blocks further clicks until the page is replaced.
   busyOverlay.start(() => window.stop());
-  const response = await fetch(target.dataset.selectUrl, {
-    method: "POST",
-    body: new URLSearchParams({ run: target.dataset.runId, stem }),
-  });
-  const result = response.ok ? await response.json() : {};
+  let result = {};
+  try {
+    const response = await fetch(target.dataset.selectUrl, {
+      method: "POST",
+      body: new URLSearchParams({ run: target.dataset.runId, stem }),
+    });
+    result = response.ok ? await response.json() : {};
+  } catch {
+    // A failed request or response is reported below like a refusal.
+  }
   if (result.added) {
     if (target.dataset.openUrl) {
       window.location.href = target.dataset.openUrl;
