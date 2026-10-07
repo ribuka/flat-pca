@@ -15,7 +15,7 @@ from flat_pca.feature_engineering.flatten_pca import (
     LoadingAggregation,
     aggregate_loadings_by_wavelength,
 )
-from flat_pca.feature_engineering.pca import partial_scores
+from flat_pca.feature_engineering.pca import partial_scores, time_point_order
 from flat_pca.spectral.schema import SOURCE_COLUMN
 
 from .display_cache import DisplayCache
@@ -58,6 +58,27 @@ class ScoresRequest:
     color: str | None = None
     aggregation: str | None = None
     files: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ScorePoints:
+    """Scores of two components, one point per scored file.
+
+    Attributes
+    ----------
+    samples : pl.DataFrame
+        ``stem`` and the metadata columns of each scored file, in
+        ``samples.parquet`` order. Files dropped by the imputation have no
+        score and are absent.
+    x : np.ndarray
+        ``float64`` scores of component m.
+    y : np.ndarray
+        ``float64`` scores of component n.
+    """
+
+    samples: pl.DataFrame
+    x: np.ndarray
+    y: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -105,9 +126,8 @@ class ScoresView:
         Stems of the run's samples.
     files : list[str]
         Stems whose trajectories are drawn, in option order.
-    scores : pl.DataFrame | None
-        ``stem``, the metadata columns, and the ``PC{m}`` and ``PC{n}``
-        scores of the files kept by the imputation, in sample order.
+    scores : ScorePoints | None
+        Scores of components m and n with each file's metadata.
     loadings : pl.DataFrame | None
         ``wavelength`` with the aggregated ``PC{m}`` and ``PC{n}``
         loadings.
@@ -131,7 +151,7 @@ class ScoresView:
     aggregation: LoadingAggregation = DEFAULT_AGGREGATION
     file_options: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
-    scores: pl.DataFrame | None = None
+    scores: ScorePoints | None = None
     loadings: pl.DataFrame | None = None
     explained_variance: pl.DataFrame | None = None
     trajectories: dict[str, Trajectory] = field(default_factory=dict)
@@ -203,8 +223,11 @@ def _choose_color(
 
 def score_table(
     artifacts: DisplayArtifacts, columns: Sequence[str], x: int, y: int
-) -> pl.DataFrame:
+) -> ScorePoints:
     """Return the scores of two components with each file's metadata.
+
+    The scores are kept apart from the metadata, so a metadata column may
+    have any name, including a score column's.
 
     Parameters
     ----------
@@ -217,29 +240,31 @@ def score_table(
 
     Returns
     -------
-    pl.DataFrame
-        ``stem``, the metadata columns, ``PC{m}``, and ``PC{n}``, one row per
-        scored file in ``samples.parquet`` order. Files dropped by the
-        imputation have no score and are absent.
+    ScorePoints
+        Scores of the scored files in ``samples.parquet`` order.
 
     Raises
     ------
     RunArtifactError
         If ``scores.parquet`` lacks a score column.
     """
-    wanted = {f"PC{x}": columns[x - 1], f"PC{y}": columns[y - 1]}
-    missing = [column for column in wanted.values() if column not in artifacts.scores.columns]
+    wanted = [columns[x - 1], columns[y - 1]]
+    missing = [column for column in wanted if column not in artifacts.scores.columns]
     if missing:
         raise artifact_error(ValueError(f"scores.parquet lacks columns {missing}"))
-    scores = artifacts.scores.select(
-        SOURCE_COLUMN,
-        *(pl.col(column).cast(pl.Float64).alias(name) for name, column in wanted.items()),
+    positions = {
+        source: position
+        for position, source in enumerate(artifacts.samples[SOURCE_COLUMN].to_list())
+    }
+    sample_rows = np.array(
+        [positions[source] for source in artifacts.scores[SOURCE_COLUMN].to_list()],
+        dtype=np.intp,
     )
-    return (
-        artifacts.samples.with_row_index("__order")
-        .join(scores, on=SOURCE_COLUMN, how="inner")
-        .sort("__order")
-        .drop("__order", SOURCE_COLUMN)
+    by_sample = np.argsort(sample_rows, kind="stable")
+    return ScorePoints(
+        samples=artifacts.samples[sample_rows[by_sample]].drop(SOURCE_COLUMN),
+        x=artifacts.scores[wanted[0]].cast(pl.Float64).to_numpy()[by_sample],
+        y=artifacts.scores[wanted[1]].cast(pl.Float64).to_numpy()[by_sample],
     )
 
 
@@ -326,35 +351,29 @@ def score_trajectories(
         If the model cannot be read.
     """
     model = cache.pca_model(run_dir)
+    order = time_point_order(model.columns)
+    points = [
+        f"({step}, {sequence}, {step_time:g})"
+        for step, sequence, step_time in zip(
+            order.steps.tolist(),
+            order.sequences.tolist(),
+            order.step_times.tolist(),
+            strict=True,
+        )
+    ]
     stems = artifacts.samples["stem"].to_list()
-    kept: list[str] = []
-    rows: list[np.ndarray] = []
+    trajectories: dict[str, Trajectory] = {}
     dropped: list[str] = []
+    # One file at a time, so only its time-point sums outlive the iteration.
     for stem in files:
         prepared = cache.prepared_row(run_dir, stems.index(stem))
         if prepared.kept.size == 0:
             dropped.append(stem)
             continue
-        kept.append(stem)
-        rows.append(prepared.values)
-    if not kept:
-        return {}, dropped
-    result = partial_scores(np.vstack(rows), model, (x, y))
-    points = [
-        f"({step}, {sequence}, {step_time:g})"
-        for step, sequence, step_time in zip(
-            result.steps.tolist(),
-            result.sequences.tolist(),
-            result.step_times.tolist(),
-            strict=True,
+        result = partial_scores(prepared.values, model, (x, y), order)
+        trajectories[stem] = Trajectory(
+            x=result.scores[0, :, 0], y=result.scores[0, :, 1], points=points
         )
-    ]
-    trajectories = {
-        stem: Trajectory(
-            x=result.scores[index, :, 0], y=result.scores[index, :, 1], points=points
-        )
-        for index, stem in enumerate(kept)
-    }
     return trajectories, dropped
 
 

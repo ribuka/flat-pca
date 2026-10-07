@@ -10,6 +10,7 @@ from flat_pca.feature_engineering.pca import (
     fit_pca,
     partial_scores,
     prepare_rows,
+    time_point_order,
     transform_pca,
 )
 from flat_pca.feature_engineering.scaling import ScalingStrategy
@@ -167,3 +168,16 @@ def test_rejects_values_of_another_width(values: np.ndarray) -> None:
 
     with pytest.raises(ValueError, match="expected"):
         partial_scores(np.zeros((1, 3)), model, (1,))
+
+
+def test_reused_order_gives_the_same_trajectories(values: np.ndarray) -> None:
+    """Passing a precomputed order matches computing it, row by row or together."""
+    model = _fit(values)
+    prepared = prepare_rows(values, model)
+    order = time_point_order(model.columns)
+
+    together = partial_scores(prepared.values, model, (1, 2))
+    one_row = partial_scores(prepared.values[5:6], model, (1, 2), order)
+
+    np.testing.assert_array_equal(order.steps, together.steps)
+    np.testing.assert_allclose(one_row.scores[0], together.scores[5], atol=1e-12)

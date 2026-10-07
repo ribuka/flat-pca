@@ -31,58 +31,62 @@ def _color_groups(color: pl.Series) -> dict[str, np.ndarray]:
 
 
 def create_score_scatter(
-    scores: pl.DataFrame,
+    x: np.ndarray | Sequence[float],
+    y: np.ndarray | Sequence[float],
     *,
-    x: str,
-    y: str,
-    label: str,
-    color: str | None = None,
+    labels: Sequence[str],
+    x_name: str,
+    y_name: str,
+    color: pl.Series | None = None,
 ) -> go.Figure:
-    """Create a scatter plot of two score columns, one point per row.
+    """Create a scatter plot of two components' scores, one point per sample.
 
-    Each point carries its ``label`` value as ``customdata``, so a click
-    handler can tell which row was chosen.
+    Each point carries its label as ``customdata``, so a click handler can
+    tell which sample was chosen.
 
     Parameters
     ----------
-    scores : pl.DataFrame
-        One row per sample with the ``x``, ``y``, ``label``, and ``color``
-        columns.
-    x : str
-        Score column of the horizontal axis.
-    y : str
-        Score column of the vertical axis.
-    label : str
-        Column naming each point in the hover text and ``customdata``.
-    color : str | None, optional
-        Column coloring the points. A numeric column is drawn with a
-        continuous color scale; any other column draws one trace per value.
-        By default all points share one trace.
+    x : np.ndarray | Sequence[float]
+        Scores of the horizontal axis.
+    y : np.ndarray | Sequence[float]
+        Scores of the vertical axis.
+    labels : Sequence[str]
+        Name of each point in the hover text and ``customdata``.
+    x_name : str
+        Label of the horizontal axis, such as ``"PC1"``.
+    y_name : str
+        Label of the vertical axis.
+    color : pl.Series | None, optional
+        Value coloring each point, titled by the series name. A numeric
+        series is drawn with a continuous color scale; any other series
+        draws one trace per value. By default all points share one trace.
 
     Returns
     -------
     go.Figure
         Score scatter plot.
     """
-    labels = scores[label].cast(pl.String).to_numpy()
-    xs = scores[x].cast(pl.Float64).to_numpy()
-    ys = scores[y].cast(pl.Float64).to_numpy()
-    hover = "%{customdata}<br>" + f"{x}=%{{x:.4g}}<br>{y}=%{{y:.4g}}<extra></extra>"
-    if color is None or scores[color].dtype.is_numeric():
+    names = np.asarray(list(labels), dtype=object)
+    xs = np.asarray(x, dtype=np.float64)
+    ys = np.asarray(y, dtype=np.float64)
+    hover = (
+        "%{customdata}<br>" + f"{x_name}=%{{x:.4g}}<br>{y_name}=%{{y:.4g}}<extra></extra>"
+    )
+    if color is None or color.dtype.is_numeric():
         marker: dict[str, object] = {"size": 9}
         if color is not None:
             marker |= {
-                "color": scores[color].cast(pl.Float64).to_numpy(),
+                "color": color.cast(pl.Float64).to_numpy(),
                 "colorscale": "Viridis",
                 "showscale": True,
-                "colorbar": {"title": {"text": color}},
+                "colorbar": {"title": {"text": color.name}},
             }
         traces = [
             go.Scatter(
                 x=xs,
                 y=ys,
                 mode="markers",
-                customdata=labels,
+                customdata=names,
                 marker=marker,
                 hovertemplate=hover,
                 showlegend=False,
@@ -95,16 +99,16 @@ def create_score_scatter(
                 y=ys[rows],
                 mode="markers",
                 name=value,
-                customdata=labels[rows],
+                customdata=names[rows],
                 marker={"size": 9},
                 hovertemplate=hover,
             )
-            for value, rows in _color_groups(scores[color]).items()
+            for value, rows in _color_groups(color).items()
         ]
     return go.Figure(traces).update_layout(
-        xaxis_title=x,
-        yaxis_title=y,
-        legend_title_text=color,
+        xaxis_title=x_name,
+        yaxis_title=y_name,
+        legend_title_text=None if color is None else color.name,
     )
 
 

@@ -22,7 +22,15 @@ def _scores() -> pl.DataFrame:
 
 def test_categorical_color_draws_one_trace_per_value() -> None:
     """Each value, including a missing one, becomes a named trace."""
-    figure = create_score_scatter(_scores(), x="PC1", y="PC2", label="stem", color="lot")
+    scores = _scores()
+    figure = create_score_scatter(
+        scores["PC1"],
+        scores["PC2"],
+        labels=scores["stem"],
+        x_name="PC1",
+        y_name="PC2",
+        color=scores["lot"],
+    )
 
     assert [trace.name for trace in figure.data] == ["L1", "L2", MISSING_LABEL]
     assert list(figure.data[0].customdata) == ["a", "d"]
@@ -35,8 +43,14 @@ def test_categorical_color_draws_one_trace_per_value() -> None:
 
 def test_numeric_color_uses_a_color_scale() -> None:
     """A numeric column colors one trace continuously."""
+    scores = _scores()
     figure = create_score_scatter(
-        _scores(), x="PC1", y="PC2", label="stem", color="yield_pct"
+        scores["PC1"],
+        scores["PC2"],
+        labels=scores["stem"],
+        x_name="PC1",
+        y_name="PC2",
+        color=scores["yield_pct"],
     )
 
     assert len(figure.data) == 1
@@ -49,7 +63,10 @@ def test_numeric_color_uses_a_color_scale() -> None:
 
 def test_without_color_draws_one_trace() -> None:
     """Without a color column, every point shares one trace."""
-    figure = create_score_scatter(_scores(), x="PC2", y="PC1", label="stem")
+    scores = _scores()
+    figure = create_score_scatter(
+        scores["PC2"], scores["PC1"], labels=scores["stem"], x_name="PC2", y_name="PC1"
+    )
 
     assert len(figure.data) == 1
     assert list(figure.data[0].x) == [-1.0, -2.0, -3.0, -4.0]

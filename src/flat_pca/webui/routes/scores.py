@@ -66,7 +66,12 @@ def _figures(shown: ScoresView) -> dict[str, str]:
     assert shown.explained_variance is not None
     figures = {
         "scatter": create_score_scatter(
-            shown.scores, x=shown.x_name, y=shown.y_name, label="stem", color=shown.color
+            shown.scores.x,
+            shown.scores.y,
+            labels=shown.scores.samples["stem"].to_list(),
+            x_name=shown.x_name,
+            y_name=shown.y_name,
+            color=None if shown.color is None else shown.scores.samples[shown.color],
         ).update_layout(title="スコア"),
         "loadings": create_loading_scatter(
             shown.loadings, x=shown.x_name, y=shown.y_name
