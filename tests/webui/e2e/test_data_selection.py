@@ -17,14 +17,21 @@ def _file_rows(page: Page) -> Locator:
     return page.locator("#file-table tbody tr")
 
 
+def _file_stems(page: Page) -> Locator:
+    """Return the file name cells of the file table, in display order.
+
+    Assert on all of them at once with ``to_have_text([...])``: it retries
+    until the whole list matches, so a table not yet swapped by htmx cannot
+    satisfy it the way a row count could.
+    """
+    return page.locator("#file-table tbody tr td:nth-child(2)")
+
+
 def test_file_list_is_shown(page: Page, cataloged_server_url: str) -> None:
     """The file table loads every cataloged file and its metadata."""
     page.goto(cataloged_server_url)
 
-    rows = _file_rows(page)
-    expect(rows).to_have_count(3)
-    stems = rows.evaluate_all("rows => rows.map(row => row.dataset.stem)")
-    assert sorted(stems) == ["run-1", "run-10", "run-2"]
+    expect(_file_stems(page)).to_have_text(["run-1", "run-2", "run-10"])
     expect(page.locator('#file-table tr[data-stem="run-1"]')).to_contain_text("A")
 
 
@@ -33,17 +40,15 @@ def test_metadata_filters_narrow_file_list(
 ) -> None:
     """Category and numeric metadata filters reload the file table."""
     page.goto(cataloged_server_url)
-    rows = _file_rows(page)
-    expect(rows).to_have_count(3)
+    stems = _file_stems(page)
+    expect(stems).to_have_text(["run-1", "run-2", "run-10"])
 
     page.locator('select[name="eq__lot"]').select_option("B")
-    expect(rows).to_have_count(1)
-    expect(rows).to_have_attribute("data-stem", "run-2")
+    expect(stems).to_have_text(["run-2"])
 
     page.locator('select[name="eq__lot"]').select_option("")
     page.get_by_label("yield_pct 下限").fill("90")
-    expect(rows).to_have_count(1)
-    expect(rows).to_have_attribute("data-stem", "run-1")
+    expect(stems).to_have_text(["run-1"])
 
 
 def test_catalog_update_shows_progress_and_replaces_category_filters(
@@ -69,5 +74,5 @@ def test_catalog_update_shows_progress_and_replaces_category_filters(
         "data-run-status", "succeeded", timeout=CATALOG_TIMEOUT_MS
     )
     expect(lot_options).to_have_text(["(すべて)", "A", "B"])
-    expect(_file_rows(page)).to_have_count(3)
+    expect(_file_stems(page)).to_have_text(["run-1", "run-2", "run-10"])
     expect(page.locator('[data-sidebar="catalog"]')).to_contain_text("succeeded")
