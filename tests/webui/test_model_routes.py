@@ -14,8 +14,10 @@ import pytest
 from fastapi.testclient import TestClient
 from fit_runs import register_fit_run
 
+from flat_pca.feature_engineering.pca import PcaModel
 from flat_pca.webui.app import create_app
 from flat_pca.webui.services.display_cache import DisplayCache
+from flat_pca.webui.services.fit_artifacts import load_pca_model
 from flat_pca.webui.settings import Settings
 from flat_pca.webui.workspace import Workspace
 
@@ -85,7 +87,101 @@ def test_default_page_draws_every_figure_from_the_run(client: TestClient) -> Non
     for name in ("scree", "loadings"):
         assert f'id="model-{name}-figure"' in html
     assert 'data-heatmap-label="PC1"' in html
-    assert 'data-trend-url="/model/trend?run=fit-1&amp;k=1&amp;segment=1%3A1"' in html
+    assert (
+        'data-trend-url="/model/trend?run=fit-1&amp;view=component&amp;k=1&amp;segment=1%3A1"'
+        in html
+    )
+    assert '<option value="component" selected>PCA 成分 k</option>' in html
+    for key in ("mean", "scaling_center", "scaling_scale", "impute_median"):
+        assert f'<option value="{key}" >' in html
+    assert 'value="outlier_lower"' not in html
+    assert "data-model-notice" not in html
+
+
+@pytest.mark.parametrize(
+    ("view", "expected"),
+    [
+        ("mean", lambda model: model.pca.mean_),
+        (
+            "scaling_center",
+            lambda model: [model.scaling_model.centers[c] for c in model.columns],
+        ),
+        (
+            "scaling_scale",
+            lambda model: [model.scaling_model.scales[c] for c in model.columns],
+        ),
+        (
+            "impute_median",
+            lambda model: [model.impute_model.values[c] for c in model.columns],
+        ),
+    ],
+)
+def test_parameter_heatmap_reshapes_the_model_values(
+    client: TestClient,
+    run_dir: Path,
+    view: str,
+    expected: Callable[[PcaModel], object],
+) -> None:
+    """A preprocessing parameter's heatmap and trends reshape the model's values."""
+    html = client.get("/model", params={"view": view, "segment": "2:1"}).text
+
+    assert f'<option value="{view}" selected>' in html
+    assert (
+        f'data-trend-url="/model/trend?run=fit-1&amp;view={view}&amp;k=1&amp;segment=2%3A1"'
+        in html
+    )
+    figure = _embedded(html, "explore-heatmap-figure")
+    assert figure["layout"]["coloraxis"]["colorbar"]["title"]["text"] == "value"  # type: ignore[index]
+    model = load_pca_model(run_dir)
+    values = np.asarray(expected(model), dtype=np.float64)
+    features = pl.read_parquet(run_dir / "features.parquet").with_columns(
+        pl.Series("value", values)
+    )
+    grid = (
+        features.filter((pl.col("Step") == 2) & (pl.col("Sequence") == 1))
+        .pivot(on="wavelength", index="StepTime", values="value", sort_columns=True)
+        .sort("StepTime")
+    )
+    np.testing.assert_allclose(
+        np.array(_decode(figure["data"][0]["z"])),  # type: ignore[index]
+        grid.drop("StepTime").to_numpy(),
+    )
+
+    trends = client.get(
+        "/model/trend",
+        params={"run": "fit-1", "view": view, "k": 1, "segment": "2:1"}
+        | {"wavelength": 400, "step_time": 0},
+    ).json()
+    label = trends["by_step_time"]["data"][0]["name"]
+    assert f'data-heatmap-label="{label}"' in html
+    np.testing.assert_allclose(
+        _decode(trends["by_wavelength"]["data"][0]["y"]),
+        grid.drop("StepTime").to_numpy()[0],
+    )
+
+
+@pytest.mark.parametrize("view", ["scaling_scale", "impute_median", "outlier_lower"])
+def test_parameters_absent_from_the_run_fall_back_to_the_component(
+    client: TestClient, settings: Settings, spectra_paths: list[Path], view: str
+) -> None:
+    """A run without scaling, imputation values, or outlier handling does not offer them."""
+    register_fit_run(
+        _workspace(client).database,
+        settings,
+        spectra_paths,
+        "fit-plain",
+        "drop",
+        scaling_strategy="none",
+    )
+
+    html = client.get("/model", params={"view": view}).text
+
+    assert f'value="{view}"' not in html
+    assert '<option value="component" selected>' in html
+    assert '<option value="mean" >' in html
+    assert "data-model-notice" in html
+    assert "がありません" in html
+    assert 'data-heatmap-label="PC1"' in html
 
 
 @pytest.mark.parametrize(
@@ -171,8 +267,14 @@ def test_out_of_range_choices_fall_back_to_the_defaults(client: TestClient) -> N
 @pytest.mark.usefixtures("run_dir")
 @pytest.mark.parametrize(
     "params",
-    [{"aggregation": "median"}, {"run": "missing"}, {"segment": "a:b"}, {"k": "one"}],
+    [
+        {"aggregation": "median"},
+        {"run": "missing"},
+        {"segment": "a:b"},
+        {"k": "one"},
+        {"view": "scale"},
+    ],
 )
 def test_invalid_parameters_are_rejected(client: TestClient, params: dict[str, str]) -> None:
-    """Unknown aggregations and runs, malformed segments, and non-integers are rejected."""
+    """Unknown aggregations, runs, and views, malformed segments, and non-integers are rejected."""
     assert client.get("/model", params=params).status_code in (400, 422)

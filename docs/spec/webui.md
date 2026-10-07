@@ -186,12 +186,19 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 ### 3. モデル
 
 - fit runを選んだ時点で決まり、ファイルの選択で変わらない図をまとめる。
-- 選択項目：fit run（成功したrun。既定は最新）、ローディングの成分番号m・n（既定はPC1・PC2。範囲外は既定に戻す）、ローディングの集計方法、成分番号k（既定は1。範囲外は既定に戻す）、`(Step, Sequence)`（`features.parquet`から求める。既定は先頭）。
-  - 選択は`/model?run=…&x={m}&y={n}&aggregation=…&k=…&segment={Step}:{Sequence}`のクエリで表し、URLで再訪できる。
+- 選択項目：fit run（成功したrun。既定は最新）、ローディングの成分番号m・n（既定はPC1・PC2。範囲外は既定に戻す）、ローディングの集計方法、ヒートマップの値（PCA成分kか前処理パラメータ。既定はPCA成分k）、成分番号k（既定は1。範囲外は既定に戻す）、`(Step, Sequence)`（`features.parquet`から求める。既定は先頭）。
+  - 選択は`/model?run=…&x={m}&y={n}&aggregation=…&view=…&k=…&segment={Step}:{Sequence}`のクエリで表し、URLで再訪できる。
 - 表示する図（上から順に）：
   1. 寄与率の表とスクリープロット（`get_explained_variance_table`）。
   2. ローディング散布図：成分mとnの係数を、特徴量ごとに波長単位で集計し、1点を1波長として打つ。集計方法は平均・RMS・絶対値平均から選ぶ（既定はRMS。平均は符号の異なる寄与が打ち消し合うため）。
-  3. PCA成分k（`components.npy`の1行をreshape）のヒートマップとトレンド。ヒートマップ・トレンドの描き方（スライダーとクリック、十字線、ビニング、0中心の発散カラースケール）はスペクトル探索と同じとする。トレンドは`/model/trend?run=…&k=…&segment=…`でビニング前の行列から切り出す。ページ表示時の行列を、run・k・`(Step, Sequence)`をキーに表示キャッシュへ保持し（スペクトル探索と同じキャッシュ）、外れている場合は解決し直す。
+  3. ヒートマップとトレンド：「ヒートマップの値」で選んだ、特徴量（時刻 × 波長）ごとの値を`(Step, Sequence)`ごとのStepTime × 波長に並べる（`feature_segment_matrix`）。ヒートマップ・トレンドの描き方（スライダーとクリック、十字線、ビニング）はスペクトル探索と同じとする。トレンドは`/model/trend?run=…&view=…&k=…&segment=…`でビニング前の行列から切り出す。ページ表示時の行列を、run・値（view）・k・`(Step, Sequence)`をキーに表示キャッシュへ保持し（スペクトル探索と同じキャッシュ）、外れている場合は解決し直す。
+     - PCA成分k（`view=component`）：`components.npy`の1行。0中心の発散カラースケールで描く。
+     - 前処理パラメータ：`PcaModel`が保存している特徴量ごとの値（`model.columns`は`features.parquet`の行順）。連続カラースケールで描く（カラーバーは`value`）。
+       - 中心化の平均（`mean`）：`pca.mean_`。スケーリング後の値の平均。常にある。
+       - スケーリングのcenter・scale（`scaling_center`・`scaling_scale`）：`scaling_strategy`が`"none"`以外のとき。
+       - 補完値：`impute_strategy="median"`の中央値（`impute_median`）、`"kmeans"`のクラスタ重心（`kmeans_centroid_{c}`。cは1始まり）。
+       - 外れ値処理の閾値（`outlier_lower`・`outlier_upper`）とwinsorizeの上下限（`winsor_lower`・`winsor_upper`）：外れ値処理をしたとき。Web UIのfitは`outlier_strategy=None`のため、通常は持たない。
+     - 選択肢にはそのrunが持つ値だけを出す。runが持たないパラメータを`view`で指定した場合は、持たない旨を表示してPCA成分kを表示する。前処理パラメータとして不正な`view`は400とする。
 
 ### 4. スペクトル探索
 

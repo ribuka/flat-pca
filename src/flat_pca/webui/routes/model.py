@@ -13,11 +13,10 @@ from flat_pca.visualize import create_loading_scatter, create_scree_plot
 from ..services.display_cache import ShownMatrices
 from ..services.model import (
     AGGREGATION_LABELS,
-    COMPONENT_VALUE_NAME,
-    ComponentRequest,
+    HeatmapRequest,
     ModelRequest,
     ModelView,
-    component_request,
+    heatmap_request,
     resolve_model,
 )
 from ..services.runs import list_succeeded_runs
@@ -86,13 +85,13 @@ def _figures(shown: ModelView) -> dict[str, str]:
     return {name: script_json(figure.to_json()) for name, figure in figures.items()}
 
 
-def _trend_url(key: ComponentRequest) -> str:
-    """Return the trend URL of the component heatmap.
+def _trend_url(key: HeatmapRequest) -> str:
+    """Return the trend URL of the heatmap.
 
     Parameters
     ----------
-    key : ComponentRequest
-        Run, component, and segment of the drawn matrix.
+    key : HeatmapRequest
+        Run, values, component, and segment of the drawn matrix.
 
     Returns
     -------
@@ -100,7 +99,7 @@ def _trend_url(key: ComponentRequest) -> str:
         ``/model/trend`` with the query selecting the same matrix.
     """
     return "/model/trend?" + urlencode(
-        {"run": key.run, "k": key.component, "segment": key.segment}
+        {"run": key.run, "view": key.view, "k": key.component, "segment": key.segment}
     )
 
 
@@ -112,6 +111,7 @@ def model_page(
     x: int | None = None,
     y: int | None = None,
     aggregation: str | None = None,
+    view: str | None = None,
     k: int | None = None,
     segment: str | None = None,
 ) -> HTMLResponse:
@@ -134,11 +134,14 @@ def model_page(
     aggregation : str | None, default None
         ``"mean"``, ``"rms"``, or ``"abs_mean"`` loading aggregation;
         ``"rms"`` by default.
+    view : str | None, default None
+        Values of the heatmap: ``"component"`` (component k) or a
+        preprocessing parameter key; ``"component"`` by default and when
+        the run lacks the parameter.
     k : int | None, default None
         1-based component number k of the component heatmap; 1 by default.
     segment : str | None, default None
-        ``"{Step}:{Sequence}"`` of the component heatmap; the first one by
-        default.
+        ``"{Step}:{Sequence}"`` of the heatmap; the first one by default.
 
     Returns
     -------
@@ -148,22 +151,28 @@ def model_page(
     shown = _resolve(
         workspace,
         ModelRequest(
-            run=run, x=x, y=y, aggregation=aggregation, component=k, segment=segment
+            run=run,
+            x=x,
+            y=y,
+            aggregation=aggregation,
+            view=view,
+            component=k,
+            segment=segment,
         ),
     )
     context: dict[str, object] = {
         "shown": shown,
         "aggregation_labels": AGGREGATION_LABELS,
     }
-    key = component_request(shown)
+    key = heatmap_request(shown)
     if shown.error is None and key is not None:
         context["figures"] = _figures(shown)
         workspace.cache.keep_shown_matrices(
-            key, ShownMatrices(value_name=COMPONENT_VALUE_NAME, matrices=shown.matrices)
+            key, ShownMatrices(value_name=shown.value_name, matrices=shown.matrices)
         )
         context |= heatmap_context(
             shown.matrices,
-            COMPONENT_VALUE_NAME,
+            shown.value_name,
             workspace.settings.ui.heatmap_max_cells,
             _trend_url(key),
         )
@@ -176,10 +185,11 @@ def model_trend(
     wavelength: float,
     step_time: float,
     run: str | None = None,
+    view: str | None = None,
     k: int | None = None,
     segment: str | None = None,
 ) -> Response:
-    """Return the trend figures of the component heatmap at one point.
+    """Return the trend figures of the heatmap at one point.
 
     The matrix kept by the page is used when possible; otherwise the screen
     is resolved and its matrix is kept under its resolved choices.
@@ -192,7 +202,7 @@ def model_trend(
         Requested wavelength; the nearest one is used.
     step_time : float
         Requested ``StepTime``; the nearest one is used.
-    run, k, segment
+    run, view, k, segment
         Same as ``model_page``.
 
     Returns
@@ -207,15 +217,17 @@ def model_trend(
         nothing to show.
     """
     kept = None
-    if run is not None and k is not None and segment is not None:
+    if run is not None and view is not None and k is not None and segment is not None:
         kept = workspace.cache.shown_matrices(
-            ComponentRequest(run=run, component=k, segment=segment)
+            HeatmapRequest(run=run, view=view, component=k, segment=segment)
         )
     if kept is None:
-        shown = _resolve(workspace, ModelRequest(run=run, component=k, segment=segment))
-        key = component_request(shown)
+        shown = _resolve(
+            workspace, ModelRequest(run=run, view=view, component=k, segment=segment)
+        )
+        key = heatmap_request(shown)
         if key is None:
             raise HTTPException(status_code=404, detail=shown.error or "nothing to show")
-        kept = ShownMatrices(value_name=COMPONENT_VALUE_NAME, matrices=shown.matrices)
+        kept = ShownMatrices(value_name=shown.value_name, matrices=shown.matrices)
         workspace.cache.keep_shown_matrices(key, kept)
     return trend_response(kept.matrices, kept.value_name, wavelength, step_time)
