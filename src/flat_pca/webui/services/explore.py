@@ -578,15 +578,38 @@ def resolve_explore(
     return _run_view(view, run, artifacts, cache, request, runs)
 
 
-def explore_trends(
-    view: ExploreView, wavelength: float, step_time: float
-) -> tuple[dict[str, TrendLine], dict[str, TrendLine]]:
-    """Cut every matrix of a view at the nearest grid point.
+def shown_request(view: ExploreView) -> ExploreRequest:
+    """Return the request that selects exactly the resolved choices of a view.
 
     Parameters
     ----------
     view : ExploreView
         Resolved view.
+
+    Returns
+    -------
+    ExploreRequest
+        Request with the view's run, files, segment, and component, so
+        requests built from the page's trend query equal it.
+    """
+    return ExploreRequest(
+        view=view.view,
+        run=view.run_id,
+        files=tuple(view.files),
+        segment=None if view.segment is None else f"{view.segment[0]}:{view.segment[1]}",
+        component=view.component,
+    )
+
+
+def explore_trends(
+    matrices: dict[str, SpectralMatrix], wavelength: float, step_time: float
+) -> tuple[dict[str, TrendLine], dict[str, TrendLine]]:
+    """Cut every matrix of a view at the nearest grid point.
+
+    Parameters
+    ----------
+    matrices : dict[str, SpectralMatrix]
+        Unbinned matrices of a view keyed by trace label.
     wavelength : float
         Requested wavelength.
     step_time : float
@@ -600,6 +623,6 @@ def explore_trends(
         cut at its own nearest grid point.
     """
     return (
-        {label: trend_at_wavelength(matrix, wavelength) for label, matrix in view.matrices.items()},
-        {label: trend_at_step_time(matrix, step_time) for label, matrix in view.matrices.items()},
+        {label: trend_at_wavelength(matrix, wavelength) for label, matrix in matrices.items()},
+        {label: trend_at_step_time(matrix, step_time) for label, matrix in matrices.items()},
     )
