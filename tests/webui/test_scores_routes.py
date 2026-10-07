@@ -120,6 +120,7 @@ def test_default_page_colors_scores_by_the_default_column(client: TestClient) ->
     assert '<option value="lot" selected>' in html
     assert 'name="aggregation"' not in html
     assert 'data-select-url="/sidebar/selection/files/add"' in html
+    assert 'data-point-table="point-table"' in html
     assert "data-open-url" not in html
     assert 'name="run"' not in html
     assert 'name="file"' not in html
@@ -153,6 +154,26 @@ def test_scores_match_the_saved_scores(client: TestClient, run_dir: Path) -> Non
     )
     for stem, x, y in points:
         np.testing.assert_allclose((x, y), by_stem[stem])
+
+
+def test_point_table_holds_the_shown_scores(client: TestClient, run_dir: Path) -> None:
+    """The table rows hold each file's metadata and the scores of PCm and PCn."""
+    html = client.get("/scores", params={"x": 3, "y": 1}).text
+
+    assert re.findall(r"<th>(.*?)</th>", html) == [
+        "ファイル名", "lot", "date", "yield_pct", "PC3", "PC1"
+    ]
+    match = re.search(r'data-point-rows>(.*?)</script>', html)
+    assert match is not None
+    rows = json.loads(match.group(1))
+    saved = _scores_by_stem(run_dir)
+    by_stem = dict(zip(saved["stem"], saved.select("pca-3", "pca-1").rows(), strict=True))
+    assert sorted(row[0] for row in rows) == sorted(by_stem)
+    for stem, lot, _, _, x, y in rows:
+        assert lot == "AB"[int(stem[2:]) % 2]
+        np.testing.assert_allclose((float(x), float(y)), by_stem[stem], rtol=1e-5)
+    layout = _figure(html, "scatter")["layout"]
+    assert layout["modebar"]["add"] == ["select2d", "lasso2d"]  # type: ignore[index]
 
 
 def test_trajectories_end_at_the_saved_scores(client: TestClient, run_dir: Path) -> None:

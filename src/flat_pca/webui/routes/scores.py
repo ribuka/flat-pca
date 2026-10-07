@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 
 from flat_pca.visualize import create_partial_score_trajectories, create_score_scatter
 
+from ..services.point_table import SELECT_TOOLS, PointTable, point_table
 from ..services.scores import ScoresRequest, ScoresView, resolve_scores
 from ..templating import templates
 from ..workspace import Workspace
@@ -59,7 +60,7 @@ def _figures(shown: ScoresView) -> dict[str, str]:
             x_name=shown.x_name,
             y_name=shown.y_name,
             color=None if shown.color is None else shown.scores.samples[shown.color],
-        ).update_layout(title="スコア"),
+        ).update_layout(title="スコア", modebar_add=SELECT_TOOLS),
     }
     if shown.trajectories:
         figures["trajectories"] = create_partial_score_trajectories(
@@ -71,6 +72,26 @@ def _figures(shown: ScoresView) -> dict[str, str]:
             y_name=shown.y_name,
         ).update_layout(title="部分スコア軌跡")
     return {name: _figure_json(figure) for name, figure in figures.items()}
+
+
+def _point_table(shown: ScoresView) -> PointTable:
+    """Build the table of the files drawn in a resolved score scatter plot.
+
+    Parameters
+    ----------
+    shown : ScoresView
+        Resolved screen without an error.
+
+    Returns
+    -------
+    PointTable
+        One row per scored file with the shown scores of PCm and PCn.
+    """
+    scores = shown.scores
+    assert scores is not None
+    return point_table(
+        scores.samples, {shown.x_name: scores.x.tolist(), shown.y_name: scores.y.tolist()}
+    )
 
 
 @router.get("", response_class=HTMLResponse)
@@ -127,4 +148,5 @@ def scores_page(
     context: dict[str, object] = {"shown": shown}
     if shown.error is None and shown.run_id is not None:
         context["figures"] = _figures(shown)
+        context["point_table"] = _point_table(shown)
     return templates.TemplateResponse(request, "pages/scores.html", context)

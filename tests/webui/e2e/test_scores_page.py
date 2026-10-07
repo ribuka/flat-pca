@@ -37,6 +37,10 @@ def test_clicking_a_score_point_adds_the_file(page: Page, fitted_server_url: str
         _click_point(page, 1)
 
     expect(page).to_have_url(url)
+    # The row of the clicked file is kept over the reload.
+    rows = page.locator("#point-table tbody tr")
+    expect(rows).to_have_count(1)
+    expect(rows.first.locator("td").first).to_have_text("s-01")
     expect(page.locator('#view-selection input[value="s-01"]')).to_be_checked()
     expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(1)
     expect(page.locator("#scores-trajectories")).to_have_attribute("data-plot-ready", "true")
@@ -60,6 +64,40 @@ def test_clicking_a_point_at_the_limit_warns(page: Page, one_file_server_url: st
     expect(warning).to_contain_text("s-01")
     assert page.url == url
     expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(1)
+    rows = page.locator("#point-table tbody tr")
+    expect(rows).to_have_count(1)
+    expect(rows.first.locator("td").first).to_have_text("s-01")
+    # The row is not kept for a later load of the page.
+    _open(page, url)
+    expect(page.locator("#point-table tbody tr")).to_have_count(0)
+
+
+def test_lasso_select_shows_the_rows_without_adding(
+    page: Page, fitted_server_url: str
+) -> None:
+    """A lasso around every point shows each file with its scores and adds nothing."""
+    url = f"{fitted_server_url}/scores?color="
+    _open(page, url)
+
+    page.locator("#scores-scatter .nsewdrag").first.hover()
+    page.locator('#scores-scatter [data-title="Lasso Select"]').click()
+    box = page.locator("#scores-scatter .nsewdrag").first.bounding_box()
+    assert box is not None
+    left, top = box["x"] + 2, box["y"] + 2
+    right, bottom = box["x"] + box["width"] - 2, box["y"] + box["height"] - 2
+    page.mouse.move(left, top)
+    page.mouse.down()
+    for x, y in ((right, top), (right, bottom), (left, bottom), (left, top + 4)):
+        page.mouse.move(x, y, steps=5)
+    page.mouse.up()
+
+    table = page.locator("#point-table")
+    expect(table).to_have_attribute("data-shown-count", "12")
+    expect(table.locator("th")).to_have_text(
+        ["ファイル名", "lot", "date", "yield_pct", "PC1", "PC2"]
+    )
+    assert page.url == url
+    expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(0)
 
 
 def test_choices_redraw_the_trajectories(page: Page, fitted_server_url: str) -> None:
