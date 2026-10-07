@@ -69,6 +69,8 @@ class DisplayArtifacts:
         One row per feature, in ``x`` and ``components`` column order.
     samples : pl.DataFrame
         One row per file, in ``x`` row order.
+    scores : pl.DataFrame
+        Scores, T², and Q of the files kept by the imputation stage.
     x : np.ndarray
         Preprocessed matrix before imputation, memory-mapped read-only in
         its saved dtype.
@@ -79,6 +81,7 @@ class DisplayArtifacts:
 
     features: pl.DataFrame
     samples: pl.DataFrame
+    scores: pl.DataFrame
     x: np.ndarray
     components: np.ndarray
 
@@ -86,7 +89,7 @@ class DisplayArtifacts:
 _READ_ERRORS = (OSError, KeyError, ValueError, pl.exceptions.PolarsError)
 
 
-def _artifact_error(error: Exception) -> RunArtifactError:
+def artifact_error(error: Exception) -> RunArtifactError:
     """Return the error reported for unreadable artifacts.
 
     Parameters
@@ -103,6 +106,28 @@ def _artifact_error(error: Exception) -> RunArtifactError:
         f"run の成果物を読み込めません。形式が古いか壊れているため、再実行してください"
         f"（{type(error).__name__}: {error}）"
     )
+
+
+def _check_score_sources(scores: pl.DataFrame, samples: pl.DataFrame) -> None:
+    """Check that the scores belong to the run's samples.
+
+    Parameters
+    ----------
+    scores : pl.DataFrame
+        The run's ``scores.parquet``.
+    samples : pl.DataFrame
+        The run's ``samples.parquet``.
+
+    Raises
+    ------
+    ValueError
+        If the scores lack the ``source`` column or hold unknown sources.
+    """
+    if SOURCE_COLUMN not in scores.columns:
+        raise ValueError(f"{SCORES_FILE} lacks columns {[SOURCE_COLUMN]}")
+    unknown = set(scores[SOURCE_COLUMN]) - set(samples[SOURCE_COLUMN])
+    if unknown:
+        raise ValueError(f"{SCORES_FILE} holds unknown sources {sorted(unknown)}")
 
 
 def load_display_artifacts(run_dir: Path) -> DisplayArtifacts:
@@ -127,6 +152,7 @@ def load_display_artifacts(run_dir: Path) -> DisplayArtifacts:
         artifacts = DisplayArtifacts(
             features=pl.read_parquet(run_dir / FEATURES_FILE),
             samples=pl.read_parquet(run_dir / SAMPLES_FILE),
+            scores=pl.read_parquet(run_dir / SCORES_FILE),
             x=np.load(run_dir / X_FILE, mmap_mode="r"),
             components=np.load(run_dir / COMPONENTS_FILE, mmap_mode="r"),
         )
@@ -140,8 +166,9 @@ def load_display_artifacts(run_dir: Path) -> DisplayArtifacts:
                 f"{COMPONENTS_FILE} is shaped {components.shape}, "
                 f"expected (n_components, {n_features})"
             )
+        _check_score_sources(artifacts.scores, artifacts.samples)
     except _READ_ERRORS as error:
-        raise _artifact_error(error) from error
+        raise artifact_error(error) from error
     return artifacts
 
 
@@ -196,7 +223,7 @@ def load_pca_model(run_dir: Path) -> PcaModel:
     try:
         return _read_pca_model(run_dir, pl.read_parquet(run_dir / FEATURES_FILE))
     except _READ_ERRORS as error:
-        raise _artifact_error(error) from error
+        raise artifact_error(error) from error
 
 
 def _check_shapes(artifacts: FitArtifacts) -> None:
@@ -224,9 +251,7 @@ def _check_shapes(artifacts: FitArtifacts) -> None:
     ]
     if missing:
         raise ValueError(f"{SCORES_FILE} lacks columns {missing}")
-    unknown = set(artifacts.scores[SOURCE_COLUMN]) - set(artifacts.samples[SOURCE_COLUMN])
-    if unknown:
-        raise ValueError(f"{SCORES_FILE} holds unknown sources {sorted(unknown)}")
+    _check_score_sources(artifacts.scores, artifacts.samples)
 
 
 def load_fit_artifacts(run_dir: Path) -> FitArtifacts:
@@ -260,7 +285,7 @@ def load_fit_artifacts(run_dir: Path) -> FitArtifacts:
         )
         _check_shapes(artifacts)
     except _READ_ERRORS as error:
-        raise _artifact_error(error) from error
+        raise artifact_error(error) from error
     return artifacts
 
 

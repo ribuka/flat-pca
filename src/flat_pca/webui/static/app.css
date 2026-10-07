@@ -207,7 +207,7 @@ a.nav-item:hover {
   min-height: 28rem;
 }
 
-.trend-grid {
+.plot-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
   gap: 1rem;
@@ -220,4 +220,9 @@ a.nav-item:hover {
 .explore-sliders output {
   min-width: 4rem;
   font-family: ui-monospace, monospace;
+}
+
+.table-scroll {
+  max-height: 22rem;
+  overflow-y: auto;
 }
