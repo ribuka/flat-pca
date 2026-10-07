@@ -13,6 +13,8 @@ from flat_pca.spectral.schema import (
 )
 
 NON_SPECTRAL_COLUMNS = frozenset(SPECTRAL_NON_SPECTRAL_COLUMNS)
+# Values centered on zero, drawn with a zero-centered diverging color scale.
+DIVERGING_VALUE_NAMES = frozenset({"coefficient", "contribution", "residual"})
 
 
 def _symmetric_color_range(z: np.ndarray, quantile: float) -> tuple[float, float]:
@@ -72,13 +74,13 @@ def create_heatmap(
     color_continuous_scale : str | None, optional
         Plotly color scale name. If ``None`` (default), it is chosen
         automatically based on ``z_name``: ``"RdBu_r"`` when
-        ``z_name == "coefficient"``, otherwise ``"Viridis"``.
+        ``z_name`` is in ``DIVERGING_VALUE_NAMES``, otherwise ``"Viridis"``.
     range_color : tuple[float, float] | list[float] | None, optional
         Explicit color-scale limits. If ``None`` (default), limits are
         derived from the data.
     symmetric_range_quantile : float, optional
         Quantile of ``abs(z)`` used to derive a zero-centered
-        ``range_color`` when ``z_name == "coefficient"`` and
+        ``range_color`` when ``z_name`` is in ``DIVERGING_VALUE_NAMES`` and
         ``range_color`` is not explicitly set, by default ``0.995``.
 
     Returns
@@ -116,10 +118,10 @@ def create_heatmap(
             metadata_columns=metadata_columns,
         )
 
-    is_coefficient = z_name == "coefficient"
+    is_diverging = z_name in DIVERGING_VALUE_NAMES
     if color_continuous_scale is None:
-        color_continuous_scale = "RdBu_r" if is_coefficient else "Viridis"
-    if range_color is None and is_coefficient:
+        color_continuous_scale = "RdBu_r" if is_diverging else "Viridis"
+    if range_color is None and is_diverging:
         range_color = _symmetric_color_range(z_values, symmetric_range_quantile)
 
     return px.imshow(

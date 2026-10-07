@@ -6,9 +6,11 @@ import socket
 import threading
 import time
 from collections.abc import Callable, Iterator
+from pathlib import Path
 
 import pytest
 import uvicorn
+from fit_runs import register_fit_run
 from playwright.sync_api import ConsoleMessage, Error, Page
 
 from flat_pca.webui.app import create_app
@@ -97,6 +99,30 @@ def cataloged_server_url(cataloged_settings: Settings) -> Iterator[str]:
     str
         Base URL of the running server.
     """
+    yield from serve(cataloged_settings)
+
+
+@pytest.fixture
+def fitted_server_url(
+    cataloged_settings: Settings, spectra_paths: list[Path]
+) -> Iterator[str]:
+    """Serve the Web UI on a workspace holding a succeeded fit run.
+
+    The run (``fit-1``) imputes with the median, so the synthetic file
+    lacking a row is reconstructed from imputed values.
+
+    Yields
+    ------
+    str
+        Base URL of the running server.
+    """
+    workspace = Workspace(cataloged_settings)
+    try:
+        register_fit_run(
+            workspace.database, cataloged_settings, spectra_paths, "fit-1", "median"
+        )
+    finally:
+        workspace.close()
     yield from serve(cataloged_settings)
 
 

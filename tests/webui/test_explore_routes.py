@@ -11,16 +11,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from fit_runs import register_fit_run
 from spectra import SPECTRA_SHORT_FILE
 
 from flat_pca.webui.app import create_app
-from flat_pca.webui.jobs.fit_run import build_fit_config, run_fit
 from flat_pca.webui.services.runs import insert_run, update_run
 from flat_pca.webui.settings import Settings, UiSettings
 from flat_pca.webui.workspace import FIT_JOB, Workspace
 
 Wait = Callable[..., dict[str, object]]
-STATISTICS = {"cumulative_explained_variance": 2, "alpha": 0.01}
 FIT_RUN_ID = "fit-1"
 
 
@@ -63,41 +62,16 @@ def client(settings: Settings, wait_for: Wait) -> Iterator[TestClient]:
 
 @pytest.fixture
 def fit_run(client: TestClient, settings: Settings, spectra_paths: list[Path]) -> str:
-    """Register a succeeded fit run of the synthetic spectra using ``sqrt``.
-
-    The fixture's own files are too few to fit, so the run is executed
-    directly on the synthetic spectra.
+    """Register a succeeded z-score fit run imputing missing values with the median.
 
     Returns
     -------
     str
         The run's identifier.
     """
-    config = build_fit_config(
-        settings,
-        [{"stem": path.stem, "path": str(path)} for path in spectra_paths],
-        {
-            "target_steps": [1, 2],
-            "max_null_ratio": 0.1,
-            "intensity_transform": "sqrt",
-            "intensity_transform_scale": 2.0,
-        },
-        {
-            "n_component": 3,
-            "impute_strategy": "median",
-            "impute_kmeans_n_clusters": None,
-            "scaling_strategy": "none",
-        },
-        STATISTICS,
-        STATISTICS,
+    return register_fit_run(
+        _workspace(client).database, settings, spectra_paths, FIT_RUN_ID, "median"
     )
-    run_dir = settings.runs_dir / FIT_RUN_ID
-    run_dir.mkdir(parents=True)
-    run_fit(json.loads(json.dumps(config)), run_dir)
-    database = _workspace(client).database
-    insert_run(database, FIT_RUN_ID, FIT_JOB, config, run_dir)
-    update_run(database, FIT_RUN_ID, status="succeeded")
-    return FIT_RUN_ID
 
 
 def test_navigation_links_to_the_page(client: TestClient) -> None:
@@ -254,7 +228,7 @@ def test_run_views_without_a_run_show_a_message(client: TestClient) -> None:
 
 @pytest.mark.parametrize(
     "params",
-    [{"view": "residual"}, {"segment": "1"}, {"segment": "a:b"}, {"run": "missing"}],
+    [{"view": "unknown"}, {"segment": "1"}, {"segment": "a:b"}, {"run": "missing"}],
 )
 def test_invalid_parameters_are_rejected(client: TestClient, params: dict[str, str]) -> None:
     """Unknown views, malformed segments, and unknown runs return 400."""
@@ -292,3 +266,134 @@ def test_old_succeeded_run_can_be_requested(
 
     assert f'<option value="{fit_run}" selected>' in html
     assert 'data-heatmap-label="PC1"' in html
+
+
+def _trend_values(
+    client: TestClient, params: dict[str, object]
+) -> dict[str, np.ndarray]:
+    """Return the wavelength-trend values of a view keyed by trace name.
+
+    Parameters
+    ----------
+    client : TestClient
+        Client of the application.
+    params : dict[str, object]
+        Query parameters selecting the view, without the point.
+
+    Returns
+    -------
+    dict[str, np.ndarray]
+        Values over wavelength at ``StepTime`` 2 of every trace.
+    """
+    response = client.get(
+        "/explore/trend", params={**params, "wavelength": 400, "step_time": 2}
+    )
+    assert response.status_code == 200
+    return {
+        trace["name"]: np.array(_decode(trace["y"]), dtype=np.float64)
+        for trace in response.json()["by_wavelength"]["data"]
+    }
+
+
+def test_reconstruction_view_has_no_missing_cells_and_overlays_x(
+    client: TestClient, fit_run: str
+) -> None:
+    """The imputed file is reconstructed everywhere; trends overlay X.npy."""
+    short = f"s-{SPECTRA_SHORT_FILE:02d}"
+    params = {"view": "reconstruction", "file": [short], "segment": "2:1", "k": "2"}
+
+    html = client.get("/explore", params=params).text
+
+    assert f'data-heatmap-label="{short}（累積再構成）"' in html
+    assert 'name="k" min="1" max="3" value="2"' in html
+    assert 'data-intensity-transform="sqrt"' in html
+    assert "先頭 1..2 成分の累積再構成" in html
+    z = np.array(_decode(_heatmap(html)["z"]), dtype=np.float64)
+    assert z.shape == (3, 5)
+    assert np.isfinite(z).all()
+    coloraxis = _embedded(html, "explore-heatmap-figure")["layout"]["coloraxis"]  # type: ignore[index]
+    assert coloraxis["colorbar"]["title"]["text"] == "intensity"
+
+    lines = _trend_values(client, params)
+    assert list(lines) == [f"{short}（累積再構成）", f"{short}（前処理済み）"]
+    assert np.isfinite(lines[f"{short}（累積再構成）"]).all()
+    # X.npy lacks the short file's last Step 2 row.
+    assert np.isnan(lines[f"{short}（前処理済み）"]).all()
+
+
+def test_residual_view_has_no_nan_for_an_imputed_file(
+    client: TestClient, fit_run: str
+) -> None:
+    """Residuals of imputed rows are finite and drawn on a diverging scale."""
+    short = f"s-{SPECTRA_SHORT_FILE:02d}"
+    params = {"view": "residual", "file": [short], "segment": "2:1", "k": "1"}
+
+    html = client.get("/explore", params=params).text
+
+    assert f'data-heatmap-label="{short}"' in html
+    z = np.array(_decode(_heatmap(html)["z"]), dtype=np.float64)
+    assert np.isfinite(z).all()
+    coloraxis = _embedded(html, "explore-heatmap-figure")["layout"]["coloraxis"]  # type: ignore[index]
+    assert coloraxis["colorbar"]["title"]["text"] == "residual"
+    assert coloraxis["cmin"] == -coloraxis["cmax"]
+    assert np.isfinite(_trend_values(client, params)[short]).all()
+
+
+def test_residual_plus_reconstruction_is_the_preprocessed_row(
+    client: TestClient, fit_run: str
+) -> None:
+    """Where X.npy has no missing value, residual + reconstruction = X."""
+    common = {"file": ["s-00"], "segment": "2:1", "k": "2"}
+
+    reconstruction = _trend_values(client, {**common, "view": "reconstruction"})
+    residual = _trend_values(client, {**common, "view": "residual"})["s-00"]
+
+    np.testing.assert_allclose(
+        reconstruction["s-00（累積再構成）"] + residual,
+        reconstruction["s-00（前処理済み）"],
+    )
+
+
+def test_contribution_view_is_the_reconstruction_increment(
+    client: TestClient, fit_run: str
+) -> None:
+    """The k-th contribution is the change of the reconstruction from k-1 to k."""
+    common = {"file": ["s-00"], "segment": "2:1"}
+
+    html = client.get("/explore", params={**common, "view": "contribution", "k": "2"}).text
+    contribution = _trend_values(client, {**common, "view": "contribution", "k": "2"})
+    first = _trend_values(client, {**common, "view": "reconstruction", "k": "1"})
+    second = _trend_values(client, {**common, "view": "reconstruction", "k": "2"})
+
+    coloraxis = _embedded(html, "explore-heatmap-figure")["layout"]["coloraxis"]  # type: ignore[index]
+    assert coloraxis["colorbar"]["title"]["text"] == "contribution"
+    assert coloraxis["cmin"] == -coloraxis["cmax"]
+    assert "第 2 成分のみの寄与" in html
+    np.testing.assert_allclose(
+        contribution["s-00"],
+        second["s-00（累積再構成）"] - first["s-00（累積再構成）"],
+    )
+
+
+def test_drop_strategy_excludes_files_with_missing_values(
+    client: TestClient, settings: Settings, spectra_paths: list[Path]
+) -> None:
+    """Files dropped by ``impute_strategy="drop"`` are listed, not reconstructed."""
+    run_id = register_fit_run(
+        _workspace(client).database, settings, spectra_paths, "fit-drop", "drop"
+    )
+    short = f"s-{SPECTRA_SHORT_FILE:02d}"
+
+    html = client.get(
+        "/explore",
+        params={"view": "residual", "run": run_id, "file": ["s-00", short]},
+    ).text
+    alone = client.get(
+        "/explore", params={"view": "residual", "run": run_id, "file": [short]}
+    ).text
+
+    assert 'data-heatmap-label="s-00"' in html
+    assert "data-dropped" in html
+    assert short in html.split("data-dropped", 1)[1].split("</p>", 1)[0]
+    assert "data-explore-error" in alone
+    assert "補完方法 drop で除外される" in alone

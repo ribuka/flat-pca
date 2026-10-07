@@ -3,7 +3,8 @@
 Scores are mapped back through the leading components to the preprocessed
 (scaled) feature space, and the fitted scaling is then undone. Missing-value
 imputation and outlier clipping cannot be undone, so the result approximates
-the imputed and clipped data rather than the raw input.
+the imputed and clipped data rather than the raw input. The contribution of a
+single component is mapped back with the scale only, without the center.
 """
 
 from __future__ import annotations
@@ -88,20 +89,101 @@ def reconstruct_standardized(
     ):
         raise ValueError("used_components must be between 1 and the component count")
 
-    used_scores = score_matrix[:, :used_components]
-    if pca.whiten:
-        used_scores = used_scores * np.sqrt(
-            np.asarray(pca.explained_variance_, dtype=float)[:used_components]
-        )
+    used_scores = _unwhitened_scores(score_matrix, pca, slice(0, used_components))
     return used_scores @ component_matrix[:used_components] + np.asarray(
         pca.mean_, dtype=float
     )
+
+
+def _unwhitened_scores(
+    score_matrix: np.ndarray, pca: PCA, components: slice
+) -> np.ndarray:
+    """Return score columns in the unwhitened component scale.
+
+    Parameters
+    ----------
+    score_matrix : np.ndarray
+        PCA scores of shape ``(n_rows, n)``.
+    pca : PCA
+        Fitted scikit-learn PCA estimator that produced the scores.
+    components : slice
+        Zero-based component columns to return.
+
+    Returns
+    -------
+    np.ndarray
+        The selected score columns, multiplied by
+        ``sqrt(explained_variance)`` for a whitened PCA as in
+        ``PCA.inverse_transform``.
+    """
+    used_scores = score_matrix[:, components]
+    if pca.whiten:
+        used_scores = used_scores * np.sqrt(
+            np.asarray(pca.explained_variance_, dtype=float)[components]
+        )
+    return used_scores
+
+
+def component_contribution(
+    scores: np.ndarray,
+    pca: PCA,
+    scaling_model: ScalingModel,
+    columns: tuple[str, ...],
+    component: int,
+) -> np.ndarray:
+    """Return the contribution of one component in the original scale.
+
+    Computes ``t_k w_k`` in the preprocessed space and multiplies it by the
+    fitted scale without adding the center, so the contributions of all
+    components plus the mean in the original scale add up to the full
+    reconstruction.
+
+    Parameters
+    ----------
+    scores : np.ndarray
+        PCA scores of shape ``(n_rows, n)`` with ``n >= component``. NaN in
+        the component's score makes the row NaN.
+    pca : PCA
+        Fitted scikit-learn PCA estimator that produced ``scores``.
+    scaling_model : ScalingModel
+        Fitted scaling state whose scales are applied. ``strategy ==
+        "none"`` applies no scale.
+    columns : tuple[str, ...]
+        Feature columns in the order they were fitted.
+    component : int
+        One-based component number ``k``.
+
+    Returns
+    -------
+    np.ndarray
+        Contribution of shape ``(n_rows, len(columns))``.
+
+    Raises
+    ------
+    ValueError
+        If ``component`` is outside ``1..`` the available components, or
+        the PCA or scaling state is inconsistent.
+    """
+    _validate_pca_state(pca, len(columns))
+    component_matrix = np.asarray(pca.components_, dtype=float)
+    score_matrix = np.asarray(scores, dtype=float)
+    if (
+        component < 1
+        or component > component_matrix.shape[0]
+        or component > score_matrix.shape[1]
+    ):
+        raise ValueError("component must be between 1 and the component count")
+    used = slice(component - 1, component)
+    term = _unwhitened_scores(score_matrix, pca, used) @ component_matrix[used]
+    return unscale(term, scaling_model, columns, center=False)
 
 
 def unscale(
     values: np.ndarray,
     scaling_model: ScalingModel,
     columns: tuple[str, ...],
+    *,
+    center: bool = True,
 ) -> np.ndarray:
     """Undo the fitted feature scaling, ``value * scale + center``.
 
@@ -114,6 +196,9 @@ def unscale(
         unchanged.
     columns : tuple[str, ...]
         Feature column of each value column, in order.
+    center : bool, default True
+        Whether to add the center. ``False`` only multiplies by the scale,
+        which maps a difference of scaled values to the original scale.
 
     Returns
     -------
@@ -137,6 +222,8 @@ def unscale(
             f"scaling model has no center or scale for columns: {missing_columns}"
         )
     scales = np.array([scaling_model.scales[column] for column in columns], dtype=float)
+    if not center:
+        return values * scales
     centers = np.array(
         [scaling_model.centers[column] for column in columns], dtype=float
     )

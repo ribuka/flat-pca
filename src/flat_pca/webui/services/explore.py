@@ -15,6 +15,7 @@ from ..database import Database
 from .catalog_query import FileQuery, list_files, list_segments
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError
+from .reconstruction import ReconstructionKind, reconstruction_values
 from .spectral_matrix import (
     SpectralMatrix,
     TrendLine,
@@ -24,11 +25,21 @@ from .spectral_matrix import (
     trend_at_wavelength,
 )
 
-ExploreViewKind = Literal["raw", "preprocessed", "component"]
+ExploreViewKind = Literal[
+    "raw", "preprocessed", "component", "contribution", "reconstruction", "residual"
+]
 VIEW_LABELS: dict[ExploreViewKind, str] = {
     "raw": "元データ",
     "preprocessed": "前処理済み",
     "component": "PCA 成分",
+    "contribution": "第 k 成分のみの寄与",
+    "reconstruction": "累積再構成（1..k 成分）",
+    "residual": "残差",
+}
+VALUE_NAMES: dict[ExploreViewKind, str] = {
+    "component": "coefficient",
+    "contribution": "contribution",
+    "residual": "residual",
 }
 
 
@@ -39,7 +50,7 @@ class ExploreRequest:
     Attributes
     ----------
     view : str
-        ``"raw"``, ``"preprocessed"``, or ``"component"``.
+        A key of ``VIEW_LABELS``.
     run : str | None
         Fit run whose artifacts are shown; ``None`` for the latest
         succeeded fit run.
@@ -49,7 +60,8 @@ class ExploreRequest:
     segment : str | None
         ``"{Step}:{Sequence}"`` to show.
     component : int | None
-        1-based component number of the component view.
+        1-based component number k of the component and reconstruction
+        views.
     """
 
     view: str = "raw"
@@ -82,16 +94,21 @@ class ExploreView:
     component_count : int
         Number of components of the run, or 0 without a run.
     component : int | None
-        Chosen 1-based component number of the component view.
+        Chosen 1-based component number k of the component and
+        reconstruction views.
     value_name : str
-        ``"coefficient"`` for components, otherwise ``"intensity"``.
+        ``"coefficient"`` for components, ``"contribution"`` and
+        ``"residual"`` for those views, otherwise ``"intensity"``.
     intensity_transform : dict[str, object] | None
         ``name`` and ``scale`` of the run's intensity transform, given for
-        the preprocessed view.
+        the preprocessed and reconstruction views.
     matrices : dict[str, SpectralMatrix]
         Unbinned matrices keyed by trace label; the first is the heatmap.
     skipped : list[str]
         Chosen stems lacking the chosen segment.
+    dropped : list[str]
+        Chosen stems whose rows the run's ``impute_strategy="drop"``
+        drops, so they cannot be reconstructed.
     error : str | None
         Message shown instead of the view.
     """
@@ -109,6 +126,7 @@ class ExploreView:
     intensity_transform: dict[str, object] | None = None
     matrices: dict[str, SpectralMatrix] = field(default_factory=dict)
     skipped: list[str] = field(default_factory=list)
+    dropped: list[str] = field(default_factory=list)
     error: str | None = None
 
 
@@ -270,23 +288,112 @@ def _raw_view(
     )
 
 
+def _choose_component(requested: int | None, component_count: int) -> int:
+    """Return the requested component number if available, otherwise 1.
+
+    Parameters
+    ----------
+    requested : int | None
+        Requested 1-based component number.
+    component_count : int
+        Number of components of the run.
+
+    Returns
+    -------
+    int
+        Chosen 1-based component number.
+    """
+    if requested is None or not 1 <= requested <= component_count:
+        return 1
+    return requested
+
+
+def _reconstruction_matrices(
+    view: ReconstructionKind,
+    run_dir: Path,
+    artifacts: DisplayArtifacts,
+    cache: DisplayCache,
+    files: list[str],
+    segment: tuple[int, int],
+    component: int,
+) -> tuple[dict[str, SpectralMatrix], list[str]]:
+    """Compute the reconstruction-view matrices of the chosen files.
+
+    Parameters
+    ----------
+    view : ReconstructionKind
+        ``"contribution"``, ``"reconstruction"``, or ``"residual"``.
+    run_dir : Path
+        Run directory of the fit run.
+    artifacts : DisplayArtifacts
+        The run's artifacts.
+    cache : DisplayCache
+        Display cache holding the model and the prepared rows.
+    files : list[str]
+        Chosen stems.
+    segment : tuple[int, int]
+        Chosen ``(Step, Sequence)``.
+    component : int
+        1-based component number k.
+
+    Returns
+    -------
+    tuple[dict[str, SpectralMatrix], list[str]]
+        Matrices keyed by trace label, and the stems whose rows the
+        imputation drops. The reconstruction view also holds each file's
+        preprocessed values, so the trends overlay the two.
+
+    Raises
+    ------
+    RunArtifactError
+        If the model cannot be read.
+    """
+    model = cache.pca_model(run_dir)
+    stems = artifacts.samples["stem"].to_list()
+    matrices: dict[str, SpectralMatrix] = {}
+    dropped: list[str] = []
+    for stem in files:
+        row = stems.index(stem)
+        prepared = cache.prepared_row(run_dir, row)
+        if prepared.kept.size == 0:
+            dropped.append(stem)
+            continue
+        values = reconstruction_values(view, model, prepared, component)
+        if view != "reconstruction":
+            matrices[stem] = feature_segment_matrix(artifacts.features, values, *segment)
+            continue
+        matrices[f"{stem}（累積再構成）"] = feature_segment_matrix(
+            artifacts.features, values, *segment
+        )
+        matrices[f"{stem}（前処理済み）"] = feature_segment_matrix(
+            artifacts.features,
+            # Read only this row of the memory-mapped matrix.
+            np.asarray(artifacts.x[row], dtype=np.float64),
+            *segment,
+        )
+    return matrices, dropped
+
+
 def _run_view(
     view: ExploreViewKind,
     run: dict[str, object],
     artifacts: DisplayArtifacts,
+    cache: DisplayCache,
     request: ExploreRequest,
     runs: list[dict[str, object]],
 ) -> ExploreView:
-    """Resolve the preprocessed or component view of one fit run.
+    """Resolve a view of one fit run's artifacts.
 
     Parameters
     ----------
     view : ExploreViewKind
-        ``"preprocessed"`` or ``"component"``.
+        Any view but ``"raw"``.
     run : dict[str, object]
         The fit run's ``runs`` row.
     artifacts : DisplayArtifacts
         The run's artifacts.
+    cache : DisplayCache
+        Display cache holding the model and the prepared rows.
     request : ExploreRequest
         Requested choices.
     runs : list[dict[str, object]]
@@ -295,30 +402,29 @@ def _run_view(
     Returns
     -------
     ExploreView
-        Reshaped ``X.npy`` rows or one reshaped component.
+        Reshaped ``X.npy`` rows, one reshaped component, or the
+        contributions, reconstructions, or residuals of the chosen files.
     """
     segment_options = _feature_segments(artifacts)
     segment = _choose_segment(segment_options, parse_segment(request.segment))
     assert segment is not None  # a fit run always has features
     component_count = artifacts.components.shape[0]
+    component = _choose_component(request.component, component_count)
     common = {
         "runs": runs,
         "run_id": str(run["run_id"]),
         "segment_options": segment_options,
         "segment": segment,
         "component_count": component_count,
+        "value_name": VALUE_NAMES.get(view, "intensity"),
     }
     if view == "component":
-        component = request.component
-        if component is None or not 1 <= component <= component_count:
-            component = 1
         # Read only this row of the memory-mapped components.
         values = np.asarray(artifacts.components[component - 1], dtype=np.float64)
         return ExploreView(
             view=view,
             **common,  # type: ignore[arg-type]
             component=component,
-            value_name="coefficient",
             matrices={
                 f"PC{component}": feature_segment_matrix(artifacts.features, values, *segment)
             },
@@ -326,26 +432,50 @@ def _run_view(
     stems = artifacts.samples["stem"].to_list()
     files = _choose_files(stems, request.files)
     preprocess = cast(dict[str, object], json.loads(str(run["config_json"]))["preprocess"])
-    matrices = {
-        stem: feature_segment_matrix(
-            artifacts.features,
-            # Read only this row of the memory-mapped matrix.
-            np.asarray(artifacts.x[stems.index(stem)], dtype=np.float64),
-            *segment,
-        )
-        for stem in files
-    }
-    return ExploreView(
-        view=view,
-        **common,  # type: ignore[arg-type]
-        file_options=stems,
-        files=files,
-        intensity_transform={
+    common |= {
+        "file_options": stems,
+        "files": files,
+        "intensity_transform": {
             "name": preprocess.get("intensity_transform", "none"),
             "scale": preprocess.get("intensity_transform_scale", 1.0),
         },
+    }
+    if view == "preprocessed":
+        matrices = {
+            stem: feature_segment_matrix(
+                artifacts.features,
+                # Read only this row of the memory-mapped matrix.
+                np.asarray(artifacts.x[stems.index(stem)], dtype=np.float64),
+                *segment,
+            )
+            for stem in files
+        }
+        return ExploreView(view=view, **common, matrices=matrices)  # type: ignore[arg-type]
+    try:
+        matrices, dropped = _reconstruction_matrices(
+            cast(ReconstructionKind, view),
+            Path(str(run["artifact_dir"])),
+            artifacts,
+            cache,
+            files,
+            segment,
+            component,
+        )
+    except RunArtifactError as error:
+        return ExploreView(view=view, **common, component=component, error=str(error))  # type: ignore[arg-type]
+    error = None
+    if not matrices:
+        error = "選んだファイルはすべて欠損値を含み、補完方法 drop で除外されるため表示できません"
+    return ExploreView(
+        view=view,
+        **common,  # type: ignore[arg-type]
+        component=component,
         matrices=matrices,
+        dropped=dropped,
+        error=error,
     )
+
+
 
 
 def resolve_explore(
@@ -401,7 +531,7 @@ def resolve_explore(
         artifacts = cache.fit_artifacts(Path(str(run["artifact_dir"])))
     except RunArtifactError as error:
         return ExploreView(view=view, runs=runs, run_id=run_id, error=str(error))
-    return _run_view(view, run, artifacts, request, runs)
+    return _run_view(view, run, artifacts, cache, request, runs)
 
 
 def explore_trends(

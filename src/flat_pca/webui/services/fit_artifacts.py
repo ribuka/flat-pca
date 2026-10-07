@@ -145,6 +145,60 @@ def load_display_artifacts(run_dir: Path) -> DisplayArtifacts:
     return artifacts
 
 
+def _read_pca_model(run_dir: Path, features: pl.DataFrame) -> PcaModel:
+    """Restore the PCA pipeline of a fit run.
+
+    Parameters
+    ----------
+    run_dir : Path
+        Run directory written by ``run_fit``.
+    features : pl.DataFrame
+        The run's ``features.parquet``.
+
+    Returns
+    -------
+    PcaModel
+        PCA pipeline restored in ``float64``.
+
+    Raises
+    ------
+    OSError, KeyError, ValueError
+        If a file is missing, unreadable, or inconsistent with the features.
+    """
+    components = np.load(run_dir / COMPONENTS_FILE, mmap_mode="r")
+    with np.load(run_dir / PCA_STATE_FILE) as state:
+        return PcaModel.from_pca_state(features["feature"].to_list(), components, state)
+
+
+def load_pca_model(run_dir: Path) -> PcaModel:
+    """Load the PCA pipeline of a fit run.
+
+    Unlike ``load_display_artifacts``, the components are read into memory
+    in ``float64``, so load the model only for views that reconstruct
+    features.
+
+    Parameters
+    ----------
+    run_dir : Path
+        Run directory written by ``run_fit``.
+
+    Returns
+    -------
+    PcaModel
+        PCA pipeline restored in ``float64``, with ``columns`` in
+        ``features.parquet`` order.
+
+    Raises
+    ------
+    RunArtifactError
+        If a file is missing, unreadable, or inconsistent with the others.
+    """
+    try:
+        return _read_pca_model(run_dir, pl.read_parquet(run_dir / FEATURES_FILE))
+    except _READ_ERRORS as error:
+        raise _artifact_error(error) from error
+
+
 def _check_shapes(artifacts: FitArtifacts) -> None:
     """Check that the artifacts describe the same samples and features.
 
@@ -196,11 +250,7 @@ def load_fit_artifacts(run_dir: Path) -> FitArtifacts:
     """
     try:
         features = pl.read_parquet(run_dir / FEATURES_FILE)
-        components = np.load(run_dir / COMPONENTS_FILE, mmap_mode="r")
-        with np.load(run_dir / PCA_STATE_FILE) as state:
-            model = PcaModel.from_pca_state(
-                features["feature"].to_list(), components, state
-            )
+        model = _read_pca_model(run_dir, features)
         artifacts = FitArtifacts(
             features=features,
             samples=pl.read_parquet(run_dir / SAMPLES_FILE),

@@ -33,7 +33,7 @@
           </select>
         </label>
       {% endif %}
-      {% if shown.view == "component" and shown.component_count %}
+      {% if shown.component is not none and shown.component_count %}
         <label>成分 k
           <input type="number" name="k" min="1" max="{{ shown.component_count }}" value="{{ shown.component }}">
         </label>
@@ -71,8 +71,18 @@
           強度変換：{{ shown.intensity_transform.name }}{% if shown.intensity_transform.name != "none" %}（scale = {{ shown.intensity_transform.scale|cell }}）{% endif %}
         </p>
       {% endif %}
+      {% if shown.view == "contribution" %}
+        <p class="muted" data-view-note>第 {{ shown.component }} 成分のみの寄与 t<sub>k</sub>w<sub>k</sub> を、スケーリングの scale だけ戻した値（中心化は戻さない）です。</p>
+      {% elif shown.view == "reconstruction" %}
+        <p class="muted" data-view-note>先頭 1..{{ shown.component }} 成分の累積再構成です。トレンドには前処理済み（X.npy、欠損は空白）を重ねます。</p>
+      {% elif shown.view == "residual" %}
+        <p class="muted" data-view-note>残差 = fit 時と同じ補完・外れ値処理を適用した前処理済み − 先頭 1..{{ shown.component }} 成分の累積再構成です。</p>
+      {% endif %}
       {% if shown.skipped %}
         <p class="warnings" data-skipped>(Step, Sequence) を持たないため除外したファイル：{{ shown.skipped|join("、") }}</p>
+      {% endif %}
+      {% if shown.dropped %}
+        <p class="warnings" data-dropped>欠損値を含み、補完方法 drop で除外されるため再構成できないファイル：{{ shown.dropped|join("、") }}</p>
       {% endif %}
       {% if binned.binned %}
         <p class="warnings" data-binned>
