@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}T² / Q - flat-pca{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', path='vendor/plotly.min.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+<section>
+  <h2>T² / Q</h2>
+  {% if shown.runs %}
+    <form id="monitoring-form" class="explore-form" method="get" action="/monitoring" data-auto-submit>
+      <div class="field-row">
+        <label>fit run
+          <select name="run">
+            {% for run in shown.runs %}
+              <option value="{{ run.run_id }}" {% if run.run_id == shown.run_id %}selected{% endif %}>{{ run.run_id }}（{{ run.created_at|cell }}）</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>管理図の並び順
+          <select name="order">
+            <option value="" {% if shown.order is none %}selected{% endif %}>ファイル名（自然順）</option>
+            {% for column in shown.order_options %}
+              <option value="{{ column }}" {% if column == shown.order %}selected{% endif %}>{{ column }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit">表示</button>
+      </div>
+    </form>
+  {% endif %}
+</section>
+
+{% if shown.error %}
+  <section>
+    <p class="error" data-monitoring-error>{{ shown.error }}</p>
+  </section>
+{% elif figures %}
+  <section>
+    <p class="muted">
+      {% if shown.order is none %}管理図はファイル名の自然順に並べています。{% else %}管理図は {{ shown.order }} の昇順（欠損は末尾、同じ値はファイル名の自然順）に並べています。{% endif %}
+      UCL を超えた点を強調します。点をクリックすると、そのファイルの Q 寄与ヒートマップ（スペクトル探索）を開きます。
+    </p>
+    <p data-exceeding>
+      UCL 超過：T² {{ shown.points.t2_exceeding|length }} 件{% if shown.points.t2_exceeding %}（{{ shown.points.t2_exceeding|join("、") }}）{% endif %}、
+      Q {{ shown.points.q_exceeding|length }} 件{% if shown.points.q_exceeding %}（{{ shown.points.q_exceeding|join("、") }}）{% endif %}
+      ／ 全 {{ shown.points.samples.height }} 件
+    </p>
+    {% if shown.unscored %}
+      <p class="warnings" data-unscored>欠損値を含み、補完方法 drop で除外されたため T²・Q を持たないファイル：{{ shown.unscored|join("、") }}</p>
+    {% endif %}
+    <div class="plot-grid">
+      <div id="monitoring-t2" class="plot" data-plot="monitoring-t2-figure" data-explore-url="{{ explore_url }}"></div>
+      <div id="monitoring-q" class="plot" data-plot="monitoring-q-figure" data-explore-url="{{ explore_url }}"></div>
+    </div>
+    <div id="monitoring-scatter" class="plot" data-plot="monitoring-scatter-figure" data-explore-url="{{ explore_url }}"></div>
+  </section>
+
+  {% for name, figure in figures.items() %}
+    <script type="application/json" id="monitoring-{{ name }}-figure">{{ figure|safe }}</script>
+  {% endfor %}
+{% endif %}
+{% endblock %}

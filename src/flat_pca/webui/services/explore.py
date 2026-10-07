@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, cast
@@ -11,10 +11,14 @@ from typing import Literal, cast
 import numpy as np
 import polars as pl
 
+from flat_pca.feature_engineering.pca import PcaModel, PreparedRows, q_contribution
+from flat_pca.feature_engineering.pca.mahalanobis import resolve_mahalanobis_components
+
 from ..database import Database
 from .catalog_query import FileQuery, list_files, list_segments
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError
+from .monitoring import statistic_configs
 from .reconstruction import ReconstructionKind, reconstruction_values
 from .spectral_matrix import (
     SpectralMatrix,
@@ -26,8 +30,16 @@ from .spectral_matrix import (
 )
 
 ExploreViewKind = Literal[
-    "raw", "preprocessed", "component", "contribution", "reconstruction", "residual"
+    "raw",
+    "preprocessed",
+    "component",
+    "contribution",
+    "reconstruction",
+    "residual",
+    "q_contribution",
 ]
+# Views computed from the rows prepared with the run's imputation.
+PreparedViewKind = Literal["contribution", "reconstruction", "residual", "q_contribution"]
 VIEW_LABELS: dict[ExploreViewKind, str] = {
     "raw": "元データ",
     "preprocessed": "前処理済み",
@@ -35,11 +47,13 @@ VIEW_LABELS: dict[ExploreViewKind, str] = {
     "contribution": "第 k 成分のみの寄与",
     "reconstruction": "累積再構成（1..k 成分）",
     "residual": "残差",
+    "q_contribution": "Q 寄与",
 }
 VALUE_NAMES: dict[ExploreViewKind, str] = {
     "component": "coefficient",
     "contribution": "contribution",
     "residual": "residual",
+    "q_contribution": "q_contribution",
 }
 
 
@@ -96,9 +110,13 @@ class ExploreView:
     component : int | None
         Chosen 1-based component number k of the component and
         reconstruction views.
+    q_components : int | None
+        Number of leading components the Q contribution view reconstructs
+        from, fixed by the run's ``SpeConfig``.
     value_name : str
-        ``"coefficient"`` for components, ``"contribution"`` and
-        ``"residual"`` for those views, otherwise ``"intensity"``.
+        ``"coefficient"`` for components, ``"contribution"``,
+        ``"residual"``, and ``"q_contribution"`` for those views, otherwise
+        ``"intensity"``.
     intensity_transform : dict[str, object] | None
         ``name`` and ``scale`` of the run's intensity transform, given for
         the preprocessed and reconstruction views.
@@ -122,6 +140,7 @@ class ExploreView:
     segment: tuple[int, int] | None = None
     component_count: int = 0
     component: int | None = None
+    q_components: int | None = None
     value_name: str = "intensity"
     intensity_transform: dict[str, object] | None = None
     matrices: dict[str, SpectralMatrix] = field(default_factory=dict)
@@ -309,20 +328,21 @@ def _choose_component(requested: int | None, component_count: int) -> int:
 
 
 def _reconstruction_matrices(
-    view: ReconstructionKind,
+    view: PreparedViewKind,
     run_dir: Path,
     artifacts: DisplayArtifacts,
     cache: DisplayCache,
     files: list[str],
     segment: tuple[int, int],
-    component: int,
+    values_of: Callable[[PcaModel, PreparedRows], np.ndarray],
 ) -> tuple[dict[str, SpectralMatrix], list[str]]:
-    """Compute the reconstruction-view matrices of the chosen files.
+    """Compute the matrices of the views of prepared rows for the chosen files.
 
     Parameters
     ----------
-    view : ReconstructionKind
-        ``"contribution"``, ``"reconstruction"``, or ``"residual"``.
+    view : PreparedViewKind
+        ``"contribution"``, ``"reconstruction"``, ``"residual"``, or
+        ``"q_contribution"``.
     run_dir : Path
         Run directory of the fit run.
     artifacts : DisplayArtifacts
@@ -333,8 +353,8 @@ def _reconstruction_matrices(
         Chosen stems.
     segment : tuple[int, int]
         Chosen ``(Step, Sequence)``.
-    component : int
-        1-based component number k.
+    values_of : Callable[[PcaModel, PreparedRows], np.ndarray]
+        Feature values shown for one kept prepared row.
 
     Returns
     -------
@@ -358,7 +378,7 @@ def _reconstruction_matrices(
         if prepared.kept.size == 0:
             dropped.append(stem)
             continue
-        values = reconstruction_values(view, model, prepared, component)
+        values = values_of(model, prepared)
         if view != "reconstruction":
             matrices[stem] = feature_segment_matrix(artifacts.features, values, *segment)
             continue
@@ -403,7 +423,8 @@ def _run_view(
     -------
     ExploreView
         Reshaped ``X.npy`` rows, one reshaped component, or the
-        contributions, reconstructions, or residuals of the chosen files.
+        contributions, reconstructions, residuals, or Q contributions of the
+        chosen files.
     """
     segment_options = _feature_segments(artifacts)
     segment = _choose_segment(segment_options, parse_segment(request.segment))
@@ -451,25 +472,48 @@ def _run_view(
             for stem in files
         }
         return ExploreView(view=view, **common, matrices=matrices)  # type: ignore[arg-type]
+    run_dir = Path(str(run["artifact_dir"]))
+    shown_component: int | None = component
+    q_components: int | None = None
     try:
+        if view == "q_contribution":
+            # Q fixes its own component count; the chosen k is not used.
+            shown_component = None
+            selector = statistic_configs(run)[1].cumulative_explained_variance
+            q_components = resolve_mahalanobis_components(
+                cache.pca_model(run_dir).pca, selector
+            )
+
+            def values_of(model: PcaModel, prepared: PreparedRows) -> np.ndarray:
+                """Return the Q contribution of the prepared row."""
+                return q_contribution(prepared, model, selector)[0]
+
+        else:
+
+            def values_of(model: PcaModel, prepared: PreparedRows) -> np.ndarray:
+                """Return the reconstruction-view values of the prepared row."""
+                return reconstruction_values(
+                    cast(ReconstructionKind, view), model, prepared, component
+                )
+
         matrices, dropped = _reconstruction_matrices(
-            cast(ReconstructionKind, view),
-            Path(str(run["artifact_dir"])),
-            artifacts,
-            cache,
-            files,
-            segment,
-            component,
+            cast(PreparedViewKind, view), run_dir, artifacts, cache, files, segment, values_of
         )
     except RunArtifactError as error:
-        return ExploreView(view=view, **common, component=component, error=str(error))  # type: ignore[arg-type]
+        return ExploreView(
+            view=view,
+            **common,  # type: ignore[arg-type]
+            component=shown_component,
+            error=str(error),
+        )
     error = None
     if not matrices:
         error = "選んだファイルはすべて欠損値を含み、補完方法 drop で除外されるため表示できません"
     return ExploreView(
         view=view,
         **common,  # type: ignore[arg-type]
-        component=component,
+        component=shown_component,
+        q_components=q_components,
         matrices=matrices,
         dropped=dropped,
         error=error,

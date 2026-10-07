@@ -87,3 +87,36 @@ def prepare_rows(values: np.ndarray, model: PcaModel) -> PreparedRows:
         values=prepared.select(columns).to_numpy().astype(np.float64),
         scores=scores,
     )
+
+
+def scale_rows(values: np.ndarray, model: PcaModel) -> np.ndarray:
+    """Scale prepared feature rows with the fitted scaling.
+
+    Parameters
+    ----------
+    values : np.ndarray
+        Rows shaped ``(n_rows, len(model.columns))`` in the model's column
+        order, already imputed and outlier-handled with the model
+        (``PreparedRows.values``).
+    model : PcaModel
+        Fitted preprocessing and PCA state.
+
+    Returns
+    -------
+    np.ndarray
+        ``float64`` rows after ``model.scaling_model.apply``, the values
+        passed to ``pca.transform``.
+    """
+    columns = list(model.columns)
+    return (
+        model.scaling_model.apply(
+            pl.from_numpy(
+                np.asarray(values, dtype=np.float64), schema=columns, orient="row"
+            ).lazy(),
+            columns,
+        )
+        .select(columns)
+        .collect()
+        .to_numpy()
+        .astype(np.float64)
+    )

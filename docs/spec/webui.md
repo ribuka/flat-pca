@@ -191,6 +191,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - ファイルは複数選べる。先頭のファイルをヒートマップに描き、選んだすべてのファイルをトレンドに重ねる。
   - `(Step, Sequence)`の選択肢は、元データでは先頭のファイルのcatalogの`segments`、前処理済み・成分では`features.parquet`から求める。選んだ`(Step, Sequence)`を持たないファイルはトレンドから除き、その旨を表示する。
   - 選択は`/explore?view=…&run=…&file=…&segment={Step}:{Sequence}&k=…`のクエリで表し、URLで再訪できる。
+  - Q寄与（`view=q_contribution`）は成分数をrunのQの設定で固定するため、kを選ばない（再構成に使う成分数を画面に表示する）。
 - 前処理済みでは、そのrunの`intensity_transform`（と`intensity_transform_scale`）を画面に表示する。
 - ヒートマップ：横軸波長、縦軸`StepTime`（0を下）。
   - セル数が`ui.heatmap_max_cells`を超える場合は、サーバーで時間方向をビン平均してから送る。ビニングした旨を表示する。
@@ -214,9 +215,13 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 ### 5. T² / Q
 
-- ファイル順の管理図（T²とQ、UCL線付き）。順序は`ui.default_order_by`の列、または画面で選んだ列とする。UCL超過点を強調する。
-- T² × Q散布図（UCL線付き）。
-- 点をクリックすると、そのファイルのQ寄与ヒートマップを開く。
+- 選択項目：fit run（成功したrun。既定は最新）、管理図の並び順の列。
+  - 選択は`/monitoring?run=…&order=…`のクエリで表し、URLで再訪できる。
+- 1点が1ファイル（`scores.parquet`の`mahalanobis_*`・`spe_*`列。`impute_strategy="drop"`で除いたファイルは含まず、その旨を表示する）。列名とUCLはrunの`config.json`の`MahalanobisConfig`・`SpeConfig`に従う。
+- ファイル順の管理図（T²とQ、UCL線付き）。横軸はファイルの順位（1..N）とする。順序は`ui.default_order_by`の列、または画面で選んだ列の昇順（欠損は末尾、同じ値はファイル名の自然順）とし、「なし」ではファイル名の自然順とする。UCL超過点を強調し、超過したファイルの件数と一覧を表示する。
+- T² × Q散布図（UCL線付き）。いずれかのUCLを超えた点を強調する。
+- 点をクリックすると、そのファイルのQ寄与ヒートマップ（`/explore?view=q_contribution&run=…&file=…`）を開く。
+- 描画関数は`visualize/monitoring.py`（`create_control_chart`・`create_t2_q_scatter`）に置く。
 
 ## 計算仕様
 
@@ -224,7 +229,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 - 第k成分のみの寄与：前処理後の空間で$t_k \mathbf{w}_k$を求め、スケーリングの逆変換のうち中心化を除く部分（scaleの乗算）だけを適用して元のスケールに戻す。
 - 部分スコア軌跡：1ファイルの前処理済み行$\mathbf{x}$に対し、fit時と同じ規則で補完・外れ値処理・スケーリングを適用して中心化した$\mathbf{z}$を得る（`impute_model`→`outlier_model`→`scaling_model`の`apply`をこの順に呼び、`pca.mean_`を引く。`scaling_strategy="none"`では中心化をPCAに任せているため）。特徴量を`(Step, Sequence, StepTime)`の昇順に並べ（`(Step, Sequence)`は実際の時間順でなくStep・Sequenceの値の順とする）、その順の累積和$\tau \mapsto \sum_{f \le \tau} z_f w_{m,f}$（成分nも同様）を求める。各`(Step, Sequence, StepTime)`点を1点とする。終点は通常のスコアと一致する（`whiten=False`の場合）。累積和は`float64`で計算する。
-- Q寄与：1ファイルの前処理済み行に、fit時と同じ補完・外れ値処理・スケーリングを適用した$\mathbf{x}$（`pca.transform`へ渡す値）と、その再構成$\hat{\mathbf{x}}$との特徴量ごとの差の二乗$(x_f - \hat{x}_f)^2$とする（SPEC.md「Q統計量（SPE）仕様」と同じ空間）。再構成に使う成分数は、そのrunの`SpeConfig.cumulative_explained_variance`が選ぶ成分数に固定し、探索画面で選んだkは使わない。これにより、全特徴量（ビニング前）の寄与の総和は`scores.parquet`のQと一致する。
+- Q寄与：1ファイルの前処理済み行に、fit時と同じ補完・外れ値処理・スケーリングを適用した$\mathbf{x}$（`pca.transform`へ渡す値）と、その再構成$\hat{\mathbf{x}}$との特徴量ごとの差の二乗$(x_f - \hat{x}_f)^2$とする（SPEC.md「Q統計量（SPE）仕様」と同じ空間）。再構成に使う成分数は、そのrunの`SpeConfig.cumulative_explained_variance`が選ぶ成分数に固定し、探索画面で選んだkは使わない。これにより、全特徴量（ビニング前）の寄与の総和は`scores.parquet`のQと一致する。`prepare_rows`の補完・外れ値処理後の値を`scale_rows`（`scaling_model.apply`）でスケーリングし、再構成は`reconstruct_standardized`で求めてスケーリングの逆変換はしない（`pca/q_contribution.py::q_contribution`）。
 - ローディングの波長集計：`reshape_pca_components`の結果（`component`・`wavelength`・`coefficient`列を持つlong形式）を成分と波長でgroup_byし、平均・RMS・絶対値平均のいずれかを求める（`aggregate_loadings_by_wavelength`）。画面では、選んだ2成分だけを`features.parquet`と`components.npy`から同じlong形式にして渡す。
 - ヒートマップのビニング：時間方向を等間隔のビンに分け、ビン内平均をとる。波長方向は間引かない（1200列程度を想定）。
 - 実行前のメモリ見積もり：catalogの行数・波長数と前処理設定から特徴量数$F$を求め、$N \times F \times 8$Bの係数倍を表示する。

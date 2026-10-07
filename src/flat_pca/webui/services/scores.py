@@ -16,10 +16,10 @@ from flat_pca.feature_engineering.flatten_pca import (
     aggregate_loadings_by_wavelength,
 )
 from flat_pca.feature_engineering.pca import partial_scores, time_point_order
-from flat_pca.spectral.schema import SOURCE_COLUMN
 
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError, artifact_error
+from .scored_samples import choose_metadata_column, metadata_columns, scored_samples
 
 AGGREGATION_LABELS: dict[LoadingAggregation, str] = {
     "mean": "平均",
@@ -27,8 +27,6 @@ AGGREGATION_LABELS: dict[LoadingAggregation, str] = {
     "abs_mean": "絶対値平均",
 }
 DEFAULT_AGGREGATION: LoadingAggregation = "rms"
-# Columns of samples.parquet that are not metadata.
-SAMPLE_KEY_COLUMNS = (SOURCE_COLUMN, "stem")
 
 
 @dataclass(frozen=True)
@@ -192,35 +190,6 @@ def _choose_component(requested: int | None, default: int, component_count: int)
     return min(default, component_count)
 
 
-def _choose_color(
-    requested: str | None, default: str | None, options: list[str]
-) -> str | None:
-    """Return the coloring column.
-
-    Parameters
-    ----------
-    requested : str | None
-        Requested column; ``""`` for no coloring and ``None`` for the
-        default.
-    default : str | None
-        Default column (``ui.default_color_by``).
-    options : list[str]
-        Metadata columns of the run's samples.
-
-    Returns
-    -------
-    str | None
-        The requested column if available, otherwise the default column if
-        available, otherwise ``None``.
-    """
-    if requested == "":
-        return None
-    for candidate in (requested, default):
-        if candidate in options:
-            return candidate
-    return None
-
-
 def score_table(
     artifacts: DisplayArtifacts, columns: Sequence[str], x: int, y: int
 ) -> ScorePoints:
@@ -252,19 +221,11 @@ def score_table(
     missing = [column for column in wanted if column not in artifacts.scores.columns]
     if missing:
         raise artifact_error(ValueError(f"scores.parquet lacks columns {missing}"))
-    positions = {
-        source: position
-        for position, source in enumerate(artifacts.samples[SOURCE_COLUMN].to_list())
-    }
-    sample_rows = np.array(
-        [positions[source] for source in artifacts.scores[SOURCE_COLUMN].to_list()],
-        dtype=np.intp,
-    )
-    by_sample = np.argsort(sample_rows, kind="stable")
+    samples, scores = scored_samples(artifacts)
     return ScorePoints(
-        samples=artifacts.samples[sample_rows[by_sample]].drop(SOURCE_COLUMN),
-        x=artifacts.scores[wanted[0]].cast(pl.Float64).to_numpy()[by_sample],
-        y=artifacts.scores[wanted[1]].cast(pl.Float64).to_numpy()[by_sample],
+        samples=samples,
+        x=scores[wanted[0]].cast(pl.Float64).to_numpy(),
+        y=scores[wanted[1]].cast(pl.Float64).to_numpy(),
     )
 
 
@@ -411,9 +372,7 @@ def _run_view(
     component_count = artifacts.components.shape[0]
     x = _choose_component(request.x, 1, component_count)
     y = _choose_component(request.y, 2, component_count)
-    color_options = [
-        column for column in artifacts.samples.columns if column not in SAMPLE_KEY_COLUMNS
-    ]
+    color_options = metadata_columns(artifacts.samples)
     aggregation = cast(
         LoadingAggregation,
         request.aggregation
@@ -430,7 +389,7 @@ def _run_view(
         "x": x,
         "y": y,
         "color_options": color_options,
-        "color": _choose_color(request.color, default_color, color_options),
+        "color": choose_metadata_column(request.color, default_color, color_options),
         "aggregation": aggregation,
         "file_options": stems,
         "files": files,

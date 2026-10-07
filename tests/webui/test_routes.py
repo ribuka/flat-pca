@@ -191,14 +191,15 @@ def test_cancel_active_run(client: TestClient, wait_for: Wait) -> None:
 
 
 def test_page_has_sidebar_navigation(client: TestClient) -> None:
-    """The sidebar marks the current screen and disables unimplemented ones."""
+    """The sidebar marks the current screen and links every screen."""
     page = client.get("/").text
 
     assert '<a class="nav-item nav-current" href="/" aria-current="page">' in page
     assert '<a class="nav-item" href="/fit">' in page
     assert '<a class="nav-item" href="/explore">' in page
     assert '<a class="nav-item" href="/scores">' in page
-    assert page.count('aria-disabled="true"') == 1
+    assert '<a class="nav-item" href="/monitoring">' in page
+    assert 'aria-disabled="true"' not in page
     sidebar = _opening_tag(page, "sidebar-status")
     assert 'hx-get="/sidebar/status"' in sidebar
     assert 'hx-target="this"' in sidebar
