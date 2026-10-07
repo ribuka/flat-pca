@@ -33,6 +33,11 @@
   (`graphify query "<question>"`, `graphify explain "<symbol>"`, `graphify affected "<symbol>"`).
 - Read `.agents/docs/graphify.md` and follow it.
 
+## Web UI check
+
+- To check the Web UI in a browser, use the `webui-check` skill (`.agents/skills/webui-check/SKILL.md`).
+- Read `.agents/docs/playwright-mcp.md` to set up the Playwright MCP server.
+
 ## Github
 
 ### Commit

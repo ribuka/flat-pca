@@ -53,3 +53,38 @@ jobs:
 
       - name: Test
         run: uv run -m pytest
+
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Set up Chrome
+        run: |
+          if ! command -v google-chrome >/dev/null; then
+            uv run -m playwright install --with-deps chrome
+          fi
+          google-chrome --version
+
+      - name: E2E test
+        run: uv run -m pytest -m e2e --tracing retain-on-failure
+
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results/
+          if-no-files-found: ignore
