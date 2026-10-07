@@ -19,9 +19,14 @@ Playwright MCP server, then stop it and delete every temporary file.
 
 Copy the fixtures to `tmp/webui-check/` at the repository root.
 Never point the server at `tests/fixtures/webui/` itself: it creates `workspace/` next to `settings.toml`.
+`tmp/` is gitignored and may not exist in a fresh checkout or worktree, so create it first.
 
-- Bash: `cp -r tests/fixtures/webui tmp/webui-check`
-- PowerShell: `Copy-Item -Recurse tests/fixtures/webui tmp/webui-check`
+- Bash:
+  1. `mkdir -p tmp`
+  2. `cp -r tests/fixtures/webui tmp/webui-check`
+- PowerShell:
+  1. `New-Item -ItemType Directory -Force tmp`
+  2. `Copy-Item -Recurse tests/fixtures/webui tmp/webui-check`
 
 The copy holds:
 
