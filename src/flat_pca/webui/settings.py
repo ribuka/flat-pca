@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 from typing import Literal
 
@@ -15,6 +14,13 @@ from pydantic import (
     ValidationError,
     model_validator,
 )
+
+from .settings_files import (
+    DEFAULT_SETTINGS_PATH,
+    read_settings_document,
+    select_settings_file,
+)
+from .settings_paths import expand_settings_paths
 
 MetadataColumnType = Literal["category", "number", "datetime"]
 # File-list and run-sample columns (samples.parquet) that metadata columns
@@ -232,31 +238,18 @@ class Settings(_StrictModel):
         return self.workspace.dir / "runs"
 
 
-def _resolve_relative_paths(raw: dict[str, object], base: Path) -> None:
-    """Resolve relative path entries against the settings file directory.
-
-    Parameters
-    ----------
-    raw : dict[str, object]
-        Parsed TOML document, modified in place.
-    base : Path
-        Directory containing the settings file.
-    """
-    for section, key in (("workspace", "dir"), ("data", "root"), ("metadata", "csv")):
-        table = raw.get(section)
-        if isinstance(table, dict) and isinstance(table.get(key), str):
-            table[key] = str(base / Path(table[key]))
-
-
-def load_settings(path: str | Path) -> Settings:
+def load_settings(path: str | Path = DEFAULT_SETTINGS_PATH) -> Settings:
     """Read and validate ``settings.toml``.
 
-    Relative ``workspace.dir``, ``data.root``, and ``metadata.csv`` values are
+    When a sibling ``settings.local.toml`` exists, it is read instead of
+    ``path``. In ``workspace.dir``, ``data.root``, and ``metadata.csv``,
+    environment variables (``%NAME%``, ``${NAME}``) and a leading ``~`` are
+    expanded, ``{root}`` stands for ``data.root``, and relative paths are
     resolved against the directory containing the settings file.
 
     Parameters
     ----------
-    path : str | Path
+    path : str | Path, default ``config/settings.toml``
         Settings file path.
 
     Returns
@@ -267,20 +260,15 @@ def load_settings(path: str | Path) -> Settings:
     Raises
     ------
     SettingsError
-        If the file cannot be read, is not valid TOML, or fails validation.
+        If a file cannot be read, is not valid TOML, has a path that cannot be
+        expanded, or fails validation.
     """
-    settings_path = Path(path).resolve()
+    settings_path = select_settings_file(Path(path).resolve())
     try:
-        with settings_path.open("rb") as file:
-            raw = tomllib.load(file)
-    except OSError as error:
-        raise SettingsError(
-            f"cannot read settings file {settings_path}: {error}"
-        ) from error
-    except tomllib.TOMLDecodeError as error:
-        raise SettingsError(f"invalid TOML in {settings_path}: {error}") from error
-
-    _resolve_relative_paths(raw, settings_path.parent)
+        raw = read_settings_document(settings_path)
+        expand_settings_paths(raw, settings_path.parent)
+    except ValueError as error:
+        raise SettingsError(str(error)) from error
     try:
         return Settings.model_validate(raw)
     except ValidationError as error:

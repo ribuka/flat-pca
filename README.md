@@ -22,10 +22,11 @@ Web UI の依存は optional dependency `webui` です（開発用の `dev` グ�
 
 ```bash
 uv sync --extra webui
-uv run -m flat_pca.webui --settings settings.toml
+uv run -m flat_pca.webui                              # config/settings.toml を読む
+uv run -m flat_pca.webui --settings path/to/settings.toml
 ```
 
-`settings.toml` の書式は [docs/spec/webui.md](docs/spec/webui.md) の「設定（settings.toml）」を参照してください。相対パスは `settings.toml` のあるディレクトリ基準で解決されます。
+`settings.toml` の書式は [docs/spec/webui.md](docs/spec/webui.md) の「設定（settings.toml）」を参照してください。相対パスは `settings.toml` のあるディレクトリ基準で解決されます。同じディレクトリに `settings.local.toml`（git 管理外）があれば、`settings.toml` の代わりにそちらだけが読まれます。
 
 ### 開発環境（任意）
 

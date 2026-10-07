@@ -1,4 +1,4 @@
-"""Command-line entry point: ``uv run -m flat_pca.webui --settings <path>``."""
+"""Command-line entry point: ``uv run -m flat_pca.webui [--settings <path>]``."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import uvicorn
 
 from .app import create_app
 from .settings import SettingsError, load_settings
+from .settings_files import DEFAULT_SETTINGS_PATH
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -20,7 +21,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         Command-line arguments; ``None`` reads ``sys.argv``.
     """
     parser = argparse.ArgumentParser(prog="flat_pca.webui", description=__doc__)
-    parser.add_argument("--settings", required=True, help="path to settings.toml")
+    parser.add_argument(
+        "--settings",
+        default=DEFAULT_SETTINGS_PATH,
+        help=f"path to settings.toml (default: {DEFAULT_SETTINGS_PATH.as_posix()})",
+    )
     parser.add_argument("--host", default="127.0.0.1", help="bind address")
     parser.add_argument("--port", type=int, default=8000, help="bind port")
     arguments = parser.parse_args(argv)
