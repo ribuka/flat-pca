@@ -7,13 +7,11 @@
 {% endif %}
 <div class="heatmap-panel">
   <div class="step-time-rail">
-    <input type="range" id="explore-step-time" class="range-vertical" aria-label="StepTime"
-           min="0" max="{{ n_step_times - 1 }}" step="1" value="{{ (n_step_times - 1) // 2 }}">
+    <input type="range" id="explore-step-time" class="range-vertical" aria-label="StepTime">
   </div>
   <div id="explore-heatmap" class="plot plot-heatmap" data-heatmap-label="{{ heatmap_label }}"></div>
   <div class="wavelength-rail">
-    <input type="range" id="explore-wavelength"
-           min="0" max="{{ n_wavelengths - 1 }}" step="1" value="{{ (n_wavelengths - 1) // 2 }}">
+    <input type="range" id="explore-wavelength">
   </div>
   <div class="field-row explore-sliders">
     <label for="explore-wavelength">波長</label>
