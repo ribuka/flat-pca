@@ -163,3 +163,38 @@ a.nav-item:hover {
   max-height: 10rem;
   overflow-y: auto;
 }
+
+.mono {
+  font-family: ui-monospace, monospace;
+}
+
+.fit-form fieldset {
+  margin: 0 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.fit-form legend {
+  font-weight: 600;
+}
+
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+  margin: 0.25rem 0;
+}
+
+.field-row input[type="number"] {
+  width: 8rem;
+}
+
+.field-error {
+  color: var(--error);
+  font-size: 0.875rem;
+}
+
+#fit-estimate {
+  margin-bottom: 0.5rem;
+}

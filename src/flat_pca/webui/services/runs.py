@@ -138,6 +138,29 @@ def fail_interrupted_runs(database: Database) -> int:
     return len(rows)
 
 
+def list_runs(database: Database, kind: str, limit: int = 100) -> list[dict[str, object]]:
+    """Return the runs of one kind, newest first.
+
+    Parameters
+    ----------
+    database : Database
+        Workspace database.
+    kind : str
+        Job kind.
+    limit : int, default 100
+        Maximum number of runs.
+
+    Returns
+    -------
+    list[dict[str, object]]
+        Each run's columns.
+    """
+    return database.fetch_dicts(
+        "SELECT * FROM runs WHERE kind = ? ORDER BY created_at DESC, run_id DESC LIMIT ?",
+        [kind, limit],
+    )
+
+
 def latest_run_status(database: Database, kind: str) -> dict[str, object]:
     """Return the latest run of one kind with its progress.
 
@@ -151,11 +174,26 @@ def latest_run_status(database: Database, kind: str) -> dict[str, object]:
     Returns
     -------
     dict[str, object]
-        ``run`` (the newest run's columns, or ``None``), ``active`` (whether
-        it is queued or running), and ``progress`` (its ``progress.json``
-        while active, otherwise ``None``).
+        See ``run_status``.
     """
-    run = latest_run(database, kind)
+    return run_status(latest_run(database, kind))
+
+
+def run_status(run: dict[str, object] | None) -> dict[str, object]:
+    """Return a run with its progress.
+
+    Parameters
+    ----------
+    run : dict[str, object] | None
+        The run's columns, or ``None``.
+
+    Returns
+    -------
+    dict[str, object]
+        ``run`` (the given run), ``active`` (whether it is queued or
+        running), and ``progress`` (its ``progress.json`` while active,
+        otherwise ``None``).
+    """
     active = run is not None and run["status"] in ACTIVE_STATUSES
     progress = read_progress(Path(str(run["artifact_dir"]))) if active else None
     return {"run": run, "active": active, "progress": progress}

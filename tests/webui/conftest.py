@@ -8,6 +8,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
+from spectra import write_spectra
 
 from flat_pca.webui.database import Database
 from flat_pca.webui.services.runs import get_run
@@ -116,3 +117,16 @@ def wait_for() -> Callable[..., dict[str, object]]:
         ``wait_for_status``.
     """
     return wait_for_status
+
+
+
+@pytest.fixture
+def spectra_paths(tmp_path: Path) -> list[Path]:
+    """Write synthetic spectra files for fit jobs (see ``spectra.write_spectra``).
+
+    Returns
+    -------
+    list[Path]
+        Paths of the written files in index order.
+    """
+    return write_spectra(tmp_path / "spectra")

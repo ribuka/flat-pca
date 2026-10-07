@@ -1,0 +1,30 @@
+{% if not runs %}
+  <p class="muted">fit run はまだありません。</p>
+{% else %}
+<table class="file-table" data-fit-runs>
+  <thead>
+    <tr>
+      <th>run</th>
+      <th>作成日時</th>
+      <th>状態</th>
+      <th>ファイル数</th>
+      <th>特徴量数</th>
+      <th>成分数</th>
+      <th>所要時間</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for run in runs %}
+      <tr data-run-id="{{ run.run_id }}">
+        <td><a class="mono" href="/fit?run={{ run.run_id }}">{{ run.run_id }}</a></td>
+        <td>{{ run.created_at|cell }}</td>
+        <td><span class="status status-{{ run.status }}">{{ run.status }}</span></td>
+        <td>{{ run.n_files|cell }}</td>
+        <td>{{ run.n_features|cell }}</td>
+        <td>{{ run.n_components|cell }}</td>
+        <td>{% if run.duration_s is not none %}{{ "%.1f"|format(run.duration_s) }} 秒{% endif %}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}

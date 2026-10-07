@@ -195,7 +195,8 @@ def test_page_has_sidebar_navigation(client: TestClient) -> None:
     page = client.get("/").text
 
     assert '<a class="nav-item nav-current" href="/" aria-current="page">' in page
-    assert page.count('aria-disabled="true"') == 4
+    assert '<a class="nav-item" href="/fit">' in page
+    assert page.count('aria-disabled="true"') == 3
     sidebar = _opening_tag(page, "sidebar-status")
     assert 'hx-get="/sidebar/status"' in sidebar
     assert 'hx-target="this"' in sidebar
