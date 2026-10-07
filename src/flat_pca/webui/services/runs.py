@@ -166,6 +166,34 @@ def list_runs(
     )
 
 
+def list_succeeded_runs(
+    database: Database, kind: str, requested: str | None
+) -> list[dict[str, object]]:
+    """Return the succeeded runs of one kind to choose from.
+
+    Parameters
+    ----------
+    database : Database
+        Workspace database.
+    kind : str
+        Job kind.
+    requested : str | None
+        Explicitly requested run. It is added when it is a succeeded run of
+        ``kind`` older than the listed ones.
+
+    Returns
+    -------
+    list[dict[str, object]]
+        The newest succeeded runs, then the requested run if needed.
+    """
+    runs = list_runs(database, kind, status="succeeded")
+    if requested is not None and all(run["run_id"] != requested for run in runs):
+        run = get_run(database, requested)
+        if run is not None and run["kind"] == kind and run["status"] == "succeeded":
+            runs.append(run)
+    return runs
+
+
 def latest_run_status(database: Database, kind: str) -> dict[str, object]:
     """Return the latest run of one kind with its progress.
 

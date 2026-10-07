@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}スコア・ローディング - flat-pca{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', path='vendor/plotly.min.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+<section>
+  <h2>スコア・ローディング</h2>
+  {% if shown.runs %}
+    <form id="scores-form" class="explore-form" method="get" action="/scores" data-auto-submit>
+      <div class="field-row">
+        <label>fit run
+          <select name="run">
+            {% for run in shown.runs %}
+              <option value="{{ run.run_id }}" {% if run.run_id == shown.run_id %}selected{% endif %}>{{ run.run_id }}（{{ run.created_at|cell }}）</option>
+            {% endfor %}
+          </select>
+        </label>
+        {% if shown.component_count %}
+          <label>横軸 PCm
+            <input type="number" name="x" min="1" max="{{ shown.component_count }}" value="{{ shown.x }}">
+          </label>
+          <label>縦軸 PCn
+            <input type="number" name="y" min="1" max="{{ shown.component_count }}" value="{{ shown.y }}">
+          </label>
+          <span class="muted">（1〜{{ shown.component_count }}）</span>
+        {% endif %}
+        <label>色分け
+          <select name="color">
+            <option value="" {% if shown.color is none %}selected{% endif %}>なし</option>
+            {% for column in shown.color_options %}
+              <option value="{{ column }}" {% if column == shown.color %}selected{% endif %}>{{ column }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>ローディングの集計
+          <select name="aggregation">
+            {% for key, label in aggregation_labels.items() %}
+              <option value="{{ key }}" {% if key == shown.aggregation %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit">表示</button>
+      </div>
+      {% if shown.file_options %}
+        <div class="field-row">
+          <label>軌跡のファイル
+            <select name="file" multiple size="{{ [shown.file_options|length, 6]|min }}">
+              {% for stem in shown.file_options %}
+                <option value="{{ stem }}" {% if stem in shown.files %}selected{% endif %}>{{ stem }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <span class="muted">選んだファイルの部分スコア軌跡を PCm-PCn 平面に重ねます。</span>
+        </div>
+      {% endif %}
+    </form>
+  {% endif %}
+</section>
+
+{% if shown.error %}
+  <section>
+    <p class="error" data-scores-error>{{ shown.error }}</p>
+  </section>
+{% elif figures %}
+  <section>
+    <p class="muted">点をクリックすると、そのファイルを選んだ状態でスペクトル探索（前処理済み）を開きます。</p>
+    <div class="plot-grid">
+      <div id="scores-scatter" class="plot" data-plot="scores-scatter-figure" data-explore-url="{{ explore_url }}"></div>
+      <div id="scores-loadings" class="plot" data-plot="scores-loadings-figure"></div>
+    </div>
+    <p class="muted">ローディングは成分 m と n の係数を波長ごとに集計した値で、1 点が 1 波長です（平均は符号の異なる係数が打ち消し合います）。</p>
+  </section>
+
+  <section>
+    <h3>部分スコア軌跡</h3>
+    <p class="muted">
+      fit 時と同じ補完・スケーリングを適用して中心化した値 z を (Step, Sequence, StepTime) の昇順に並べ、
+      z<sub>f</sub>w<sub>f</sub> の累積和を時刻ごとに打ちます。終点（大きい点）は通常のスコアです。
+    </p>
+    {% if shown.dropped %}
+      <p class="warnings" data-dropped>欠損値を含み、補完方法 drop で除外されるため軌跡を描けないファイル：{{ shown.dropped|join("、") }}</p>
+    {% endif %}
+    {% if figures.trajectories %}
+      <div id="scores-trajectories" class="plot" data-plot="scores-trajectories-figure"></div>
+    {% endif %}
+  </section>
+
+  <section>
+    <h3>寄与率</h3>
+    <div class="plot-grid">
+      <div id="scores-scree" class="plot" data-plot="scores-scree-figure"></div>
+      <div class="table-scroll">
+        <table class="file-table" data-explained-variance>
+          <thead>
+            <tr><th>成分</th><th>寄与率</th><th>累積寄与率</th><th>分散</th></tr>
+          </thead>
+          <tbody>
+            {% for row in shown.explained_variance.iter_rows(named=True) %}
+              <tr>
+                <td>PC{{ row.component }}</td>
+                <td>{{ row.explained_variance_ratio|cell }}</td>
+                <td>{{ row.cumulative_explained_variance|cell }}</td>
+                <td>{{ row.explained_variance|cell }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  {% for name, figure in figures.items() %}
+    <script type="application/json" id="scores-{{ name }}-figure">{{ figure|safe }}</script>
+  {% endfor %}
+{% endif %}
+{% endblock %}

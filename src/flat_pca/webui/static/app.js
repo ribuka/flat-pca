@@ -110,3 +110,23 @@ function initExplore(root) {
 for (const root of document.querySelectorAll("[data-explore]")) {
   initExplore(root);
 }
+
+// Score screen: draws each embedded figure; clicking a score point opens the
+// spectral exploration of that file.
+function initScorePlot(target) {
+  const figure = JSON.parse(document.getElementById(target.dataset.plot).textContent);
+  Plotly.newPlot(target, figure.data, figure.layout, { responsive: true }).then(() => {
+    target.dataset.plotReady = "true";
+    if (!target.dataset.exploreUrl) {
+      return;
+    }
+    target.on("plotly_click", (event) => {
+      const stem = event.points[0].customdata;
+      window.location.href = `${target.dataset.exploreUrl}&file=${encodeURIComponent(stem)}`;
+    });
+  });
+}
+
+for (const target of document.querySelectorAll("[data-plot]")) {
+  initScorePlot(target);
+}

@@ -55,7 +55,7 @@ NAV_ITEMS = (
     NavItem("データ選択", "/"),
     NavItem("前処理・PCA", "/fit"),
     NavItem("スペクトル探索", "/explore"),
-    NavItem("スコア・ローディング", None),
+    NavItem("スコア・ローディング", "/scores"),
     NavItem("T² / Q", None),
 )
 

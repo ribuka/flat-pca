@@ -203,10 +203,14 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 ### 4. スコア・ローディング
 
-- スコア散布図：横軸PCm、縦軸PCn。1点が1ファイル。メタデータ列で色分けする。点をクリックすると、そのファイルを選択した状態でスペクトル探索を開く。
-- ローディング散布図：成分mとnの係数を、特徴量ごとに波長単位で集計し、1点を1波長として打つ。集計方法は平均・RMS・絶対値平均から選ぶ（平均は符号の異なる寄与が打ち消し合うため）。
+- 選択項目：fit run（成功したrun。既定は最新）、成分番号m・n（既定はPC1・PC2。範囲外は既定に戻す）、色分けの列、ローディングの集計方法、軌跡のファイル。
+  - 選択は`/scores?run=…&x={m}&y={n}&color=…&aggregation=…&file=…`のクエリで表し、URLで再訪できる。
+- スコア散布図：横軸PCm、縦軸PCn。1点が1ファイル（`scores.parquet`の値。`impute_strategy="drop"`で除いたファイルは含まない）。メタデータ列で色分けする。
+  - 色分けの既定は`ui.default_color_by`とし、「なし」も選べる。数値の列は連続カラースケール、それ以外の列は値ごとの系列（欠損は1つの系列）とする。
+  - 点をクリックすると、そのrunの前処理済みでそのファイルを選択した状態のスペクトル探索（`/explore?view=preprocessed&run=…&file=…`）を開く。
+- ローディング散布図：成分mとnの係数を、特徴量ごとに波長単位で集計し、1点を1波長として打つ。集計方法は平均・RMS・絶対値平均から選ぶ（既定はRMS。平均は符号の異なる寄与が打ち消し合うため）。
 - 寄与率の表とスクリープロット（`get_explained_variance_table`）。
-- 部分スコア軌跡：選んだファイル（複数可）について、PCm-PCn平面上の軌跡を描く。定義は「計算仕様」を参照。
+- 部分スコア軌跡：選んだファイル（複数可。既定は先頭のファイル）について、PCm-PCn平面上の軌跡を描く。定義は「計算仕様」を参照。終点を大きく描く。`impute_strategy="drop"`のrunで欠損を含むファイルは軌跡を描けないため、その旨を表示する。
 
 ### 5. T² / Q
 
@@ -219,9 +223,9 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 以下は`feature_engineering/`（または`visualize/`のデータ準備関数）に独立した関数として追加し、単体テストする。
 
 - 第k成分のみの寄与：前処理後の空間で$t_k \mathbf{w}_k$を求め、スケーリングの逆変換のうち中心化を除く部分（scaleの乗算）だけを適用して元のスケールに戻す。
-- 部分スコア軌跡：1ファイルの前処理済み行$\mathbf{x}$に対し、fit時と同じ規則で補完・外れ値処理・スケーリングを適用して中心化した$\mathbf{z}$を得る。特徴量を`(Step, Sequence, StepTime)`の昇順に並べ、その順の累積和$\tau \mapsto \sum_{f \le \tau} z_f w_{m,f}$（成分nも同様）を求める。各`(Step, Sequence, StepTime)`点を1点とする。終点は通常のスコアと一致する（`whiten=False`の場合）。累積和は`float64`で計算する。
+- 部分スコア軌跡：1ファイルの前処理済み行$\mathbf{x}$に対し、fit時と同じ規則で補完・外れ値処理・スケーリングを適用して中心化した$\mathbf{z}$を得る（`impute_model`→`outlier_model`→`scaling_model`の`apply`をこの順に呼び、`pca.mean_`を引く。`scaling_strategy="none"`では中心化をPCAに任せているため）。特徴量を`(Step, Sequence, StepTime)`の昇順に並べ（`(Step, Sequence)`は実際の時間順でなくStep・Sequenceの値の順とする）、その順の累積和$\tau \mapsto \sum_{f \le \tau} z_f w_{m,f}$（成分nも同様）を求める。各`(Step, Sequence, StepTime)`点を1点とする。終点は通常のスコアと一致する（`whiten=False`の場合）。累積和は`float64`で計算する。
 - Q寄与：1ファイルの前処理済み行に、fit時と同じ補完・外れ値処理・スケーリングを適用した$\mathbf{x}$（`pca.transform`へ渡す値）と、その再構成$\hat{\mathbf{x}}$との特徴量ごとの差の二乗$(x_f - \hat{x}_f)^2$とする（SPEC.md「Q統計量（SPE）仕様」と同じ空間）。再構成に使う成分数は、そのrunの`SpeConfig.cumulative_explained_variance`が選ぶ成分数に固定し、探索画面で選んだkは使わない。これにより、全特徴量（ビニング前）の寄与の総和は`scores.parquet`のQと一致する。
-- ローディングの波長集計：`reshape_pca_components`の結果を波長でgroup_byし、平均・RMS・絶対値平均のいずれかを求める。
+- ローディングの波長集計：`reshape_pca_components`の結果（`component`・`wavelength`・`coefficient`列を持つlong形式）を成分と波長でgroup_byし、平均・RMS・絶対値平均のいずれかを求める（`aggregate_loadings_by_wavelength`）。画面では、選んだ2成分だけを`features.parquet`と`components.npy`から同じlong形式にして渡す。
 - ヒートマップのビニング：時間方向を等間隔のビンに分け、ビン内平均をとる。波長方向は間引かない（1200列程度を想定）。
 - 実行前のメモリ見積もり：catalogの行数・波長数と前処理設定から特徴量数$F$を求め、$N \times F \times 8$Bの係数倍を表示する。
   - $F$は、`(Step, Sequence)`ごとにファイル間で最大の行数を`target_steps`・`edge_trim`（`StepTime`が等間隔と仮定）・時間方向の間引きで減らした時刻数と、波長数が最大のファイルの波長を`wavelength_range`・波長方向の間引きで減らした数の積とする。sparse列除去前の値である。
@@ -255,4 +259,3 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 - float32保存の影響の実データでの確認。比較スクリプト`uv run -m flat_pca.webui.compare_artifact_dtypes --run-dir <runディレクトリ>`は、runの設定で1回だけ再fitし、その結果をfloat64とfloat32で保存して、それぞれから復元したモデルで計算したスコア・T²・Q・再構成の差を表示する（dtypeごとに再fitすると、randomized PCAの乱数による差が混ざるため）。合成データでの相対差は$10^{-7}$程度だった。
 - メモリ見積もりの係数の実データでの確認（合成データの実測値で暫定的に決めた）。
-- 部分スコア軌跡で`(Step, Sequence)`の並び順を、Step値の順でなく実際の時間順にする必要があるか。

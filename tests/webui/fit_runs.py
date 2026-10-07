@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
 from flat_pca.webui.database import Database
@@ -20,6 +21,7 @@ def register_fit_run(
     spectra_paths: list[Path],
     run_id: str,
     impute_strategy: str,
+    metadata: Mapping[str, Mapping[str, object]] | None = None,
 ) -> str:
     """Execute and register a succeeded fit run of the synthetic spectra.
 
@@ -40,6 +42,9 @@ def register_fit_run(
         Identifier of the run.
     impute_strategy : str
         Missing-value handling of the fit.
+    metadata : Mapping[str, Mapping[str, object]] | None, default None
+        Metadata column values keyed by stem; without them every metadata
+        value is missing.
 
     Returns
     -------
@@ -48,7 +53,10 @@ def register_fit_run(
     """
     config = build_fit_config(
         settings,
-        [{"stem": path.stem, "path": str(path)} for path in spectra_paths],
+        [
+            {"stem": path.stem, "path": str(path), **(metadata or {}).get(path.stem, {})}
+            for path in spectra_paths
+        ],
         {
             "target_steps": [1, 2],
             "max_null_ratio": 0.1,
