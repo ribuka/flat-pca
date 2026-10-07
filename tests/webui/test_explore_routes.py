@@ -129,13 +129,15 @@ def test_raw_view_draws_the_first_transform_target(
     )
     layout = _embedded(html, "explore-heatmap-figure")["layout"]
     assert layout["yaxis"]["title"]["text"] == "StepTime"  # type: ignore[index]
+    assert "title" not in layout
+    assert '<option value="s-00" selected>s-00</option>' in html
     assert _embedded(html, "explore-axes") == {
         "wavelengths": list(SPECTRA_WAVELENGTHS),
         "step_times": [0.0, 1.0, 2.0, 3.0],
     }
     assert (
         f'data-trend-url="/explore/trend?view=raw&amp;run={fit_run}&amp;file=s-00'
-        '&amp;segment=1%3A1"' in html
+        '&amp;heatmap_file=s-00&amp;segment=1%3A1"' in html
     )
 
 
@@ -150,7 +152,52 @@ def test_raw_view_shows_the_chosen_files_in_natural_order(
     assert '<option value="2:1" selected>' in html
     assert 'data-heatmap-label="s-02"' in html
     assert "表示ファイル：s-02、s-10。" in html
-    assert "file=s-02&amp;file=s-10&amp;segment=2%3A1" in html
+    assert "file=s-02&amp;file=s-10&amp;heatmap_file=s-02&amp;segment=2%3A1" in html
+
+
+@pytest.mark.parametrize(
+    ("view", "label"),
+    [
+        ("raw", "s-10"),
+        ("preprocessed", "s-10"),
+        ("contribution", "s-10"),
+        ("reconstruction", "s-10（累積再構成）"),
+        ("residual", "s-10"),
+        ("q_contribution", "s-10"),
+    ],
+)
+def test_heatmap_draws_the_chosen_file(
+    client: TestClient, fit_run: str, view: str, label: str
+) -> None:
+    """Every file view draws the chosen heatmap file; the trends lead with it."""
+    choose_view(client, files=["s-10", "s-02"])
+
+    html = client.get("/explore", params={"view": view, "heatmap_file": "s-10"}).text
+
+    assert f'data-heatmap-label="{label}"' in html
+    assert '<select name="heatmap_file">' in html
+    assert '<option value="s-02" >s-02</option>' in html
+    assert '<option value="s-10" selected>s-10</option>' in html
+    assert "title" not in _embedded(html, "explore-heatmap-figure")["layout"]
+    assert "heatmap_file=s-10" in html
+    trends = client.get(_trend_url(html, wavelength=400, step_time=0)).json()
+    names = [trace["name"] for trace in trends["by_step_time"]["data"]]
+    assert names[0] == label
+    assert any(name.startswith("s-02") for name in names)
+
+
+def test_unchosen_heatmap_file_falls_back_to_the_first(
+    client: TestClient, fit_run: str
+) -> None:
+    """A heatmap file outside the sidebar's files draws the first file instead."""
+    choose_view(client, files=["s-10", "s-02"])
+
+    html = client.get("/explore", params={"heatmap_file": "s-00"}).text
+
+    assert 'data-heatmap-label="s-02"' in html
+    assert '<option value="s-02" selected>s-02</option>' in html
+    assert 'value="s-00"' not in html
+    assert "heatmap_file=s-02" in html
 
 
 def test_raw_view_without_a_run_asks_for_a_fit(client: TestClient) -> None:
@@ -433,12 +480,19 @@ def test_drop_strategy_excludes_files_with_missing_values(
 
     choose_view(client, files=["s-00", SHORT])
     html = client.get("/explore", params={"view": "residual"}).text
+    choose_view(client, files=["s-00", SHORT])
+    fallback = client.get(
+        "/explore", params={"view": "residual", "heatmap_file": SHORT}
+    ).text
     choose_view(client, files=[SHORT])
     alone = client.get("/explore", params={"view": "residual"}).text
 
     assert 'data-heatmap-label="s-00"' in html
     assert "data-dropped" in html
     assert SHORT in html.split("data-dropped", 1)[1].split("</p>", 1)[0]
+    assert f'<option value="{SHORT}"' not in html
+    assert 'data-heatmap-label="s-00"' in fallback
+    assert "heatmap_file=s-00" in fallback
     assert "data-explore-error" in alone
     assert "補完方法 drop で除外される" in alone
 

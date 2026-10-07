@@ -15,6 +15,15 @@
           {% endfor %}
         </select>
       </label>
+      {% if shown.heatmap_options %}
+        <label>ヒートマップのファイル
+          <select name="heatmap_file">
+            {% for stem in shown.heatmap_options %}
+              <option value="{{ stem }}" {% if stem == shown.heatmap_file %}selected{% endif %}>{{ stem }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      {% endif %}
       {% if shown.segment_options %}
         <label>(Step, Sequence)
           <select name="segment">
@@ -36,7 +45,7 @@
   {% if shown.run_id %}
     <p class="muted" data-shown-files>
       run {{ shown.run_id }} の表示ファイル：{{ shown.files|join("、") }}。
-      サイドバーで選んだファイルのうち先頭のファイルをヒートマップに描き、すべてのファイルをトレンドに重ねます（未選択なら先頭のファイルを表示します）。
+      「ヒートマップのファイル」で選んだ 1 つをヒートマップに描き（既定は先頭のファイル）、すべてのファイルをトレンドに重ねます（未選択なら先頭のファイルを表示します）。
     </p>
   {% endif %}
 </section>

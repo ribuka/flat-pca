@@ -77,6 +77,8 @@ def _query_string(shown: ExploreView) -> str:
     if request.run is not None:
         parameters.append(("run", request.run))
     parameters.extend(("file", stem) for stem in request.files)
+    if request.heatmap_file is not None:
+        parameters.append(("heatmap_file", request.heatmap_file))
     if request.segment is not None:
         parameters.append(("segment", request.segment))
     if request.component is not None:
@@ -127,6 +129,7 @@ def explore_page(
     request: Request,
     workspace: WorkspaceDependency,
     view: str = "raw",
+    heatmap_file: str | None = None,
     segment: str | None = None,
     k: int | None = None,
 ) -> HTMLResponse:
@@ -143,6 +146,9 @@ def explore_page(
         Application workspace.
     view : str, default ``"raw"``
         A key of ``VIEW_LABELS``.
+    heatmap_file : str | None, default None
+        Shown stem drawn as the heatmap; the first shown one by default,
+        or when it is not shown.
     segment : str | None, default None
         ``"{Step}:{Sequence}"``; the first available one by default.
     k : int | None, default None
@@ -159,6 +165,7 @@ def explore_page(
         view=view,
         run=choice.run_id,
         files=tuple(choice.files),
+        heatmap_file=heatmap_file,
         segment=segment,
         component=k,
     )
@@ -190,6 +197,7 @@ def explore_trend(
     view: str = "raw",
     run: str | None = None,
     file: Annotated[list[str] | None, Query()] = None,
+    heatmap_file: str | None = None,
     segment: str | None = None,
     k: int | None = None,
 ) -> Response:
@@ -203,7 +211,7 @@ def explore_trend(
         Requested wavelength; each trace uses its nearest one.
     step_time : float
         Requested ``StepTime``; each trace uses its nearest one.
-    view, segment, k
+    view, heatmap_file, segment, k
         Same as ``explore_page``.
     run : str | None, default None
         Succeeded fit run; the latest one by default.
@@ -227,7 +235,12 @@ def explore_trend(
     shown = _shown_matrices(
         workspace,
         ExploreRequest(
-            view=view, run=run, files=tuple(file or ()), segment=segment, component=k
+            view=view,
+            run=run,
+            files=tuple(file or ()),
+            heatmap_file=heatmap_file,
+            segment=segment,
+            component=k,
         ),
     )
     return trend_response(shown.matrices, shown.value_name, wavelength, step_time)
