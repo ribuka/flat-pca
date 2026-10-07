@@ -12,6 +12,7 @@ from .jobs.catalog import build_catalog_config, run_catalog
 from .jobs.executor import JobExecutor, JobSpec
 from .jobs.fit_run import run_fit
 from .services.catalog_store import apply_catalog_result, known_files
+from .services.display_cache import DisplayCache
 from .services.fit_artifacts import register_fit_result
 from .services.runs import ACTIVE_STATUSES, fail_interrupted_runs, latest_run
 from .services.selection import FileSelection
@@ -41,7 +42,7 @@ class Workspace:
         interrupted = fail_interrupted_runs(self.database)
         if interrupted:
             logger.warning(f"marked {interrupted} interrupted runs as failed")
-        self.cache: dict[str, object] = {}
+        self.cache = DisplayCache()
         self.selection = FileSelection()
         self._submit_lock = threading.Lock()
         self.executor = JobExecutor(

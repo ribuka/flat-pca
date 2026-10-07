@@ -26,7 +26,7 @@ src/flat_pca/
     settings_paths.py           パス設定値の展開（環境変数・{root}・相対パス）
     workspace.py                Workspace（DB接続・キャッシュ・ジョブ実行器）
     routes/                     画面・機能単位のAPIRouter（薄く保つ）
-    services/                   routesから呼ぶ処理本体（catalog, runs, views）
+    services/                   routesから呼ぶ処理本体（catalog, runs, 表示用の行列・ビニング・キャッシュ）
     jobs/                       サブプロセスで実行するジョブ関数
     templates/{pages,partials}/ フルページとhtmxが差し替える断片
     static/                     vendor/htmx.min.js, app.js, app.css（plotly.min.jsはplotlyパッケージ同梱版を/static/vendor/で配信）
@@ -95,6 +95,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 ## Workspace と DB
 
 - 状態は1つの`Workspace`オブジェクト（DuckDB接続、表示用キャッシュ、ジョブ実行器）に集約し、グローバル変数に分散させない。
+- 表示用キャッシュ（`services/display_cache.py`）は、読み込んだ元データ（`StepTime`列を付けたファイル全体。パス・サイズ・更新時刻をキーとする）と、fit runの成果物（`X.npy`はmemmapのまま）をそれぞれLRUで保持する。
 - DuckDBファイルは`{workspace.dir}/flatpca.duckdb`とする。書き込みは親プロセスのみが行う。
 - スキーマに版管理・マイグレーションは持たない。スキーマを変えたときはWorkspaceを作り直す。`file_metadata`だけは、settings.tomlの列定義（列名・順序・SQL型）と食い違う場合に起動時に空で作り直す（次のcatalog更新で埋まる）。
 - テーブル：
@@ -185,14 +186,19 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - 残差（補完・外れ値処理後の前処理済み − 累積再構成、元のスケール）
   - Q寄与（特徴量ごとの残差の二乗。定義は「計算仕様」を参照）
 - 「前処理済み」は`X.npy`の値をそのまま表示し、欠損はNaN（空白セル）として示す。再構成・残差・Q寄与は、fit時と同じ補完・外れ値処理を適用した値から計算するため欠損を含まない。
-- 選択項目：ファイル（成分表示時は不要）、`(Step, Sequence)`、成分番号k。
+- 選択項目：fit run（成功したrun。既定は最新）、ファイル（成分表示時は不要）、`(Step, Sequence)`、成分番号k。
+  - 元データで選べるファイルは、データ選択で選んだファイル（未選択ならcatalogの全ファイル）とする。前処理済みでは、そのrunの`samples.parquet`のファイルとする。
+  - ファイルは複数選べる。先頭のファイルをヒートマップに描き、選んだすべてのファイルをトレンドに重ねる。
+  - `(Step, Sequence)`の選択肢は、元データでは先頭のファイルのcatalogの`segments`、前処理済み・成分では`features.parquet`から求める。選んだ`(Step, Sequence)`を持たないファイルはトレンドから除き、その旨を表示する。
+  - 選択は`/explore?view=…&run=…&file=…&segment={Step}:{Sequence}&k=…`のクエリで表し、URLで再訪できる。
+- 前処理済みでは、そのrunの`intensity_transform`（と`intensity_transform_scale`）を画面に表示する。
 - ヒートマップ：横軸波長、縦軸`StepTime`（0を下）。
   - セル数が`ui.heatmap_max_cells`を超える場合は、サーバーで時間方向をビン平均してから送る。ビニングした旨を表示する。
   - 成分・寄与・残差は0中心の発散カラースケールとする（既存`create_heatmap`の規則に従う）。
 - トレンド：
   - ヒートマップのクリック、または波長・時間の2本のスライダーで地点を選ぶ。クリックとスライダーは同期し、ヒートマップ上に十字線を描く。
   - 「選択波長での強度 vs StepTime」と「選択時刻での強度 vs 波長」の2つのグラフを表示する。
-  - トレンドの値はビニングしていない元の解像度からサーバーで切り出す。スライダーの操作はdebounce（150ms）してから取得する。
+  - トレンドの値はビニングしていない元の解像度からサーバーで切り出す（`/explore/trend`）。各ファイルは、要求された波長・`StepTime`に最も近い自身の格子点で切り出す。スライダーの操作はdebounce（150ms）してから取得する。
   - 複数ファイル、および「前処理済み vs 累積再構成」を重ねて表示できる。
 
 ### 4. スコア・ローディング
@@ -234,7 +240,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - 子プロセスが異常終了したrunが`failed`になり、次のジョブが実行される。
 - Q寄与：補完で欠損を埋めた行を含むデータで、ビニング前の寄与の総和が`scores.parquet`のQと一致する。
 - `webui/routes/`：FastAPIの`TestClient`で、ステータスコードと返すpartialの主要要素を確認する。
-- ブラウザ上の操作（クリック・スライダー）は自動テストの対象外とし、手動で確認する。
+- ブラウザ上の操作（クリック・スライダー等）は、`e2e` markerを付けたPlaywrightのテスト（`tests/webui/e2e/`）で主要な操作のみ確認する。
 
 ## マイルストーン
 

@@ -56,6 +56,95 @@ class FitArtifacts:
     model: PcaModel
 
 
+@dataclass(frozen=True)
+class DisplayArtifacts:
+    """Artifacts of one fit run needed to display its matrices.
+
+    Unlike ``FitArtifacts``, no PCA model is restored, so the components
+    stay memory-mapped and only the rows a view needs are read.
+
+    Attributes
+    ----------
+    features : pl.DataFrame
+        One row per feature, in ``x`` and ``components`` column order.
+    samples : pl.DataFrame
+        One row per file, in ``x`` row order.
+    x : np.ndarray
+        Preprocessed matrix before imputation, memory-mapped read-only in
+        its saved dtype.
+    components : np.ndarray
+        ``pca.components_`` (``n_comp × n_features``), memory-mapped
+        read-only in its saved dtype.
+    """
+
+    features: pl.DataFrame
+    samples: pl.DataFrame
+    x: np.ndarray
+    components: np.ndarray
+
+
+_READ_ERRORS = (OSError, KeyError, ValueError, pl.exceptions.PolarsError)
+
+
+def _artifact_error(error: Exception) -> RunArtifactError:
+    """Return the error reported for unreadable artifacts.
+
+    Parameters
+    ----------
+    error : Exception
+        Error raised while reading or validating the artifacts.
+
+    Returns
+    -------
+    RunArtifactError
+        Error asking to execute the run again.
+    """
+    return RunArtifactError(
+        f"run の成果物を読み込めません。形式が古いか壊れているため、再実行してください"
+        f"（{type(error).__name__}: {error}）"
+    )
+
+
+def load_display_artifacts(run_dir: Path) -> DisplayArtifacts:
+    """Load and validate the artifacts a fit run's display needs.
+
+    Parameters
+    ----------
+    run_dir : Path
+        Run directory written by ``run_fit``.
+
+    Returns
+    -------
+    DisplayArtifacts
+        The artifacts, with ``X.npy`` and ``components.npy`` memory-mapped.
+
+    Raises
+    ------
+    RunArtifactError
+        If a file is missing, unreadable, or inconsistent with the others.
+    """
+    try:
+        artifacts = DisplayArtifacts(
+            features=pl.read_parquet(run_dir / FEATURES_FILE),
+            samples=pl.read_parquet(run_dir / SAMPLES_FILE),
+            x=np.load(run_dir / X_FILE, mmap_mode="r"),
+            components=np.load(run_dir / COMPONENTS_FILE, mmap_mode="r"),
+        )
+        n_features = artifacts.features.height
+        expected = (artifacts.samples.height, n_features)
+        if artifacts.x.shape != expected:
+            raise ValueError(f"{X_FILE} is shaped {artifacts.x.shape}, expected {expected}")
+        components = artifacts.components
+        if components.ndim != 2 or components.shape[0] < 1 or components.shape[1] != n_features:
+            raise ValueError(
+                f"{COMPONENTS_FILE} is shaped {components.shape}, "
+                f"expected (n_components, {n_features})"
+            )
+    except _READ_ERRORS as error:
+        raise _artifact_error(error) from error
+    return artifacts
+
+
 def _check_shapes(artifacts: FitArtifacts) -> None:
     """Check that the artifacts describe the same samples and features.
 
@@ -120,11 +209,8 @@ def load_fit_artifacts(run_dir: Path) -> FitArtifacts:
             model=model,
         )
         _check_shapes(artifacts)
-    except (OSError, KeyError, ValueError, pl.exceptions.PolarsError) as error:
-        raise RunArtifactError(
-            f"run の成果物を読み込めません。形式が古いか壊れているため、再実行してください"
-            f"（{type(error).__name__}: {error}）"
-        ) from error
+    except _READ_ERRORS as error:
+        raise _artifact_error(error) from error
     return artifacts
 
 

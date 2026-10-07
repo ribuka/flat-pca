@@ -198,3 +198,26 @@ a.nav-item:hover {
 #fit-estimate {
   margin-bottom: 0.5rem;
 }
+
+.plot {
+  min-height: 22rem;
+}
+
+.plot-heatmap {
+  min-height: 28rem;
+}
+
+.trend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  gap: 1rem;
+}
+
+.explore-sliders input[type="range"] {
+  width: 14rem;
+}
+
+.explore-sliders output {
+  min-width: 4rem;
+  font-family: ui-monospace, monospace;
+}
