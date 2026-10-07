@@ -34,6 +34,8 @@ class FileQuery:
         Column to sort by: a file statistic or a metadata column.
     descending : bool
         Whether to sort in descending order.
+    page : int
+        1-based number of the shown page of the file list.
     """
 
     text: str = ""
@@ -43,6 +45,7 @@ class FileQuery:
     )
     sort_by: str = "stem"
     descending: bool = False
+    page: int = 1
 
 
 @dataclass(frozen=True)
@@ -103,7 +106,7 @@ def parse_file_query(
     """Build a ``FileQuery`` from request query parameters.
 
     Recognized parameters are ``q`` (stem substring), ``sort``, ``order``
-    (``asc`` or ``desc``), ``eq__<column>`` for category columns, and
+    (``asc`` or ``desc``), ``page`` (a positive integer), ``eq__<column>`` for category columns, and
     ``min__<column>`` / ``max__<column>`` for number and datetime columns.
     Blank values are ignored.
 
@@ -123,7 +126,7 @@ def parse_file_query(
     ------
     ValueError
         If a parameter names an unknown column, uses a filter that does not
-        fit the column type, or has an unparsable value.
+        fit the column type, or has an unparsable value or page number.
     """
     equals: dict[str, str] = {}
     lower: dict[str, float | datetime | None] = {}
@@ -151,6 +154,9 @@ def parse_file_query(
     order = parameters.get("order", "") or "asc"
     if order not in ("asc", "desc"):
         raise ValueError(f"invalid sort order: {order!r}")
+    page = parameters.get("page", "").strip() or "1"
+    if not (page.isascii() and page.isdigit()) or int(page) < 1:
+        raise ValueError(f"invalid page: {page!r}")
 
     ranges = {
         name: (lower.get(name), upper.get(name))
@@ -163,6 +169,7 @@ def parse_file_query(
         ranges=ranges,
         sort_by=sort_by,
         descending=order == "desc",
+        page=int(page),
     )
 
 

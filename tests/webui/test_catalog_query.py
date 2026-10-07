@@ -48,6 +48,7 @@ def test_parse_file_query_reads_filters_and_sort(settings: Settings) -> None:
             "max__date": "2026-02-01T00:00",
             "sort": "date",
             "order": "desc",
+            "page": "3",
         },
         settings.metadata_columns,
     )
@@ -61,6 +62,7 @@ def test_parse_file_query_reads_filters_and_sort(settings: Settings) -> None:
         },
         sort_by="date",
         descending=True,
+        page=3,
     )
 
 
@@ -73,6 +75,8 @@ def test_parse_file_query_reads_filters_and_sort(settings: Settings) -> None:
         ({"min__yield_pct": "abc"}, "invalid bound"),
         ({"sort": "path"}, "unknown sort column"),
         ({"order": "up"}, "invalid sort order"),
+        ({"page": "0"}, "invalid page"),
+        ({"page": "x"}, "invalid page"),
     ],
 )
 def test_parse_file_query_rejects_invalid_parameters(

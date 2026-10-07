@@ -18,23 +18,71 @@
   {% endif %}
 </div>
 {% endif %}
-<p class="muted">{{ files|length }} 件</p>
+{#- The query controls carry data-file-query; app.js reloads the table when
+    they change. Typed filters are preserved across reloads so that text typed
+    while a reload is pending is kept. -#}
+<input type="hidden" name="sort" value="{{ query.sort_by }}" data-file-query>
+<input type="hidden" name="order" value="{{ 'desc' if query.descending else 'asc' }}" data-file-query>
+<input type="hidden" name="page" value="{{ page.number }}" data-file-query>
+<script type="application/json" data-matching-stems>{{ matching_stems|tojson }}</script>
+{% macro sort_header(name, label) -%}
+  {% set current = query.sort_by == name %}
+  <button type="button" class="sort-button" data-sort="{{ name }}">
+    {{- label -}}
+    <span class="sort-mark" aria-hidden="true">{% if current %}{{ "▼" if query.descending else "▲" }}{% endif %}</span>
+  </button>
+{%- endmacro %}
+{% macro aria_sort(name) -%}
+  {% if query.sort_by == name %} aria-sort="{{ 'descending' if query.descending else 'ascending' }}"{% endif %}
+{%- endmacro %}
 <div class="table-scroll file-table-scroll">
 <table class="file-table" data-check-table>
   <thead>
     <tr>
-      <th class="check-cell"><input type="checkbox" data-check-all aria-label="表示中をすべて選択"></th>
-      <th>ファイル名</th>
-      {% for name in columns %}<th>{{ name }}</th>{% endfor %}
-      <th>Step 数</th>
-      <th>(Step, Sequence) 数</th>
-      <th>行数</th>
+      <th class="check-cell"><input type="checkbox" data-check-all aria-label="絞り込み中をすべて選択"></th>
+      <th{{ aria_sort("stem") }}>
+        {{ sort_header("stem", "ファイル名") }}
+        <div class="column-filter">
+          <input type="search" id="file-filter-q" name="q" value="{{ query.text }}" placeholder="含む文字列"
+                 aria-label="ファイル名で絞り込み" data-file-query hx-preserve>
+        </div>
+      </th>
+      {% for name, column in columns.items() %}
+        <th{{ aria_sort(name) }}>
+          {{ sort_header(name, name) }}
+          <div class="column-filter">
+            {% if column.type == "category" %}
+              {% set values = options.get(name, []) %}
+              {% set current = query.equals.get(name, "") %}
+              <select name="eq__{{ name }}" aria-label="{{ name }} で絞り込み" data-file-query>
+                <option value="">(すべて)</option>
+                {% for value in values %}
+                  <option value="{{ value }}" {% if value == current %}selected{% endif %}>{{ value }}</option>
+                {% endfor %}
+                {% if current and current not in values %}
+                  <option value="{{ current }}" selected>{{ current }}</option>
+                {% endif %}
+              </select>
+            {% else %}
+              {% set input_type = "datetime-local" if column.type == "datetime" else "number" %}
+              {% set index = loop.index %}
+              <input type="{{ input_type }}" id="file-filter-min-{{ index }}" name="min__{{ name }}" step="any"
+                     aria-label="{{ name }} 下限" placeholder="下限" data-file-query hx-preserve>
+              <input type="{{ input_type }}" id="file-filter-max-{{ index }}" name="max__{{ name }}" step="any"
+                     aria-label="{{ name }} 上限" placeholder="上限" data-file-query hx-preserve>
+            {% endif %}
+          </div>
+        </th>
+      {% endfor %}
+      <th{{ aria_sort("n_steps") }}>{{ sort_header("n_steps", "Step 数") }}</th>
+      <th{{ aria_sort("n_segments") }}>{{ sort_header("n_segments", "(Step, Sequence) 数") }}</th>
+      <th{{ aria_sort("n_rows") }}>{{ sort_header("n_rows", "行数") }}</th>
     </tr>
   </thead>
   <tbody>
-    {% for file in files %}
+    {% for file in page.items %}
       <tr data-stem="{{ file.stem }}">
-        <td class="check-cell"><input type="checkbox" name="stems" value="{{ file.stem }}" {% if file.stem in selected %}checked{% endif %}></td>
+        <td class="check-cell"><input type="checkbox" value="{{ file.stem }}" aria-label="{{ file.stem }} を選択" data-stem-check {% if file.stem in selected %}checked{% endif %}></td>
         <td title="{{ file.path }}">{{ file.stem }}</td>
         {% for name in columns %}<td>{{ file[name]|cell }}</td>{% endfor %}
         <td>{{ file.n_steps }}</td>
@@ -45,3 +93,25 @@
   </tbody>
 </table>
 </div>
+<nav class="pager" aria-label="ページ">
+  <span class="muted" data-page-range>
+    {%- if page.total -%}
+      全 {{ page.total }} 件中 {{ page.start }}〜{{ page.end }} 件
+    {%- else -%}
+      全 0 件
+    {%- endif -%}
+  </span>
+  {% if page.count > 1 %}
+    <button type="button" data-page="{{ page.number - 1 }}" {% if page.number == 1 %}disabled{% endif %}>前へ</button>
+    {% for number in page.links %}
+      {% if number is none %}
+        <span class="muted">…</span>
+      {% elif number == page.number %}
+        <button type="button" class="pager-current" aria-current="page" disabled>{{ number }}</button>
+      {% else %}
+        <button type="button" data-page="{{ number }}">{{ number }}</button>
+      {% endif %}
+    {% endfor %}
+    <button type="button" data-page="{{ page.number + 1 }}" {% if page.number == page.count %}disabled{% endif %}>次へ</button>
+  {% endif %}
+</nav>

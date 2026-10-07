@@ -61,12 +61,12 @@ and get element references for `browser_click`, `browser_select_option`, and `br
 | Open the page | "catalog はまだ作成されていません。"; the file table shows 0 件; the sidebar shows catalog 未作成. |
 | Click "catalog 更新" | The status shows `queued`/`running` and polls every second; the button is disabled. |
 | Wait (`browser_wait_for` text `succeeded`) | Status `succeeded`, 3 ファイル; the file table reloads with `run-1`, `run-2`, `run-10`; the warnings list `run-10` (no metadata) and `ghost` (no file). |
-| Category filter `lot` | Options are `(すべて)`, `A`, `B` after the update; choosing `A` leaves only `run-1`. |
+| Category filter `lot` (under the column name) | Options are `(すべて)`, `A`, `B` after the update; choosing `A` leaves only `run-1`. |
 | Numeric / datetime filters | e.g. `yield_pct 下限` = 90 leaves only `run-1`. |
-| Sort / order selects | The table reorders. |
-| Header checkbox of the file table | Checks / clears every visible row; with only some rows checked it shows the indeterminate state. |
-| Click a group heading (catalog / 絞り込み / ファイル) | The group folds and unfolds. |
-| "このファイル集合を選択" | A green check icon (Material Symbols `check_circle`) and "選択中：N ファイル" appear right of the button; the sidebar's 選択中 count updates. |
+| Click a column name, then again | The table sorts ascending (▲), then descending (▼). |
+| Header checkbox of the file table | Checks / clears every row matching the filters, on all pages; with only some of them checked it shows the indeterminate state. |
+| Click a group heading (catalog / ファイル) | The group folds and unfolds. |
+| "Select" (below the table, right) | A green check icon (Material Symbols `check_circle`) and "fit 対象：N ファイル" appear left of the button; the sidebar's fit 対象 count updates. |
 
 ### Preprocessing and PCA (`/fit`)
 
