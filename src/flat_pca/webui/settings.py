@@ -144,8 +144,9 @@ class UiSettings(_StrictModel):
     heatmap_max_cells : int
         Maximum number of heatmap cells sent to the browser.
     explore_max_files : int
-        Maximum number of files shown at once on the spectral exploration
-        screen; also the number of prepared rows kept by the display cache.
+        Maximum number of shown files chosen in the sidebar, and so shown at
+        once on the spectral exploration screen; also the number of
+        prepared rows kept by the display cache.
     """
 
     default_color_by: str | None = None

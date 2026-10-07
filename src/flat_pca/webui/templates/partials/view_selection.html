@@ -1,0 +1,36 @@
+<form id="view-run-form" class="view-selection-field" hx-post="/sidebar/selection/run" hx-trigger="change" hx-swap="none" data-busy-reload>
+  <label for="view-run">run</label>
+  {% if choice.runs %}
+    <select id="view-run" name="run">
+      {% for run in choice.runs %}
+        <option value="{{ run.run_id }}" {% if run.run_id == choice.run_id %}selected{% endif %}>{{ run.run_id }}（{{ run.created_at|cell }}）</option>
+      {% endfor %}
+    </select>
+  {% else %}
+    <p class="muted" data-no-run>成功した fit run がありません</p>
+  {% endif %}
+</form>
+<div class="view-selection-field">
+  <span class="view-selection-label">表示ファイル
+    <span class="muted" data-view-file-count>{{ choice.files|length }} / {{ max_files }}</span>
+  </span>
+  {% if choice.file_options %}
+    <input type="search" class="view-file-search" placeholder="ファイル名で絞り込み" aria-label="表示ファイルの絞り込み" data-view-file-search>
+    <form id="view-files-form" hx-post="/sidebar/selection/files" hx-trigger="change" hx-swap="none" data-busy-reload>
+      <ul class="view-file-list">
+        {% set full = choice.files|length >= max_files %}
+        {% for stem in choice.file_options %}
+          {% set checked = stem in choice.files %}
+          <li data-stem="{{ stem }}">
+            <label><input type="checkbox" name="file" value="{{ stem }}" {% if checked %}checked{% elif full %}disabled{% endif %}> {{ stem }}</label>
+          </li>
+        {% endfor %}
+      </ul>
+    </form>
+    {% if full %}
+      <p class="muted" data-view-file-limit>上限の {{ max_files }} 件に達したため、ほかのファイルは選べません。</p>
+    {% endif %}
+  {% else %}
+    <p class="muted">選べるファイルがありません</p>
+  {% endif %}
+</div>

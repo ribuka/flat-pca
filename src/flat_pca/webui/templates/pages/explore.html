@@ -15,15 +15,6 @@
           {% endfor %}
         </select>
       </label>
-      {% if shown.runs %}
-        <label>fit run
-          <select name="run">
-            {% for run in shown.runs %}
-              <option value="{{ run.run_id }}" {% if run.run_id == shown.run_id %}selected{% endif %}>{{ run.run_id }}（{{ run.created_at|cell }}）</option>
-            {% endfor %}
-          </select>
-        </label>
-      {% endif %}
       {% if shown.segment_options %}
         <label>(Step, Sequence)
           <select name="segment">
@@ -41,22 +32,13 @@
       {% endif %}
       <button type="submit">表示</button>
     </div>
-    {% if shown.file_options %}
-      <div class="field-row">
-        <label>ファイル
-          <select name="file" multiple size="{{ [shown.file_options|length, 6]|min }}">
-            {% for stem in shown.file_options %}
-              <option value="{{ stem }}" {% if stem in shown.files %}selected{% endif %}>{{ stem }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <span class="muted">
-          先頭のファイルをヒートマップに描き、選んだすべてのファイルをトレンドに重ねます。一度に表示できるのは {{ max_files }} 件までです。
-          {% if shown.view == "raw" %}データ選択で選んだファイル（未選択なら catalog の全ファイル）から選べます。{% endif %}
-        </span>
-      </div>
-    {% endif %}
   </form>
+  {% if shown.run_id %}
+    <p class="muted" data-shown-files>
+      run {{ shown.run_id }} の表示ファイル：{{ shown.files|join("、") }}。
+      サイドバーで選んだファイルのうち先頭のファイルをヒートマップに描き、すべてのファイルをトレンドに重ねます（未選択なら先頭のファイルを表示します）。
+    </p>
+  {% endif %}
 </section>
 
 <section>

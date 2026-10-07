@@ -16,6 +16,7 @@ from .services.display_cache import DisplayCache
 from .services.fit_artifacts import register_fit_result
 from .services.runs import ACTIVE_STATUSES, fail_interrupted_runs, latest_run
 from .services.selection import FileSelection
+from .services.view_selection import ViewSelection
 from .settings import Settings
 
 CATALOG_JOB = "catalog"
@@ -23,7 +24,7 @@ FIT_JOB = "fit"
 
 
 class Workspace:
-    """Database connection, display cache, file selection, and job executor.
+    """Database connection, display cache, file selections, and job executor.
 
     All Web UI state lives in one ``Workspace`` instead of module globals.
     Opening a workspace marks runs left ``queued`` or ``running`` by a
@@ -44,6 +45,7 @@ class Workspace:
             logger.warning(f"marked {interrupted} interrupted runs as failed")
         self.cache = DisplayCache(settings.ui.explore_max_files)
         self.selection = FileSelection()
+        self.view_selection = ViewSelection()
         self._submit_lock = threading.Lock()
         self.executor = JobExecutor(
             self.database,

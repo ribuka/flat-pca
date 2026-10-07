@@ -27,6 +27,10 @@
           {% endfor %}
         </ul>
       </nav>
+      <div id="view-selection" class="view-selection"
+           hx-get="/sidebar/selection" hx-target="this" hx-swap="innerHTML"
+           hx-trigger="load, fit-updated from:body">
+      </div>
       <div id="sidebar-status" class="sidebar-status"
            hx-get="/sidebar/status" hx-target="this" hx-swap="innerHTML"
            hx-trigger="load, catalog-started from:body, catalog-updated from:body, selection-updated from:body">

@@ -4,17 +4,19 @@ from __future__ import annotations
 
 import pytest
 from playwright.sync_api import Page, expect
+from sidebar_choice import choose_files
 from spectra import SPECTRA_SHORT_FILE
 
 pytestmark = pytest.mark.e2e
 
 SHORT = f"s-{SPECTRA_SHORT_FILE:02d}"
 # Segment (2, 1) of the synthetic spectra: StepTime 0, 1, 2 over five wavelengths.
-RECONSTRUCTION_PATH = f"/explore?view=reconstruction&file={SHORT}&segment=2:1&k=2"
+RECONSTRUCTION_PATH = "/explore?view=reconstruction&segment=2:1&k=2"
 
 
 def _open(page: Page, base_url: str) -> None:
-    """Open the reconstruction view and wait for the initial trends."""
+    """Open the reconstruction view of the short file and wait for the initial trends."""
+    choose_files(page, base_url, [SHORT])
     page.goto(base_url + RECONSTRUCTION_PATH)
     root = page.locator("[data-explore]")
     expect(root).to_have_attribute("data-trend-wavelength", "402.5")
@@ -44,7 +46,7 @@ def test_view_and_component_choices_reload_the_page(
 
     page.locator('select[name="view"]').select_option("residual")
     expect(page).to_have_url(
-        f"{fitted_server_url}/explore?view=residual&run=fit-1&segment=2%3A1&k=2&file={SHORT}"
+        f"{fitted_server_url}/explore?view=residual&segment=2%3A1&k=2"
     )
     expect(page.locator("[data-view-note]")).to_contain_text("1..2 成分")
 

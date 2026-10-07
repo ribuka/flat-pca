@@ -10,10 +10,12 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 import numpy as np
+import polars as pl
 import pytest
 from fastapi.testclient import TestClient
 from fit_runs import register_fit_run
-from spectra import SPECTRA_SHORT_FILE
+from spectra import SPECTRA_SHORT_FILE, SPECTRA_WAVELENGTHS
+from view_choice import choose_view
 
 from flat_pca.webui.app import create_app
 from flat_pca.webui.services.display_cache import DisplayCache
@@ -23,6 +25,7 @@ from flat_pca.webui.workspace import FIT_JOB, Workspace
 
 Wait = Callable[..., dict[str, object]]
 FIT_RUN_ID = "fit-1"
+SHORT = f"s-{SPECTRA_SHORT_FILE:02d}"
 
 
 def _workspace(client: TestClient) -> Workspace:
@@ -58,6 +61,13 @@ def _heatmap(html: str) -> dict[str, object]:
     return _embedded(html, "explore-heatmap-figure")["data"][0]  # type: ignore[index]
 
 
+def _raw_values(path: Path, step: int) -> np.ndarray:
+    """Return one Step of a synthetic spectra file as a time × wavelength matrix."""
+    frame = pl.read_parquet(path).filter(pl.col("Step") == step).sort("Time")
+    columns = [f"{wavelength:.1f}nm" for wavelength in SPECTRA_WAVELENGTHS]
+    return frame.select(columns).to_numpy()
+
+
 @pytest.fixture
 def client(settings: Settings, wait_for: Wait) -> Iterator[TestClient]:
     """Run the application on a cataloged workspace."""
@@ -90,64 +100,96 @@ def test_navigation_links_to_the_page(client: TestClient) -> None:
     assert "vendor/plotly.min.js" in html
 
 
-def test_raw_view_draws_the_first_file_and_segment(client: TestClient) -> None:
-    """Without choices, the raw view shows the first file's first segment."""
+def test_page_has_no_run_or_file_choice(client: TestClient, fit_run: str) -> None:
+    """The run and the files are chosen in the sidebar, not on the page."""
+    html = client.get("/explore").text
+
+    assert 'name="run"' not in html
+    assert 'name="file"' not in html
+    assert f"run {fit_run} の表示ファイル：s-00。" in html
+
+
+def test_raw_view_draws_the_first_transform_target(
+    client: TestClient, fit_run: str, spectra_paths: list[Path]
+) -> None:
+    """Without chosen files, the raw view shows the run's first file and segment."""
     response = client.get("/explore")
 
     assert response.status_code == 200
     html = response.text
-    assert '<option value="run-1" selected>' in html
     assert '<option value="1:1" selected>' in html
-    assert 'data-heatmap-label="run-1"' in html
+    assert 'value="2:1" >' in html
+    assert 'data-heatmap-label="s-00"' in html
     assert "data-binned" not in html
     heatmap = _heatmap(html)
-    assert _decode(heatmap["x"]) == [400.0, 401.0, 402.5]
-    assert _decode(heatmap["y"]) == [0.0, 0.5, 1.0]
+    assert _decode(heatmap["x"]) == list(SPECTRA_WAVELENGTHS)
+    assert _decode(heatmap["y"]) == [0.0, 1.0, 2.0, 3.0]
+    np.testing.assert_allclose(
+        np.array(_decode(heatmap["z"]), dtype=np.float64), _raw_values(spectra_paths[0], 1)
+    )
     layout = _embedded(html, "explore-heatmap-figure")["layout"]
     assert layout["yaxis"]["title"]["text"] == "StepTime"  # type: ignore[index]
     assert _embedded(html, "explore-axes") == {
-        "wavelengths": [400.0, 401.0, 402.5],
-        "step_times": [0.0, 0.5, 1.0],
+        "wavelengths": list(SPECTRA_WAVELENGTHS),
+        "step_times": [0.0, 1.0, 2.0, 3.0],
     }
     assert (
-        'data-trend-url="/explore/trend?view=raw&amp;file=run-1&amp;segment=1%3A1"' in html
+        f'data-trend-url="/explore/trend?view=raw&amp;run={fit_run}&amp;file=s-00'
+        '&amp;segment=1%3A1"' in html
     )
 
 
-def test_raw_view_lists_the_selected_files(client: TestClient) -> None:
-    """With a selection, only the selected files can be chosen."""
-    client.post("/catalog/selection", data={"stems": ["run-2", "run-10"]})
+def test_raw_view_shows_the_chosen_files_in_natural_order(
+    client: TestClient, fit_run: str
+) -> None:
+    """The chosen files are shown in natural order; the first is the heatmap."""
+    choose_view(client, files=["s-10", "s-02"])
 
-    html = client.get("/explore", params={"file": ["run-10"], "segment": "2:2"}).text
+    html = client.get("/explore", params={"segment": "2:1"}).text
 
-    assert 'value="run-1"' not in html
-    assert '<option value="run-10" selected>' in html
-    assert '<option value="2:2" selected>' in html
-    assert 'data-heatmap-label="run-10"' in html
+    assert '<option value="2:1" selected>' in html
+    assert 'data-heatmap-label="s-02"' in html
+    assert "表示ファイル：s-02、s-10。" in html
+    assert "file=s-02&amp;file=s-10&amp;segment=2%3A1" in html
 
 
-def test_heatmap_is_binned_above_the_cell_limit(settings: Settings, wait_for: Wait) -> None:
+def test_raw_view_without_a_run_asks_for_a_fit(client: TestClient) -> None:
+    """The raw view chooses from the transform targets, so it needs a fit run."""
+    html = client.get("/explore").text
+
+    assert "data-explore-error" in html
+    assert "先に前処理・PCA で fit を実行してください" in html
+    assert "data-explore " not in html
+
+
+def test_heatmap_is_binned_above_the_cell_limit(
+    settings: Settings, spectra_paths: list[Path]
+) -> None:
     """Above ``ui.heatmap_max_cells`` the heatmap rows are averaged and marked."""
-    limited = settings.model_copy(update={"ui": UiSettings(heatmap_max_cells=6)})
+    limited = settings.model_copy(update={"ui": UiSettings(heatmap_max_cells=10)})
     with TestClient(create_app(limited)) as opened:
-        workspace = _workspace(opened)
-        wait_for(workspace.database, workspace.submit_catalog())
+        register_fit_run(
+            _workspace(opened).database, limited, spectra_paths, FIT_RUN_ID, "median"
+        )
         html = opened.get("/explore").text
 
     assert "data-binned" in html
-    assert "3 行を" in html
-    # Two bins over StepTime 0..1: [0, 0.5) holds 0; [0.5, 1] holds 0.5 and 1.
-    assert _decode(_heatmap(html)["y"]) == [0.0, 0.75]
-    assert _embedded(html, "explore-axes")["step_times"] == [0.0, 0.5, 1.0]
+    assert "4 行を" in html
+    # Two bins over StepTime 0..3: [0, 1.5) holds 0 and 1; [1.5, 3] holds 2 and 3.
+    assert _decode(_heatmap(html)["y"]) == [0.5, 2.5]
+    assert _embedded(html, "explore-axes")["step_times"] == [0.0, 1.0, 2.0, 3.0]
 
 
-def test_trend_overlays_files_at_the_nearest_point(client: TestClient) -> None:
+def test_trend_overlays_files_at_the_nearest_point(
+    client: TestClient, fit_run: str, spectra_paths: list[Path]
+) -> None:
     """Trends cut every chosen file at its nearest unbinned grid point."""
     response = client.get(
         "/explore/trend",
         params={
             "view": "raw",
-            "file": ["run-1", "run-2"],
+            "run": fit_run,
+            "file": ["s-00", "s-01"],
             "segment": "1:1",
             "wavelength": 401.2,
             "step_time": 0.6,
@@ -157,30 +199,29 @@ def test_trend_overlays_files_at_the_nearest_point(client: TestClient) -> None:
     assert response.status_code == 200
     trends = response.json()
     assert trends["wavelength"] == 401.0
-    assert trends["step_time"] == 0.5
+    assert trends["step_time"] == 1.0
     by_step_time = trends["by_step_time"]["data"]
-    assert [trace["name"] for trace in by_step_time] == ["run-1", "run-2"]
-    assert _decode(by_step_time[0]["x"]) == [0.0, 0.5, 1.0]
-    assert _decode(by_step_time[0]["y"]) == [0.0, 1.0, 2.0]
+    assert [trace["name"] for trace in by_step_time] == ["s-00", "s-01"]
+    assert _decode(by_step_time[0]["x"]) == [0.0, 1.0, 2.0, 3.0]
+    raw = _raw_values(spectra_paths[0], 1)
+    np.testing.assert_allclose(_decode(by_step_time[0]["y"]), raw[:, 1])
     by_wavelength = trends["by_wavelength"]["data"]
-    assert _decode(by_wavelength[0]["x"]) == [400.0, 401.0, 402.5]
-    assert _decode(by_wavelength[0]["y"]) == [0.5, 1.0, 1.5]
+    assert _decode(by_wavelength[0]["x"]) == list(SPECTRA_WAVELENGTHS)
+    np.testing.assert_allclose(_decode(by_wavelength[0]["y"]), raw[1])
 
 
 def test_preprocessed_view_shows_x_rows_and_the_transform(
     client: TestClient, fit_run: str
 ) -> None:
     """The preprocessed view reshapes X.npy rows and names the transform."""
-    short = f"s-{SPECTRA_SHORT_FILE:02d}"
+    choose_view(client, files=[SHORT])
 
-    html = client.get(
-        "/explore", params={"view": "preprocessed", "file": [short], "segment": "2:1"}
-    ).text
+    html = client.get("/explore", params={"view": "preprocessed", "segment": "2:1"}).text
 
-    assert f'<option value="{fit_run}" selected>' in html
+    assert f"run {fit_run} の表示ファイル：{SHORT}。" in html
     assert 'data-intensity-transform="sqrt"' in html
     assert "scale = 2" in html
-    assert f'data-heatmap-label="{short}"' in html
+    assert f'data-heatmap-label="{SHORT}"' in html
     heatmap = _heatmap(html)
     assert _decode(heatmap["y"]) == [0.0, 1.0, 2.0]
     # The short file lacks the last Step 2 row, so its last heatmap row is blank.
@@ -192,14 +233,14 @@ def test_preprocessed_view_shows_x_rows_and_the_transform(
         "/explore/trend",
         params={
             "view": "preprocessed",
-            "file": ["s-00", short],
+            "file": ["s-00", SHORT],
             "segment": "2:1",
             "wavelength": 400,
             "step_time": 2,
         },
     ).json()
     names = [trace["name"] for trace in trends["by_step_time"]["data"]]
-    assert names == ["s-00", short]
+    assert names == ["s-00", SHORT]
 
 
 def test_run_views_without_a_run_show_a_message(client: TestClient) -> None:
@@ -222,13 +263,21 @@ def test_run_views_without_a_run_show_a_message(client: TestClient) -> None:
         {"view": "component"},
         {"segment": "1"},
         {"segment": "a:b"},
-        {"run": "missing"},
     ],
 )
 def test_invalid_parameters_are_rejected(client: TestClient, params: dict[str, str]) -> None:
-    """Unknown views (including the moved component view), malformed segments,
-    and unknown runs return 400."""
+    """Unknown views (including the moved component view) and malformed segments
+    return 400."""
     assert client.get("/explore", params=params).status_code == 400
+
+
+def test_trend_rejects_an_unknown_run(client: TestClient) -> None:
+    """A trend of an unknown run returns 400."""
+    response = client.get(
+        "/explore/trend", params={"run": "missing", "wavelength": 0, "step_time": 0}
+    )
+
+    assert response.status_code == 400
 
 
 def _add_runs(client: TestClient, settings: Settings, count: int, status: str) -> None:
@@ -248,20 +297,23 @@ def test_succeeded_run_is_found_behind_many_failed_runs(
 
     html = client.get("/explore", params={"view": "preprocessed"}).text
 
-    assert f'<option value="{fit_run}" selected>' in html
+    assert f"run {fit_run} の表示ファイル" in html
     assert 'data-heatmap-label="s-00"' in html
 
 
-def test_old_succeeded_run_can_be_requested(
+def test_old_succeeded_run_can_be_chosen(
     client: TestClient, settings: Settings, fit_run: str
 ) -> None:
-    """A succeeded run beyond the listed ones is still shown when requested."""
+    """A succeeded run beyond the listed ones is still shown when chosen."""
+    choose_view(client, run=fit_run)
     _add_runs(client, settings, 101, "succeeded")
 
-    html = client.get("/explore", params={"view": "preprocessed", "run": fit_run}).text
+    html = client.get("/explore", params={"view": "preprocessed"}).text
+    sidebar = client.get("/sidebar/selection").text
 
-    assert f'<option value="{fit_run}" selected>' in html
+    assert f"run {fit_run} の表示ファイル" in html
     assert 'data-heatmap-label="s-00"' in html
+    assert f'<option value="{fit_run}" selected>' in sidebar
 
 
 def _trend_values(
@@ -295,12 +347,12 @@ def test_reconstruction_view_has_no_missing_cells_and_overlays_x(
     client: TestClient, fit_run: str
 ) -> None:
     """The imputed file is reconstructed everywhere; trends overlay X.npy."""
-    short = f"s-{SPECTRA_SHORT_FILE:02d}"
-    params = {"view": "reconstruction", "file": [short], "segment": "2:1", "k": "2"}
+    params = {"view": "reconstruction", "segment": "2:1", "k": "2"}
+    choose_view(client, files=[SHORT])
 
     html = client.get("/explore", params=params).text
 
-    assert f'data-heatmap-label="{short}（累積再構成）"' in html
+    assert f'data-heatmap-label="{SHORT}（累積再構成）"' in html
     assert 'name="k" min="1" max="3" value="2"' in html
     assert 'data-intensity-transform="sqrt"' in html
     assert "先頭 1..2 成分の累積再構成" in html
@@ -310,29 +362,29 @@ def test_reconstruction_view_has_no_missing_cells_and_overlays_x(
     coloraxis = _embedded(html, "explore-heatmap-figure")["layout"]["coloraxis"]  # type: ignore[index]
     assert coloraxis["colorbar"]["title"]["text"] == "intensity"
 
-    lines = _trend_values(client, params)
-    assert list(lines) == [f"{short}（累積再構成）", f"{short}（前処理済み）"]
-    assert np.isfinite(lines[f"{short}（累積再構成）"]).all()
+    lines = _trend_values(client, {**params, "file": [SHORT]})
+    assert list(lines) == [f"{SHORT}（累積再構成）", f"{SHORT}（前処理済み）"]
+    assert np.isfinite(lines[f"{SHORT}（累積再構成）"]).all()
     # X.npy lacks the short file's last Step 2 row.
-    assert np.isnan(lines[f"{short}（前処理済み）"]).all()
+    assert np.isnan(lines[f"{SHORT}（前処理済み）"]).all()
 
 
 def test_residual_view_has_no_nan_for_an_imputed_file(
     client: TestClient, fit_run: str
 ) -> None:
     """Residuals of imputed rows are finite and drawn on a diverging scale."""
-    short = f"s-{SPECTRA_SHORT_FILE:02d}"
-    params = {"view": "residual", "file": [short], "segment": "2:1", "k": "1"}
+    params = {"view": "residual", "segment": "2:1", "k": "1"}
+    choose_view(client, files=[SHORT])
 
     html = client.get("/explore", params=params).text
 
-    assert f'data-heatmap-label="{short}"' in html
+    assert f'data-heatmap-label="{SHORT}"' in html
     z = np.array(_decode(_heatmap(html)["z"]), dtype=np.float64)
     assert np.isfinite(z).all()
     coloraxis = _embedded(html, "explore-heatmap-figure")["layout"]["coloraxis"]  # type: ignore[index]
     assert coloraxis["colorbar"]["title"]["text"] == "residual"
     assert coloraxis["cmin"] == -coloraxis["cmax"]
-    assert np.isfinite(_trend_values(client, params)[short]).all()
+    assert np.isfinite(_trend_values(client, {**params, "file": [SHORT]})[SHORT]).all()
 
 
 def test_residual_plus_reconstruction_is_the_preprocessed_row(
@@ -356,7 +408,9 @@ def test_contribution_view_is_the_reconstruction_increment(
     """The k-th contribution is the change of the reconstruction from k-1 to k."""
     common = {"file": ["s-00"], "segment": "2:1"}
 
-    html = client.get("/explore", params={**common, "view": "contribution", "k": "2"}).text
+    html = client.get(
+        "/explore", params={"view": "contribution", "segment": "2:1", "k": "2"}
+    ).text
     contribution = _trend_values(client, {**common, "view": "contribution", "k": "2"})
     first = _trend_values(client, {**common, "view": "reconstruction", "k": "1"})
     second = _trend_values(client, {**common, "view": "reconstruction", "k": "2"})
@@ -375,22 +429,16 @@ def test_drop_strategy_excludes_files_with_missing_values(
     client: TestClient, settings: Settings, spectra_paths: list[Path]
 ) -> None:
     """Files dropped by ``impute_strategy="drop"`` are listed, not reconstructed."""
-    run_id = register_fit_run(
-        _workspace(client).database, settings, spectra_paths, "fit-drop", "drop"
-    )
-    short = f"s-{SPECTRA_SHORT_FILE:02d}"
+    register_fit_run(_workspace(client).database, settings, spectra_paths, "fit-drop", "drop")
 
-    html = client.get(
-        "/explore",
-        params={"view": "residual", "run": run_id, "file": ["s-00", short]},
-    ).text
-    alone = client.get(
-        "/explore", params={"view": "residual", "run": run_id, "file": [short]}
-    ).text
+    choose_view(client, files=["s-00", SHORT])
+    html = client.get("/explore", params={"view": "residual"}).text
+    choose_view(client, files=[SHORT])
+    alone = client.get("/explore", params={"view": "residual"}).text
 
     assert 'data-heatmap-label="s-00"' in html
     assert "data-dropped" in html
-    assert short in html.split("data-dropped", 1)[1].split("</p>", 1)[0]
+    assert SHORT in html.split("data-dropped", 1)[1].split("</p>", 1)[0]
     assert "data-explore-error" in alone
     assert "補完方法 drop で除外される" in alone
 
@@ -407,14 +455,15 @@ def test_trend_of_a_shown_view_reuses_its_matrices(
     client: TestClient, fit_run: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Trends of a drawn page are cut from its matrices without resolving the view."""
-    short = f"s-{SPECTRA_SHORT_FILE:02d}"
-    params = {"view": "contribution", "file": ["s-00", short], "segment": "2:1", "k": "2"}
+    params = {"view": "contribution", "segment": "2:1", "k": "2"}
     point = {"wavelength": 400, "step_time": 2}
     expected = client.get(
-        "/explore/trend", params={**params, "run": fit_run, **point}
+        "/explore/trend",
+        params={**params, "run": fit_run, "file": ["s-00", SHORT], **point},
     ).json()
     assert len(expected["by_step_time"]["data"]) == 2
     _clear_cache(client)
+    choose_view(client, files=["s-00", SHORT])
     html = client.get("/explore", params=params).text
 
     def fail(*args: object, **kwargs: object) -> None:
@@ -432,8 +481,7 @@ def test_trend_of_a_shown_view_reuses_its_matrices(
 def test_trend_is_resolved_again_after_eviction(client: TestClient, fit_run: str) -> None:
     """Trends are the same after the kept matrices are evicted."""
     html = client.get(
-        "/explore",
-        params={"view": "residual", "file": ["s-00"], "segment": "2:1", "k": "1"},
+        "/explore", params={"view": "residual", "segment": "2:1", "k": "1"}
     ).text
     url = _trend_url(html, wavelength=400, step_time=2)
     expected = client.get(url).json()
@@ -445,37 +493,28 @@ def test_trend_is_resolved_again_after_eviction(client: TestClient, fit_run: str
 
 
 @pytest.fixture
-def limited_client(settings: Settings, wait_for: Wait) -> Iterator[TestClient]:
-    """Run the application on a cataloged workspace showing up to 2 files."""
+def limited_client(settings: Settings) -> Iterator[TestClient]:
+    """Run the application showing up to 2 files."""
     limited = settings.model_copy(update={"ui": UiSettings(explore_max_files=2)})
     with TestClient(create_app(limited)) as opened:
-        workspace = _workspace(opened)
-        run = wait_for(workspace.database, workspace.submit_catalog())
-        assert run["status"] == "succeeded"
         yield opened
 
 
-def test_files_beyond_the_limit_are_not_shown(limited_client: TestClient) -> None:
-    """Above ``ui.explore_max_files`` the leading files are shown and the rest listed."""
-    html = limited_client.get(
-        "/explore", params={"file": ["run-1", "run-2", "run-10"]}
-    ).text
+def test_trend_beyond_the_limit_overlays_the_leading_files(
+    limited_client: TestClient, settings: Settings, spectra_paths: list[Path]
+) -> None:
+    """Above ``ui.explore_max_files`` a trend overlays the leading files only."""
+    register_fit_run(
+        _workspace(limited_client).database, settings, spectra_paths, FIT_RUN_ID, "median"
+    )
 
-    assert '<option value="run-1" selected>' in html
-    assert '<option value="run-2" selected>' in html
-    assert '<option value="run-10" selected>' not in html
-    omitted = html.split("data-omitted", 1)[1].split("</p>", 1)[0]
-    assert "2 件まで" in omitted
-    assert "（1 件）：run-10" in omitted
-    assert "file=run-1&amp;file=run-2&amp;segment" in html
+    response = limited_client.get(
+        "/explore/trend",
+        params={"file": ["s-10", "s-01", "s-00"], "wavelength": 400, "step_time": 0},
+    )
 
-
-def test_files_within_the_limit_list_nothing_omitted(limited_client: TestClient) -> None:
-    """Up to ``ui.explore_max_files`` files, nothing is reported as omitted."""
-    html = limited_client.get("/explore", params={"file": ["run-1", "run-2"]}).text
-
-    assert "data-omitted" not in html
-    assert "一度に表示できるのは 2 件までです" in html
+    names = [trace["name"] for trace in response.json()["by_step_time"]["data"]]
+    assert names == ["s-00", "s-01"]
 
 
 def test_trend_at_the_file_limit_prepares_no_row_again(
@@ -486,14 +525,10 @@ def test_trend_at_the_file_limit_prepares_no_row_again(
 ) -> None:
     """With the limit of files chosen, resolving a trend again reuses the prepared rows."""
     workspace = _workspace(limited_client)
-    run_id = register_fit_run(
-        workspace.database, settings, spectra_paths, FIT_RUN_ID, "median"
-    )
+    register_fit_run(workspace.database, settings, spectra_paths, FIT_RUN_ID, "median")
     assert workspace.cache.prepared_row_entries == 2
-    html = limited_client.get(
-        "/explore",
-        params={"view": "residual", "run": run_id, "file": ["s-00", "s-01"], "k": "1"},
-    ).text
+    choose_view(limited_client, files=["s-00", "s-01"])
+    html = limited_client.get("/explore", params={"view": "residual", "k": "1"}).text
     assert "data-omitted" not in html
 
     def fail(*args: object, **kwargs: object) -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import polars as pl
+
 from .fit_artifacts import DisplayArtifacts
 
 
@@ -86,4 +88,21 @@ def feature_segments(artifacts: DisplayArtifacts) -> list[tuple[int, int]]:
         Pairs in ascending order.
     """
     pairs = artifacts.features.select("Step", "Sequence").unique().sort("Step", "Sequence")
+    return [(int(step), int(sequence)) for step, sequence in pairs.iter_rows()]
+
+
+def raw_segments(spectra: pl.DataFrame) -> list[tuple[int, int]]:
+    """Return the ``(Step, Sequence)`` pairs of one file's raw spectra.
+
+    Parameters
+    ----------
+    spectra : pl.DataFrame
+        One file's spectra, as returned by ``display_cache.read_raw_spectra``.
+
+    Returns
+    -------
+    list[tuple[int, int]]
+        Pairs in ascending order.
+    """
+    pairs = spectra.select("Step", "Sequence").unique().sort("Step", "Sequence")
     return [(int(step), int(sequence)) for step, sequence in pairs.iter_rows()]

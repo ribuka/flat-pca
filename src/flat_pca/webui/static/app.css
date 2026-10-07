@@ -131,6 +131,61 @@ a.nav-current:hover {
   opacity: 0.6;
 }
 
+/* The run and the shown files chosen for every display screen. */
+.view-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0 0.25rem;
+  font-size: 0.8125rem;
+}
+
+.view-selection-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.view-selection-field > label,
+.view-selection-label {
+  font-weight: 600;
+}
+
+.view-selection-field select,
+.view-file-search {
+  width: 100%;
+  min-width: 0;
+}
+
+.view-selection-field p {
+  margin: 0;
+}
+
+.view-file-list {
+  max-height: 16rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  list-style: none;
+  background: var(--surface-alt);
+}
+
+.view-file-list label {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.1rem 0;
+  overflow-wrap: anywhere;
+}
+
+.view-file-list li[hidden] {
+  display: none;
+}
+
 .sidebar-status {
   margin-top: auto;
   padding: 0.75rem;
@@ -302,10 +357,6 @@ select {
 
 select[multiple] {
   padding: 0.25rem;
-}
-
-select[name="file"] {
-  min-width: 16rem;
 }
 
 input:focus-visible,

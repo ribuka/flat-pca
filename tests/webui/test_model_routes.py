@@ -76,7 +76,8 @@ def test_default_page_draws_every_figure_from_the_run(client: TestClient) -> Non
 
     assert response.status_code == 200
     html = response.text
-    assert '<option value="fit-1" selected>' in html
+    assert 'name="run"' not in html
+    assert "run：fit-1" in html
     assert 'name="x" min="1" max="3" value="1"' in html
     assert 'name="y" min="1" max="3" value="2"' in html
     assert '<option value="rms" selected>' in html
@@ -269,12 +270,11 @@ def test_out_of_range_choices_fall_back_to_the_defaults(client: TestClient) -> N
     "params",
     [
         {"aggregation": "median"},
-        {"run": "missing"},
         {"segment": "a:b"},
         {"k": "one"},
         {"view": "scale"},
     ],
 )
 def test_invalid_parameters_are_rejected(client: TestClient, params: dict[str, str]) -> None:
-    """Unknown aggregations, runs, and views, malformed segments, and non-integers are rejected."""
+    """Unknown aggregations and views, malformed segments, and non-integers are rejected."""
     assert client.get("/model", params=params).status_code in (400, 422)

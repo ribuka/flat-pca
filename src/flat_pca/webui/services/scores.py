@@ -10,6 +10,7 @@ import numpy as np
 import polars as pl
 
 from flat_pca.feature_engineering.pca import partial_scores, time_point_order
+from flat_pca.utils import natural_keys
 
 from .component_choice import choose_component
 from .display_cache import DisplayCache
@@ -19,7 +20,7 @@ from .scored_samples import choose_metadata_column, metadata_columns, scored_sam
 
 @dataclass(frozen=True)
 class ScoresRequest:
-    """Choices requested by the score screen's query parameters.
+    """Choices of the score screen: the sidebar's run and files and the query.
 
     Attributes
     ----------
@@ -104,7 +105,7 @@ class ScoresView:
     color : str | None
         Chosen coloring column, or ``None`` for no coloring.
     file_options : list[str]
-        Stems of the run's samples.
+        Stems of the run's samples (its transform targets) in natural order.
     files : list[str]
         Stems whose trajectories are drawn, in option order.
     scores : ScorePoints | None
@@ -277,9 +278,9 @@ def _run_view(
     x = choose_component(request.x, 1, component_count)
     y = choose_component(request.y, 2, component_count)
     color_options = metadata_columns(artifacts.samples)
-    stems = artifacts.samples["stem"].to_list()
+    options = sorted(artifacts.samples["stem"].to_list(), key=natural_keys)
     wanted = set(request.files)
-    files = [stem for stem in stems if stem in wanted] or stems[:1]
+    files = [stem for stem in options if stem in wanted] or options[:1]
     common = {
         "runs": runs,
         "run_id": str(run["run_id"]),
@@ -288,7 +289,7 @@ def _run_view(
         "y": y,
         "color_options": color_options,
         "color": choose_metadata_column(request.color, default_color, color_options),
-        "file_options": stems,
+        "file_options": options,
         "files": files,
     }
     try:

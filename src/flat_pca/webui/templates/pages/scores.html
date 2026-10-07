@@ -9,13 +9,6 @@
   {% if shown.runs %}
     <form id="scores-form" class="explore-form" method="get" action="/scores" data-auto-submit>
       <div class="field-row">
-        <label>fit run
-          <select name="run">
-            {% for run in shown.runs %}
-              <option value="{{ run.run_id }}" {% if run.run_id == shown.run_id %}selected{% endif %}>{{ run.run_id }}（{{ run.created_at|cell }}）</option>
-            {% endfor %}
-          </select>
-        </label>
         {% if shown.component_count %}
           <label>横軸 PCm
             <input type="number" name="x" min="1" max="{{ shown.component_count }}" value="{{ shown.x }}">
@@ -35,18 +28,6 @@
         </label>
         <button type="submit">表示</button>
       </div>
-      {% if shown.file_options %}
-        <div class="field-row">
-          <label>軌跡のファイル
-            <select name="file" multiple size="{{ [shown.file_options|length, 6]|min }}">
-              {% for stem in shown.file_options %}
-                <option value="{{ stem }}" {% if stem in shown.files %}selected{% endif %}>{{ stem }}</option>
-              {% endfor %}
-            </select>
-          </label>
-          <span class="muted">選んだファイルの部分スコア軌跡を PCm-PCn 平面に重ねます。</span>
-        </div>
-      {% endif %}
     </form>
   {% endif %}
 </section>
@@ -57,13 +38,15 @@
   </section>
 {% elif figures %}
   <section>
-    <p class="muted">点をクリックすると、そのファイルを選んだ状態でスペクトル探索（前処理済み）を開きます。</p>
-    <div id="scores-scatter" class="plot" data-plot="scores-scatter-figure" data-explore-url="{{ explore_url }}"></div>
+    <p class="muted">run {{ shown.run_id }} のスコアです。点をクリックすると、そのファイルをサイドバーの表示ファイルに追加します。</p>
+    <p class="warnings" id="plot-select-warning" hidden></p>
+    <div id="scores-scatter" class="plot" data-plot="scores-scatter-figure" data-select-url="/sidebar/selection/files/add"></div>
   </section>
 
   <section>
     <h3>部分スコア軌跡</h3>
     <p class="muted">
+      サイドバーで選んだ表示ファイル（未選択なら先頭のファイル）について、
       fit 時と同じ補完・スケーリングを適用して中心化した値 z を (Step, Sequence, StepTime) の昇順に並べ、
       z<sub>f</sub>w<sub>f</sub> の累積和を時刻ごとに打ちます。終点（大きい点）は通常のスコアです。
     </p>

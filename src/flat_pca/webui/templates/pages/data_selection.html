@@ -49,7 +49,7 @@
   <div class="card-body">
     <form id="selection-form" hx-post="/catalog/selection" hx-target="#selection-summary" hx-swap="outerHTML">
       <div class="selection-actions">
-        <button type="submit">このファイル集合を選択</button>
+        <button type="submit">このファイル集合を fit 対象にする</button>
         {% include "partials/selection_summary.html" %}
       </div>
       <div id="file-table" hx-get="/catalog/files" hx-include="#file-filter"
