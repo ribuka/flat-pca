@@ -6,6 +6,8 @@ import numpy as np
 import plotly.graph_objects as go
 import polars as pl
 
+from .component_plane import apply_component_plane_layout
+
 MISSING_LABEL = "(missing)"
 
 
@@ -69,9 +71,7 @@ def create_score_scatter(
     names = np.asarray(list(labels), dtype=object)
     xs = np.asarray(x, dtype=np.float64)
     ys = np.asarray(y, dtype=np.float64)
-    hover = (
-        "%{customdata}<br>" + f"{x_name}=%{{x:.4g}}<br>{y_name}=%{{y:.4g}}<extra></extra>"
-    )
+    hover = "%{customdata}<br>" + f"{x_name}=%{{x:.4g}}<br>{y_name}=%{{y:.4g}}<extra></extra>"
     if color is None or color.dtype.is_numeric():
         marker: dict[str, object] = {"size": 9}
         if color is not None:
@@ -105,11 +105,12 @@ def create_score_scatter(
             )
             for value, rows in _color_groups(color).items()
         ]
-    return go.Figure(traces).update_layout(
+    figure = go.Figure(traces).update_layout(
         xaxis_title=x_name,
         yaxis_title=y_name,
         legend_title_text=None if color is None else color.name,
     )
+    return apply_component_plane_layout(figure)
 
 
 def create_partial_score_trajectories(
@@ -160,8 +161,9 @@ def create_partial_score_trajectories(
                 ),
             )
         )
-    return go.Figure(traces).update_layout(
+    figure = go.Figure(traces).update_layout(
         xaxis_title=x_name,
         yaxis_title=y_name,
         showlegend=True,
     )
+    return apply_component_plane_layout(figure)

@@ -3,6 +3,8 @@
 import plotly.graph_objects as go
 import polars as pl
 
+from .component_plane import apply_component_plane_layout
+
 
 def create_loading_scatter(
     loadings: pl.DataFrame,
@@ -46,10 +48,9 @@ def create_loading_scatter(
                 "colorbar": {"title": {"text": wavelength}},
             },
             hovertemplate=(
-                f"{wavelength}=%{{customdata:g}}<br>{x}=%{{x:.4g}}<br>"
-                f"{y}=%{{y:.4g}}<extra></extra>"
+                f"{wavelength}=%{{customdata:g}}<br>{x}=%{{x:.4g}}<br>{y}=%{{y:.4g}}<extra></extra>"
             ),
             showlegend=False,
         )
     )
-    return figure.update_layout(xaxis_title=x, yaxis_title=y)
+    return apply_component_plane_layout(figure.update_layout(xaxis_title=x, yaxis_title=y))
