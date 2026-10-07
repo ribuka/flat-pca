@@ -27,6 +27,8 @@ _STATIC_SCHEMA = (
         n_wavelengths INTEGER NOT NULL,
         wavelength_min DOUBLE NOT NULL,
         wavelength_max DOUBLE NOT NULL,
+        time_min DOUBLE NOT NULL,
+        time_max DOUBLE NOT NULL,
         n_rows BIGINT NOT NULL
     )
     """,

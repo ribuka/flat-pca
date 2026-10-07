@@ -79,7 +79,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 ```
 
 - 型`category`・`number`・`datetime`のみを受け付ける。`format`は`datetime`のみに指定でき、省略時は形式を推定する。
-- メタデータ列名に、結合キー列名と、ファイル一覧の列名（`stem`・`path`・`n_rows`・`n_steps`・`n_segments`）は使えない。
+- メタデータ列名に、結合キー列名と、ファイル一覧の列名（`stem`・`path`・`n_rows`・`n_steps`・`n_segments`）、run 成果物`samples.parquet`の列名`source`は使えない。
 - `workspace.dir`・`data.root`・`metadata.csv`の相対パスは、settings.tomlのあるディレクトリ基準で解決する。未知のキーはエラーとする。
 - メタデータの結合キーは`Path.stem`とする。`data.root`配下でstemが重複する場合はcatalog構築をエラーとする（UI経由の実行では`stem_uniqueness="error"`を使う）。
 - メタデータCSVの結合キーが空または重複する場合、取り込む列が無い場合、値を型に変換できない場合はcatalog構築をエラーとする。
@@ -91,7 +91,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - DuckDBファイルは`{workspace.dir}/flatpca.duckdb`とする。書き込みは親プロセスのみが行う。
 - スキーマに版管理・マイグレーションは持たない。スキーマを変えたときはWorkspaceを作り直す。`file_metadata`だけは、settings.tomlの列定義（列名・順序・SQL型）と食い違う場合に起動時に空で作り直す（次のcatalog更新で埋まる）。
 - テーブル：
-  - `files`：`stem`、`path`、`size`、`mtime_ns`、波長数・最小・最大、行数
+  - `files`：`stem`、`path`、`size`、`mtime_ns`、波長数・最小・最大、`Time`の最小・最大、行数
   - `segments`：`stem`、`Step`、`Sequence`、行数、StepTime最大値
   - `file_metadata`：`stem` + settings.tomlで定義した列
   - `runs`：`run_id`、ジョブ種別（`catalog`等）、作成日時、状態（`queued`/`running`/`succeeded`/`failed`/`cancelled`）、設定JSON、対象ファイル数、特徴量数、成分数、所要時間、エラーメッセージ、成果物ディレクトリ
@@ -121,18 +121,24 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 | ファイル | 内容 | 形式 |
 | --- | --- | --- |
-| `config.json` | 前処理・PCA・T²/Q設定、対象ファイル一覧 | JSON |
-| `features.parquet` | 特徴量座標`(wavelength, Step, Sequence, StepTime)`、列順は`X.npy`の列順 | Parquet |
-| `samples.parquet` | `source`、`stem` + ファイルメタデータ、行順は`X.npy`の行順 | Parquet |
+| `config.json` | 前処理・PCA・T²/Q設定、対象ファイル一覧（ファイルごとのメタデータを含む）、`artifact_dtype` | JSON |
+| `features.parquet` | 特徴量名`feature`と座標`(wavelength, Step, Sequence, StepTime)`、行順は`X.npy`の列順 | Parquet |
+| `samples.parquet` | `source`、`stem` + ファイルメタデータ（settings.tomlの型）、行順は`X.npy`の行順 | Parquet |
 | `X.npy` | 前処理・flatten・sparse列除去後、補完前の行列（欠損はNaN） | `.npy` |
 | `components.npy` | `pca.components_`（`n_comp × n_features`） | `.npy` |
-| `pca_state.npz` | mean・scale・explained_variance等、補完値・外れ値境界（特徴量順の配列） | `.npz` |
-| `scores.parquet` | `source`、`pca-1..k`、T²・Q列 | Parquet |
-| `progress.json`・`log.txt` | 進捗・ログ | JSON・テキスト |
+| `pca_state.npz` | PCA（mean・explained_variance等）と前処理3段階の状態（下記） | `.npz` |
+| `scores.parquet` | `source`、`pca-1..k`、T²（`mahalanobis_*`）・Q（`spe_*`）列。`impute_strategy="drop"`で除いた行は含まない | Parquet |
+| `progress.json`・`log.txt` | 進捗（`preprocess`・`fit`・`score`・`save`の4段階）・ログ | JSON・テキスト |
 
 - 巨大な数値行列は`.npy`とし、親プロセスは`np.load(..., mmap_mode="r")`で開いて必要な行だけを読む。表形式のデータはParquetとする。
 - `X.npy`・`components.npy`は`jobs.artifact_dtype`で保存する（既定`float32`）。読み込み後の計算（スケーリング、スコア、再構成、残差、Q、累積和）はすべて`float64`へ変換してから行う。
-- `.npy`/`.npz`から`PcaModel`を復元する関数を`pca/serialization.py`に追加する。既存のJSONシリアライズは変更しない。
+- `.npy`/`.npz`から`PcaModel`を復元する関数を`pca/serialization.py`に追加する（`build_pca_state`・`parse_pca_state`、`PcaModel.to_pca_state`・`PcaModel.from_pca_state`）。既存のJSONシリアライズは変更しない。
+- `pca_state.npz`は前処理の段階ごとに配列を持つ。特徴量ごとの値は`features.parquet`の行順に並べ、値を持たない段階は空の配列とする。
+  - PCA：`n_component`、`pca_column_names`、`pca_mean`、`pca_explained_variance`、`pca_explained_variance_ratio`、`pca_singular_values`、`pca_n_samples`、`pca_noise_variance`、`pca_whiten`
+  - 補完：`impute_strategy`、`impute_values`、`impute_kmeans_n_clusters`（kmeans以外は0）、`impute_kmeans_centroids`（`n_clusters × 特徴量`）
+  - 外れ値：`outlier_strategy`（無効は空文字列）、`outlier_iqr_multiplier`、`outlier_outlier_lower`・`outlier_outlier_upper`・`outlier_winsor_lower`・`outlier_winsor_upper`
+  - スケーリング：`scaling_strategy`、`scaling_centers`、`scaling_scales`（`"none"`の場合は空）
+- 成果物に形式の版は持たせない。読み込めない成果物（形式が古い・壊れている）はエラーとして表示し、再実行を促す。
 
 ## 画面
 
@@ -151,13 +157,15 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 ### 2. 前処理・PCA
 
 - `PreprocessConfig`の各フィールドに対応するフォームを持つ。
-  - `target_steps`はcatalogのStep一覧から複数選択する。
-  - `wavelength_range`・`*_normalization_range`の初期値と範囲はcatalogから決める。
-- PCA設定：`n_component`の既定は「累積寄与率0.99に達する成分数、上限1000」とし、UIで変更できる。`impute_strategy`、`MahalanobisConfig`・`SpeConfig`の`cumulative_explained_variance`と`alpha`を設定できる。
+  - `target_steps`はcatalogのStep一覧から複数選択する（既定はすべて）。
+  - `wavelength_range`・`*_normalization_range`はチェックボックスで有効にする（既定は無効）。入力欄の初期値と範囲はcatalogの波長・`Time`の最小・最大から決める。
+  - `intensity_transform`（`"none"`・`"sqrt"`・`"log1p"`・`"asinh"`）と`intensity_transform_scale`を設定できる。`"log1p"`の定義域エラーは実データを読むまで分からないため、fitジョブ内の`ValueError`としてrunを`failed`にし、そのメッセージを表示する。
+- PCA設定：`n_component`の既定（空欄）は「累積寄与率0.99に達する成分数、上限1000」とし、UIで変更できる。上限1000まで成分をfitしてから先頭の成分だけを残し（`truncate_pca_model`）、捨てた成分の分散は`noise_variance_`へ平均として畳み込む。`impute_strategy`（`"kmeans"`のときは`impute_kmeans_n_clusters`）、`scaling_strategy`（`"none"`・`"z-score"`・`"minmax"`・`"robust"`・`"pareto"`）、`MahalanobisConfig`・`SpeConfig`の`cumulative_explained_variance`と`alpha`を設定できる。外れ値処理は`flatten_pca`と同じく使わない（`outlier_strategy=None`）ため、画面に出さない。
   - 成分数を打ち切るとQのUCL（$\theta_2$・$\theta_3$）の精度が下がる（SPEC.md「Q統計量（SPE）仕様」）。画面に注記する。
-- 実行前に、catalogから特徴量数と必要メモリを見積もって表示する。`jobs.memory_warn_gb`を超える場合は確認を求める。
-- 送信は`hx-post`とし、`PreprocessConfig`等の`ValueError`は該当フィールドの横にpartialで表示する。
-- 実行中は進捗とキャンセルボタンを表示する。過去のrun一覧から再訪できる。
+  - `scaling_strategy`が`"none"`以外ではNumPyの高速経路を使わず、fitが遅くなり必要メモリも増える。画面に注記する。
+- 実行前に、catalogから特徴量数と必要メモリを見積もって表示する（フォームの変更ごとに更新する）。`jobs.memory_warn_gb`を超える場合は確認欄へのチェックを求め、チェックが無い送信はエラーとする。
+- 送信は`hx-post`とし、`PreprocessConfig`等の`ValueError`は該当フィールドの横にpartialで表示する。UI経由の実行では`stem_uniqueness="error"`を使う。
+- 実行中は進捗とキャンセルボタンを表示する。過去のrun一覧から再訪でき（`/fit?run={run_id}`）、そのrunの設定をフォームに読み込んで状態を表示する。
 
 ### 3. スペクトル探索
 
@@ -202,7 +210,12 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - Q寄与：1ファイルの前処理済み行に、fit時と同じ補完・外れ値処理・スケーリングを適用した$\mathbf{x}$（`pca.transform`へ渡す値）と、その再構成$\hat{\mathbf{x}}$との特徴量ごとの差の二乗$(x_f - \hat{x}_f)^2$とする（SPEC.md「Q統計量（SPE）仕様」と同じ空間）。再構成に使う成分数は、そのrunの`SpeConfig.cumulative_explained_variance`が選ぶ成分数に固定し、探索画面で選んだkは使わない。これにより、全特徴量（ビニング前）の寄与の総和は`scores.parquet`のQと一致する。
 - ローディングの波長集計：`reshape_pca_components`の結果を波長でgroup_byし、平均・RMS・絶対値平均のいずれかを求める。
 - ヒートマップのビニング：時間方向を等間隔のビンに分け、ビン内平均をとる。波長方向は間引かない（1200列程度を想定）。
-- 実行前のメモリ見積もり：catalogの行数・波長数と前処理設定から特徴量数$F$を求め、$N \times F \times 8$Bの係数倍（初期値は3倍、実測で調整）を表示する。
+- 実行前のメモリ見積もり：catalogの行数・波長数と前処理設定から特徴量数$F$を求め、$N \times F \times 8$Bの係数倍を表示する。
+  - $F$は、`(Step, Sequence)`ごとにファイル間で最大の行数を`target_steps`・`edge_trim`（`StepTime`が等間隔と仮定）・時間方向の間引きで減らした時刻数と、波長数が最大のファイルの波長を`wavelength_range`・波長方向の間引きで減らした数の積とする。sparse列除去前の値である。
+  - 係数はfitの経路で分ける。`run_fit`を合成データ（$N$=300・600、$F$=30,000）で実測したピークメモリから、$N$=600の値を切り上げた。$N$に比例しない分があるため、$N$が大きいほど実際の係数は小さくなる。
+    - NumPyの高速経路（`impute_strategy="drop"`かつ`scaling_strategy="none"`）：10倍（実測 約9倍）
+    - polarsの経路（上記以外の`"drop"`・`"median"`）：16倍（実測 約12〜16倍）
+    - `"kmeans"`補完：24倍（実測 約23〜24倍）
 
 ## テスト方針
 
@@ -227,6 +240,6 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 ## 未決事項
 
-- float32保存の影響の実データでの確認（float64保存とのT²・Q・再構成の比較スクリプトを用意し、手元で実行する）。
-- メモリ見積もりの係数（実測で決める）。
+- float32保存の影響の実データでの確認。比較スクリプト`uv run -m flat_pca.webui.compare_artifact_dtypes --run-dir <runディレクトリ>`は、runの設定で1回だけ再fitし、その結果をfloat64とfloat32で保存して、それぞれから復元したモデルで計算したスコア・T²・Q・再構成の差を表示する（dtypeごとに再fitすると、randomized PCAの乱数による差が混ざるため）。合成データでの相対差は$10^{-7}$程度だった。
+- メモリ見積もりの係数の実データでの確認（合成データの実測値で暫定的に決めた）。
 - 部分スコア軌跡で`(Step, Sequence)`の並び順を、Step値の順でなく実際の時間順にする必要があるか。

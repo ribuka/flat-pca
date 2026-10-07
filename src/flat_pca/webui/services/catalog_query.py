@@ -300,3 +300,63 @@ def existing_stems(database: Database, stems: list[str]) -> list[str]:
         "SELECT stem FROM files WHERE list_contains(?, stem)", [list(set(stems))]
     )
     return sorted((str(row["stem"]) for row in rows), key=natural_keys)
+
+
+@dataclass(frozen=True)
+class SelectionRanges:
+    """Steps and coordinate ranges of a set of cataloged files.
+
+    Attributes
+    ----------
+    steps : list[int]
+        Distinct ``Step`` values in ascending order.
+    wavelength_min, wavelength_max : float | None
+        Smallest and largest wavelength, or ``None`` without files.
+    time_min, time_max : float | None
+        Smallest and largest ``Time``, or ``None`` without files.
+    step_time_max : float | None
+        Largest ``StepTime`` of any ``(Step, Sequence)``, or ``None``.
+    """
+
+    steps: list[int]
+    wavelength_min: float | None
+    wavelength_max: float | None
+    time_min: float | None
+    time_max: float | None
+    step_time_max: float | None
+
+
+def selection_ranges(database: Database, stems: list[str]) -> SelectionRanges:
+    """Return the steps and coordinate ranges of the given files.
+
+    Parameters
+    ----------
+    database : Database
+        Workspace database.
+    stems : list[str]
+        Stems of the files to summarize.
+
+    Returns
+    -------
+    SelectionRanges
+        Steps and ranges over the cataloged files among ``stems``.
+    """
+    (files,) = database.fetch_dicts(
+        "SELECT min(wavelength_min) AS wavelength_min, "
+        "max(wavelength_max) AS wavelength_max, min(time_min) AS time_min, "
+        "max(time_max) AS time_max FROM files WHERE list_contains(?, stem)",
+        [stems],
+    )
+    (segments,) = database.fetch_dicts(
+        "SELECT list_sort(list_distinct(list(step))) AS steps, "
+        "max(step_time_max) AS step_time_max FROM segments WHERE list_contains(?, stem)",
+        [stems],
+    )
+    return SelectionRanges(
+        steps=[int(step) for step in segments["steps"] or []],  # type: ignore[union-attr]
+        wavelength_min=files["wavelength_min"],  # type: ignore[arg-type]
+        wavelength_max=files["wavelength_max"],  # type: ignore[arg-type]
+        time_min=files["time_min"],  # type: ignore[arg-type]
+        time_max=files["time_max"],  # type: ignore[arg-type]
+        step_time_max=segments["step_time_max"],  # type: ignore[arg-type]
+    )

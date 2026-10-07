@@ -44,6 +44,8 @@ def test_scan_parquet_file_summarizes_schema_and_segments(settings: Settings) ->
         "n_wavelengths": 3,
         "wavelength_min": 400.0,
         "wavelength_max": 402.5,
+        "time_min": 0.0,
+        "time_max": 3.0,
         "n_rows": 7,
     }
     assert segments.rows() == [

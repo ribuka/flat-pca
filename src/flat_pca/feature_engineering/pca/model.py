@@ -2,8 +2,8 @@
 
 The model is a thin container: component interpretation lives in
 ``analysis``, score-space distances in ``mahalanobis``, residual Q
-statistics in ``spe``, feature reconstruction in ``reconstruct``, and payload conversion in
-``serialization``, and the methods
+statistics in ``spe``, feature reconstruction in ``reconstruct``, and payload and array
+conversion in ``serialization``, and the methods
 here only forward to them so the dataclass stays readable as a description
 of the fitted state.
 """
@@ -11,9 +11,11 @@ of the fitted state.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
+import numpy as np
 import polars as pl
 from sklearn.decomposition import PCA
 
@@ -27,7 +29,12 @@ from .analysis import (
 from .impute import ImputeModel
 from .mahalanobis import mahalanobis_threshold
 from .reconstruct import reconstruct_features
-from .serialization import build_transform_payload, parse_transform_payload
+from .serialization import (
+    build_pca_state,
+    build_transform_payload,
+    parse_pca_state,
+    parse_transform_payload,
+)
 from .spe import spe_threshold
 
 
@@ -327,3 +334,48 @@ class PcaModel:
         """
         payload = cast(dict[str, object], json.loads(payload_json))
         return cls.from_transform_payload(payload)
+
+    def to_pca_state(self) -> dict[str, np.ndarray]:
+        """Return the fitted state, except components, as NumPy arrays.
+
+        Returns
+        -------
+        dict[str, np.ndarray]
+            Arrays for ``np.savez``; per-feature values follow ``columns``.
+            Save ``pca.components_`` separately. See
+            ``serialization.build_pca_state``.
+        """
+        return build_pca_state(self)
+
+    @classmethod
+    def from_pca_state(
+        cls,
+        columns: Sequence[str],
+        components: np.ndarray,
+        state: Mapping[str, np.ndarray],
+    ) -> PcaModel:
+        """Restore a model from arrays saved by :meth:`to_pca_state`.
+
+        Parameters
+        ----------
+        columns : Sequence[str]
+            Feature columns, in the order the arrays were saved in.
+        components : np.ndarray
+            Component matrix shaped ``(n_component, len(columns))``; it is
+            converted to ``float64``.
+        state : Mapping[str, np.ndarray]
+            Arrays from :meth:`to_pca_state`, e.g. an opened ``.npz`` file.
+
+        Returns
+        -------
+        PcaModel
+            Reconstructed model ready for transformation.
+
+        Raises
+        ------
+        KeyError
+            If a state entry is missing.
+        ValueError
+            If an array's shape does not match the columns or components.
+        """
+        return cls(**parse_pca_state(columns, components, state))  # type: ignore[arg-type]

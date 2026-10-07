@@ -96,7 +96,8 @@ def apply_catalog_result(
         connection.execute(f"DELETE FROM segments WHERE {stale}")
         connection.execute(
             "INSERT INTO files SELECT stem, path, size, mtime_ns, n_wavelengths, "
-            f"wavelength_min, wavelength_max, n_rows FROM {files} WHERE rescanned"
+            "wavelength_min, wavelength_max, time_min, time_max, n_rows "
+            f"FROM {files} WHERE rescanned"
         )
         connection.execute(
             "INSERT INTO segments SELECT stem, step, sequence, n_rows, step_time_max "

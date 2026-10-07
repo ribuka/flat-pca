@@ -67,6 +67,18 @@ and get element references for `browser_click`, `browser_select_option`, and `br
 | "表示中をすべて選択" / "選択を外す" | All visible checkboxes are checked / cleared. |
 | "このファイル集合を選択" | "選択中：N ファイル" and the sidebar's 選択中 count update. |
 
+### Preprocessing and PCA (`/fit`)
+
+Select the three files on the data selection screen first.
+
+| Operation | Expected result with the fixtures |
+| --- | --- |
+| Open the page | Steps `1` and `2` are checked; the disabled ranges show the catalog ranges (400〜402.5 nm, Time 0〜3); the estimate shows 3 ファイル × 特徴量 約 21; "fit はまだ実行されていません。" |
+| Uncheck Step 1 | The estimate updates to 特徴量 約 12. |
+| Enable 波長範囲 with 402 〜 401 and click "fit を実行" | The form comes back with the error next to 波長範囲; no run is queued. |
+| Fix the form and click "fit を実行" | The status shows `queued`/`running` with the progress and a キャンセル button, then a final status; the run list reloads. The fixture files differ only by a constant, so the run ends `failed` with "no residual variance remains …"; use your own data (edit the copied `settings.toml`) to see `succeeded`. |
+| Click the run in the run list | `/fit?run=<run_id>` shows the run's settings in the form and its status. |
+
 Other screens are added to the sidebar as they are implemented; check them the same way.
 
 ### Always check

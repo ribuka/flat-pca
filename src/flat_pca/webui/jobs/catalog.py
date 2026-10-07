@@ -39,6 +39,8 @@ FILE_SCHEMA = {
     "n_wavelengths": pl.Int32,
     "wavelength_min": pl.Float64,
     "wavelength_max": pl.Float64,
+    "time_min": pl.Float64,
+    "time_max": pl.Float64,
     "n_rows": pl.Int64,
 }
 SEGMENT_SCHEMA = {
@@ -93,7 +95,8 @@ def scan_parquet_file(path: Path) -> tuple[dict[str, object], pl.DataFrame]:
     Returns
     -------
     tuple[dict[str, object], pl.DataFrame]
-        File summary (wavelength count, minimum, maximum, and row count) and
+        File summary (wavelength count, minimum, and maximum, ``Time``
+        minimum and maximum, and row count) and
         one row per ``(Step, Sequence)`` with its row count and maximum
         ``StepTime``.
 
@@ -124,6 +127,8 @@ def scan_parquet_file(path: Path) -> tuple[dict[str, object], pl.DataFrame]:
         "n_wavelengths": len(wavelengths),
         "wavelength_min": min(wavelengths),
         "wavelength_max": max(wavelengths),
+        "time_min": float(metadata["Time"].cast(pl.Float64).min()),
+        "time_max": float(metadata["Time"].cast(pl.Float64).max()),
         "n_rows": metadata.height,
     }
     return summary, segments

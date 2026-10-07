@@ -65,6 +65,7 @@ _METADATA = "[metadata]\ncsv = 'm.csv'\nkey = 'k'\n[metadata.columns]\n"
         (_BASE + _METADATA + "stem = { type = 'category' }\n", "reserved"),
         (_BASE + _METADATA + "n_rows = { type = 'number' }\n", "reserved"),
         (_BASE + _METADATA + "path = { type = 'category' }\n", "reserved"),
+        (_BASE + _METADATA + "source = { type = 'category' }\n", "reserved"),
         (_BASE + "[ui]\ndefault_color_by = 'lot'\n", "not a metadata column"),
         (_BASE + "[jobs]\nartifact_dtype = 'float16'\n", "artifact_dtype"),
         (_BASE + "[ui]\nheatmap_max_cells = 0\n", "heatmap"),
