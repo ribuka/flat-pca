@@ -67,6 +67,16 @@ def test_static_scripts_are_served_locally(client: TestClient) -> None:
     assert plotly.headers["content-type"].startswith("text/javascript")
 
 
+def test_icon_font_is_served_locally(client: TestClient) -> None:
+    """The Material Symbols subset font is bundled and declared in app.css."""
+    font = client.get("/static/vendor/material-symbols-outlined.woff2")
+    assert font.status_code == 200
+    assert font.content.startswith(b"wOF2")
+    css = client.get("/static/app.css").text
+    assert 'url("vendor/material-symbols-outlined.woff2")' in css
+    assert "font-display: block" in css
+
+
 def test_refresh_returns_polling_status_until_finished(
     client: TestClient, wait_for: Wait
 ) -> None:
@@ -160,6 +170,8 @@ def test_selection_keeps_cataloged_stems(cataloged_client: TestClient) -> None:
     assert response.status_code == 200
     assert response.headers["HX-Trigger"] == "selection-updated"
     assert 'data-selected-count="2"' in response.text
+    assert ">check_circle</span>" in response.text
+    assert ">check_circle</span>" not in cataloged_client.get("/").text
     assert _workspace(cataloged_client).selection.stems == ["run-2", "run-10"]
     table = cataloged_client.get("/catalog/files").text
     assert 'value="run-2" checked' in table

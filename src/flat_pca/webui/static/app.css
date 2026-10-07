@@ -287,3 +287,45 @@ a.nav-item:hover {
     transform: rotate(360deg);
   }
 }
+
+/* Material Symbols subset bundled in static/vendor/ (see vendor/README.md). */
+@font-face {
+  font-family: "Material Symbols Outlined";
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: block;
+  src: url("vendor/material-symbols-outlined.woff2") format("woff2");
+}
+
+.material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-style: normal;
+  font-size: 1.25em;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  vertical-align: middle;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-feature-settings: "liga";
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: "FILL" var(--icon-fill, 0), "wght" var(--icon-wght, 400),
+    "GRAD" var(--icon-grad, 0), "opsz" var(--icon-opsz, 24);
+}
+
+.icon-filled {
+  --icon-fill: 1;
+}
+
+.icon-success {
+  color: var(--ok);
+}
+
+.selection-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}

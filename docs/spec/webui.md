@@ -29,12 +29,14 @@ src/flat_pca/
     services/                   routesから呼ぶ処理本体（catalog, runs, 表示用の行列・ビニング・キャッシュ）
     jobs/                       サブプロセスで実行するジョブ関数
     templates/{pages,partials}/ フルページとhtmxが差し替える断片
-    static/                     vendor/htmx.min.js, app.js, app.css（plotly.min.jsはplotlyパッケージ同梱版を/static/vendor/で配信）
+    templates/macros/           テンプレートから呼ぶJinjaマクロ（icon）
+    static/                     vendor/htmx.min.js, vendor/material-symbols-outlined.woff2, app.js, app.css（plotly.min.jsはplotlyパッケージ同梱版を/static/vendor/で配信）
 tests/webui/
 ```
 
 - UI固有の依存（`fastapi`、`uvicorn`、`jinja2`、`duckdb`、`pydantic`）はoptional dependency `webui`とし、ライブラリ本体の依存に加えない。
 - htmxは`static/vendor/`に同梱する。Plotly.jsはPythonの`plotly`パッケージに同梱された`plotly.min.js`を`/static/vendor/plotly.min.js`で配信し、Python側とバージョンを揃える。いずれもCDNに依存しない。
+- アイコンはMaterial Symbols（Outlined）のうち使うアイコンだけを含むサブセットのwoff2を`static/vendor/`に同梱し、`templates/macros/icon.html`の`icon`マクロで表示する。アイコンを増やすときは`scripts/fetch_material_symbols.py`で取得し直す（手順は`static/vendor/README.md`）。
 - フォーム送信の解析に使う`python-multipart`も`webui`に含める。
 
 ### レイヤーの責務
