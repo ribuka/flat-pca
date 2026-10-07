@@ -46,7 +46,7 @@ def test_view_and_component_choices_reload_the_page(
 
     page.locator('select[name="view"]').select_option("residual")
     expect(page).to_have_url(
-        f"{fitted_server_url}/explore?view=residual&segment=2%3A1&k=2"
+        f"{fitted_server_url}/explore?view=residual&heatmap_file={SHORT}&segment=2%3A1&k=2"
     )
     expect(page.locator("[data-view-note]")).to_contain_text("1..2 成分")
 

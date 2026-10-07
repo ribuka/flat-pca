@@ -75,8 +75,9 @@ class ExploreRequest:
         Fit run whose artifacts are shown; ``None`` for the latest
         succeeded fit run.
     files : tuple[str, ...]
-        Stems to show. The first shown one is drawn as the heatmap and all
-        of them are overlaid in the trends.
+        Stems to show, all of them overlaid in the trends.
+    heatmap_file : str | None
+        Shown stem drawn as the heatmap; the first shown one by default.
     segment : str | None
         ``"{Step}:{Sequence}"`` to show.
     component : int | None
@@ -87,6 +88,7 @@ class ExploreRequest:
     view: str = "raw"
     run: str | None = None
     files: tuple[str, ...] = ()
+    heatmap_file: str | None = None
     segment: str | None = None
     component: int | None = None
 
@@ -107,6 +109,11 @@ class ExploreView:
         Transform targets of the run that can be chosen, in natural order.
     files : list[str]
         Chosen stems in option order.
+    heatmap_options : list[str]
+        Chosen stems that have matrices, in option order; any of them can be
+        drawn as the heatmap.
+    heatmap_file : str | None
+        Stem drawn as the heatmap, or ``None`` when nothing is shown.
     segment_options : list[tuple[int, int]]
         ``(Step, Sequence)`` pairs that can be chosen.
     segment : tuple[int, int] | None
@@ -126,7 +133,9 @@ class ExploreView:
         ``name`` and ``scale`` of the run's intensity transform, given for
         the preprocessed and reconstruction views.
     matrices : dict[str, SpectralMatrix]
-        Unbinned matrices keyed by trace label; the first is the heatmap.
+        Unbinned matrices keyed by trace label. The traces of the heatmap
+        file come first, followed by those of the other files in option
+        order; the first trace is the heatmap.
     skipped : list[str]
         Chosen stems lacking the chosen segment.
     dropped : list[str]
@@ -146,6 +155,8 @@ class ExploreView:
     run_id: str | None = None
     file_options: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
+    heatmap_options: list[str] = field(default_factory=list)
+    heatmap_file: str | None = None
     segment_options: list[tuple[int, int]] = field(default_factory=list)
     segment: tuple[int, int] | None = None
     component_count: int = 0
@@ -186,6 +197,48 @@ def _choose_files(
     return chosen[:max_files], chosen[max_files:]
 
 
+def _heatmap_first(files: list[str], requested: str | None) -> list[str]:
+    """Return the chosen stems with the requested heatmap file moved to the front.
+
+    Parameters
+    ----------
+    files : list[str]
+        Chosen stems in option order.
+    requested : str | None
+        Requested heatmap file; ignored unless it is chosen.
+
+    Returns
+    -------
+    list[str]
+        Stems in the order their matrices are built, so the first shown one
+        is drawn as the heatmap.
+    """
+    if requested not in files:
+        return files
+    return [requested, *(stem for stem in files if stem != requested)]
+
+
+def _heatmap_file(shown: list[str], requested: str | None) -> str | None:
+    """Return the stem drawn as the heatmap.
+
+    Parameters
+    ----------
+    shown : list[str]
+        Chosen stems that have matrices, in option order.
+    requested : str | None
+        Requested heatmap file.
+
+    Returns
+    -------
+    str | None
+        The requested stem if it is shown, or else the first shown one
+        (``None`` without any).
+    """
+    if requested in shown:
+        return requested
+    return shown[0] if shown else None
+
+
 def _raw_view(
     cache: DisplayCache,
     request: ExploreRequest,
@@ -216,24 +269,26 @@ def _raw_view(
     -------
     ExploreView
         Raw spectra of the chosen files. The ``(Step, Sequence)`` options
-        are those of the first chosen file.
+        are those of the requested heatmap file, or else the first chosen
+        file.
     """
     stems = artifacts.samples["stem"].to_list()
     paths = dict(zip(stems, artifacts.samples[SOURCE_COLUMN].to_list(), strict=True))
     options = sorted(stems, key=natural_keys)
     files, omitted = _choose_files(options, request.files, max_files)
+    order = _heatmap_first(files, request.heatmap_file)
     segment_options: list[tuple[int, int]] = []
     segment: tuple[int, int] | None = None
     matrices: dict[str, SpectralMatrix] = {}
     skipped: list[str] = []
     error = None
-    for stem in files:
+    for stem in order:
         try:
             spectra = cache.raw_spectra(Path(str(paths[stem])))
         except (OSError, ValueError, pl.exceptions.PolarsError) as caught:
             error = f"{stem} を読み込めません（{type(caught).__name__}: {caught}）"
             break
-        if stem == files[0]:
+        if stem == order[0]:
             segment_options = raw_segments(spectra)
             segment = choose_segment(segment_options, parse_segment(request.segment))
         if segment is None:
@@ -242,16 +297,21 @@ def _raw_view(
             matrices[stem] = raw_segment_matrix(spectra, *segment)
         except ValueError:
             skipped.append(stem)
+    if error is not None:
+        matrices = {}
+    shown = [stem for stem in files if stem in matrices]
     return ExploreView(
         view="raw",
         runs=runs,
         run_id=run_id,
         file_options=options,
         files=files,
+        heatmap_options=shown,
+        heatmap_file=_heatmap_file(shown, request.heatmap_file),
         segment_options=segment_options,
         segment=segment,
-        matrices=matrices if error is None else {},
-        skipped=skipped,
+        matrices=matrices,
+        skipped=[stem for stem in files if stem in skipped],
         omitted=omitted,
         error=error,
     )
@@ -280,7 +340,7 @@ def _reconstruction_matrices(
     cache : DisplayCache
         Display cache holding the model and the prepared rows.
     files : list[str]
-        Chosen stems.
+        Chosen stems, in the order their matrices are built.
     segment : tuple[int, int]
         Chosen ``(Step, Sequence)``.
     values_of : Callable[[str, PcaModel, PreparedRows], np.ndarray]
@@ -375,7 +435,8 @@ def _run_view(
     stems = artifacts.samples["stem"].to_list()
     options = sorted(stems, key=natural_keys)
     files, omitted = _choose_files(options, request.files, max_files)
-    preprocess = cast(dict[str, object], json.loads(str(run["config_json"]))["preprocess"])
+    order = _heatmap_first(files, request.heatmap_file)
+    preprocess =cast(dict[str, object], json.loads(str(run["config_json"]))["preprocess"])
     common |= {
         "file_options": options,
         "files": files,
@@ -393,9 +454,15 @@ def _run_view(
                 np.asarray(artifacts.x[stems.index(stem)], dtype=np.float64),
                 *segment,
             )
-            for stem in files
+            for stem in order
         }
-        return ExploreView(view=view, **common, matrices=matrices)  # type: ignore[arg-type]
+        return ExploreView(
+            view=view,
+            **common,  # type: ignore[arg-type]
+            heatmap_options=files,
+            heatmap_file=_heatmap_file(files, request.heatmap_file),
+            matrices=matrices,
+        )
     run_dir = Path(str(run["artifact_dir"]))
     shown_component: int | None = component
     q_components: int | None = None
@@ -433,7 +500,7 @@ def _run_view(
                 )
 
         matrices, dropped = _reconstruction_matrices(
-            cast(PreparedViewKind, view), run_dir, artifacts, cache, files, segment, values_of
+            cast(PreparedViewKind, view), run_dir, artifacts, cache, order, segment, values_of
         )
     except RunArtifactError as error:
         return ExploreView(
@@ -445,14 +512,17 @@ def _run_view(
     error = None
     if not matrices:
         error = "選んだファイルはすべて欠損値を含み、補完方法 drop で除外されるため表示できません"
+    shown = [stem for stem in files if stem not in dropped]
     return ExploreView(
         view=view,
         **common,  # type: ignore[arg-type]
+        heatmap_options=shown,
+        heatmap_file=_heatmap_file(shown, request.heatmap_file),
         component=shown_component,
         q_components=q_components,
         matrices=matrices,
-        dropped=dropped,
-        q_mismatches=q_mismatches,
+        dropped=[stem for stem in files if stem in dropped],
+        q_mismatches=sorted(q_mismatches, key=lambda mismatch: files.index(mismatch.stem)),
         error=error,
     )
 
@@ -528,13 +598,14 @@ def shown_request(view: ExploreView) -> ExploreRequest:
     Returns
     -------
     ExploreRequest
-        Request with the view's run, files, segment, and component, so
-        requests built from the page's trend query equal it.
+        Request with the view's run, files, heatmap file, segment, and
+        component, so requests built from the page's trend query equal it.
     """
     return ExploreRequest(
         view=view.view,
         run=view.run_id,
         files=tuple(view.files),
+        heatmap_file=view.heatmap_file,
         segment=format_segment(view.segment),
         component=view.component,
     )

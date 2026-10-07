@@ -142,3 +142,28 @@ def test_markers_point_at_the_selected_point(
 
     expect(page.locator("#explore-step-time-value")).to_have_text("3")
     assert heatmap.evaluate(annotations) == [["▼", 402.5, 1], ["▶", 0, 3]]
+
+
+def test_heatmap_file_choice_redraws_and_survives_a_reload(
+    page: Page, fitted_server_url: str
+) -> None:
+    """The heatmap file pull-down redraws the heatmap, untitled, and stays in the URL."""
+    _open(page, fitted_server_url)
+    heatmap = page.locator("#explore-heatmap")
+    expect(heatmap).to_have_attribute("data-heatmap-label", "s-00")
+    expect(heatmap.locator(".gtitle")).to_have_count(0)
+
+    page.locator('select[name="heatmap_file"]').select_option("s-01")
+
+    expect(heatmap).to_have_attribute("data-heatmap-label", "s-01")
+    assert "heatmap_file=s-01" in page.url
+    expect(page.locator("#explore-trend-step-time .scatterlayer .trace")).to_have_count(2)
+    page.reload()
+    expect(heatmap).to_have_attribute("data-heatmap-label", "s-01")
+    expect(page.locator('select[name="heatmap_file"]')).to_have_value("s-01")
+    # The marker above the plot area stays inside the heatmap's top margin.
+    marker = heatmap.locator(".annotation").first.bounding_box()
+    box = heatmap.bounding_box()
+    assert marker is not None
+    assert box is not None
+    assert marker["y"] >= box["y"]
