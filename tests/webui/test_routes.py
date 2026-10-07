@@ -302,6 +302,37 @@ def test_page_has_sidebar_navigation(client: TestClient) -> None:
         assert f"{event} from:body" in sidebar
 
 
+def test_page_has_sidebar_layout_controls(client: TestClient) -> None:
+    """The sidebar has the collapse button, the width choice, and the version."""
+    page = client.get("/").text
+
+    toggle = _opening_tag(page, "sidebar-toggle")
+    assert 'aria-controls="sidebar-body"' in toggle
+    assert ">left_panel_close</span>" in page
+    assert ">left_panel_open</span>" in page
+    assert 'data-width-choice="compact"' in page
+    assert 'data-width-choice="wide"' in page
+    assert re.search(r'data-sidebar="version">v\d+\.\d+\.\d+', page)
+    system = _opening_tag(page, "sidebar-system")
+    assert 'hx-get="/sidebar/system"' in system
+    assert 'hx-trigger="load"' in system
+
+
+def test_sidebar_system_shows_memory_and_polls(
+    client: TestClient, settings: Settings
+) -> None:
+    """The memory partial shows both usages and polls at the set interval."""
+    response = client.get("/sidebar/system")
+
+    assert response.status_code == 200
+    interval = settings.ui.memory_poll_seconds
+    assert f'hx-trigger="every {interval}s"' in response.text
+    assert re.search(r'data-sidebar="process-memory">[\d.]+ GiB<', response.text)
+    assert re.search(
+        r'data-sidebar="system-memory">\s*[\d.]+ GiB / [\d.]+ GiB', response.text
+    )
+
+
 def test_file_table_and_select_set_their_own_targets(client: TestClient) -> None:
     """The file table reloads itself; Select sends the kept selection."""
     page = client.get("/").text

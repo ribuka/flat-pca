@@ -13,7 +13,12 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-ICON_NAMES = ("check_circle", "progress_activity")
+ICON_NAMES = (
+    "check_circle",
+    "left_panel_close",
+    "left_panel_open",
+    "progress_activity",
+)
 FAMILY = "Material Symbols Outlined"
 AXES = "opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
 CSS2_URL = "https://fonts.googleapis.com/css2"

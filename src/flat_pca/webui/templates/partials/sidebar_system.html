@@ -1,0 +1,10 @@
+<dl class="sidebar-facts"
+    hx-get="/sidebar/system" hx-trigger="every {{ poll_seconds }}s" hx-target="#sidebar-system" hx-swap="innerHTML">
+  <dt>メモリ（Web UI）</dt>
+  <dd data-sidebar="process-memory">{{ memory.process_rss | gib }}</dd>
+  <dt>メモリ（マシン全体）</dt>
+  <dd data-sidebar="system-memory">
+    {{ memory.system_used | gib }} / {{ memory.system_total | gib }}
+    <span class="muted">（{{ "%.0f" | format(memory.system_percent) }}%）</span>
+  </dd>
+</dl>
