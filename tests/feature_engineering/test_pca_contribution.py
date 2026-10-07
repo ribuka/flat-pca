@@ -13,7 +13,6 @@ from flat_pca.feature_engineering.pca import (
     fit_pca,
     transform_pca,
 )
-from flat_pca.feature_engineering.pca.reconstruct import unscale
 from flat_pca.feature_engineering.scaling import ScalingStrategy
 
 FEATURES = ("feature_a", "feature_b", "feature_c", "feature_d")
@@ -98,14 +97,12 @@ def _total_with_mean(model: PcaModel, scores: np.ndarray) -> np.ndarray:
     """
     total = sum(
         component_contribution(
-            scores, model.pca, model.scaling_model, model.columns, component
+            scores, model.pca, model.feature_arrays.scaling, component
         )
         for component in range(1, model.n_component + 1)
     )
-    mean = unscale(
-        np.asarray(model.pca.mean_, dtype=float)[np.newaxis, :],
-        model.scaling_model,
-        model.columns,
+    mean = model.feature_arrays.scaling.unscale(
+        np.asarray(model.pca.mean_, dtype=float)[np.newaxis, :]
     )
     return total + mean
 
@@ -148,7 +145,7 @@ def test_contribution_is_the_scaled_component_term(
     scales = np.array([model.scaling_model.scales[column] for column in FEATURES])
 
     result = component_contribution(
-        scores, model.pca, model.scaling_model, model.columns, 2
+        scores, model.pca, model.feature_arrays.scaling, 2
     )
 
     expected = np.outer(scores[:, 1], model.pca.components_[1]) * scales
@@ -162,7 +159,7 @@ def test_pareto_scale_is_the_square_root_of_the_deviation(frame: pl.DataFrame) -
     deviations = frame.select(pl.all().std()).to_numpy()[0]
 
     result = component_contribution(
-        scores, model.pca, model.scaling_model, model.columns, 1
+        scores, model.pca, model.feature_arrays.scaling, 1
     )
 
     expected = np.outer(scores[:, 0], model.pca.components_[0]) * np.sqrt(deviations)
@@ -175,7 +172,7 @@ def test_no_scaling_returns_the_component_term(frame: pl.DataFrame) -> None:
     scores = _score_matrix(frame, model)
 
     result = component_contribution(
-        scores, model.pca, model.scaling_model, model.columns, 3
+        scores, model.pca, model.feature_arrays.scaling, 3
     )
 
     np.testing.assert_allclose(
@@ -193,5 +190,5 @@ def test_rejects_out_of_range_component(
 
     with pytest.raises(ValueError, match="component must be between"):
         component_contribution(
-            scores, model.pca, model.scaling_model, model.columns, component
+            scores, model.pca, model.feature_arrays.scaling, component
         )

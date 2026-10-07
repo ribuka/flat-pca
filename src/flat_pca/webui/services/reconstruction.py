@@ -11,10 +11,7 @@ from flat_pca.feature_engineering.pca import (
     PreparedRows,
     component_contribution,
 )
-from flat_pca.feature_engineering.pca.reconstruct import (
-    reconstruct_standardized,
-    unscale,
-)
+from flat_pca.feature_engineering.pca.reconstruct import reconstruct_standardized
 
 ReconstructionKind = Literal["contribution", "reconstruction", "residual"]
 
@@ -58,12 +55,10 @@ def reconstruction_values(
         raise ValueError("exactly one kept row is required")
     if kind == "contribution":
         return component_contribution(
-            prepared.scores, model.pca, model.scaling_model, model.columns, component
+            prepared.scores, model.pca, model.feature_arrays.scaling, component
         )[0]
-    reconstructed = unscale(
-        reconstruct_standardized(prepared.scores, model.pca, component),
-        model.scaling_model,
-        model.columns,
+    reconstructed = model.feature_arrays.scaling.unscale(
+        reconstruct_standardized(prepared.scores, model.pca, component)
     )[0]
     if kind == "reconstruction":
         return reconstructed

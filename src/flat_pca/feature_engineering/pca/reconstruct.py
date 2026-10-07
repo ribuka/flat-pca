@@ -13,8 +13,8 @@ import numpy as np
 import polars as pl
 from sklearn.decomposition import PCA
 
-from ..scaling import ScalingModel
 from .analysis import resolve_used_components
+from .feature_arrays import ScalingArrays
 
 
 def _validate_pca_state(pca: PCA, n_features: int) -> None:
@@ -127,8 +127,7 @@ def _unwhitened_scores(
 def component_contribution(
     scores: np.ndarray,
     pca: PCA,
-    scaling_model: ScalingModel,
-    columns: tuple[str, ...],
+    scaling: ScalingArrays,
     component: int,
 ) -> np.ndarray:
     """Return the contribution of one component in the original scale.
@@ -145,26 +144,24 @@ def component_contribution(
         the component's score makes the row NaN.
     pca : PCA
         Fitted scikit-learn PCA estimator that produced ``scores``.
-    scaling_model : ScalingModel
-        Fitted scaling state whose scales are applied. ``strategy ==
-        "none"`` applies no scale.
-    columns : tuple[str, ...]
-        Feature columns in the order they were fitted.
+    scaling : ScalingArrays
+        Fitted scaling whose scales are applied, e.g.
+        ``model.feature_arrays.scaling``. The identity applies no scale.
     component : int
         One-based component number ``k``.
 
     Returns
     -------
     np.ndarray
-        Contribution of shape ``(n_rows, len(columns))``.
+        Contribution of shape ``(n_rows, n_features)``.
 
     Raises
     ------
     ValueError
         If ``component`` is outside ``1..`` the available components, or
-        the PCA or scaling state is inconsistent.
+        the PCA state is inconsistent with the scaling.
     """
-    _validate_pca_state(pca, len(columns))
+    _validate_pca_state(pca, scaling.scales.shape[0])
     component_matrix = np.asarray(pca.components_, dtype=float)
     score_matrix = np.asarray(scores, dtype=float)
     if (
@@ -175,65 +172,13 @@ def component_contribution(
         raise ValueError("component must be between 1 and the component count")
     used = slice(component - 1, component)
     term = _unwhitened_scores(score_matrix, pca, used) @ component_matrix[used]
-    return unscale(term, scaling_model, columns, center=False)
-
-
-def unscale(
-    values: np.ndarray,
-    scaling_model: ScalingModel,
-    columns: tuple[str, ...],
-    *,
-    center: bool = True,
-) -> np.ndarray:
-    """Undo the fitted feature scaling, ``value * scale + center``.
-
-    Parameters
-    ----------
-    values : np.ndarray
-        Scaled values of shape ``(n_rows, len(columns))``.
-    scaling_model : ScalingModel
-        Fitted scaling state. ``strategy == "none"`` returns ``values``
-        unchanged.
-    columns : tuple[str, ...]
-        Feature column of each value column, in order.
-    center : bool, default True
-        Whether to add the center. ``False`` only multiplies by the scale,
-        which maps a difference of scaled values to the original scale.
-
-    Returns
-    -------
-    np.ndarray
-        Values in the original feature scale.
-
-    Raises
-    ------
-    ValueError
-        If the scaling model lacks the center or scale of a column.
-    """
-    if scaling_model.strategy == "none":
-        return values
-    missing_columns = [
-        column
-        for column in columns
-        if column not in scaling_model.centers or column not in scaling_model.scales
-    ]
-    if missing_columns:
-        raise ValueError(
-            f"scaling model has no center or scale for columns: {missing_columns}"
-        )
-    scales = np.array([scaling_model.scales[column] for column in columns], dtype=float)
-    if not center:
-        return values * scales
-    centers = np.array(
-        [scaling_model.centers[column] for column in columns], dtype=float
-    )
-    return values * scales + centers
+    return scaling.unscale(term, center=False)
 
 
 def reconstruct_features(
     scores: pl.DataFrame,
     pca: PCA,
-    scaling_model: ScalingModel,
+    scaling: ScalingArrays,
     columns: tuple[str, ...],
     pca_column_names: tuple[str, ...],
     cumulative_explained_variance: float | None = None,
@@ -247,8 +192,8 @@ def reconstruct_features(
         ``pca_column_names``.
     pca : PCA
         Fitted scikit-learn PCA estimator.
-    scaling_model : ScalingModel
-        Fitted scaling state to undo.
+    scaling : ScalingArrays
+        Fitted scaling to undo, e.g. ``model.feature_arrays.scaling``.
     columns : tuple[str, ...]
         Feature columns in the order they were fitted.
     pca_column_names : tuple[str, ...]
@@ -271,7 +216,7 @@ def reconstruct_features(
         If ``scores`` is not a ``pl.DataFrame``.
     ValueError
         If the selector is out of range, a used score column is missing,
-        or the PCA or scaling state is inconsistent.
+        or the PCA state is inconsistent.
     """
     if not isinstance(scores, pl.DataFrame):
         raise TypeError("scores must be a polars DataFrame")
@@ -299,7 +244,7 @@ def reconstruct_features(
     )
     standardized = reconstruct_standardized(score_matrix, pca, used_components)
     reconstructed = pl.from_numpy(
-        unscale(standardized, scaling_model, columns),
+        scaling.unscale(standardized),
         schema=list(columns),
         orient="row",
     )

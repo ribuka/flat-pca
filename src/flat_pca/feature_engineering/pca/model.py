@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import cached_property
 from typing import cast
 
 import numpy as np
@@ -26,6 +27,7 @@ from .analysis import (
     explained_variance_table,
     feature_contribution_ranking,
 )
+from .feature_arrays import FeatureArrays, build_feature_arrays
 from .impute import ImputeModel
 from .mahalanobis import mahalanobis_threshold
 from .reconstruct import reconstruct_features
@@ -67,6 +69,24 @@ class PcaModel:
     scaling_model: ScalingModel
     pca: PCA
     pca_column_names: tuple[str, ...]
+
+    @cached_property
+    def feature_arrays(self) -> FeatureArrays:
+        """Return the fitted preprocessing state as arrays, built once.
+
+        Returns
+        -------
+        FeatureArrays
+            Imputation, outlier, and scaling state in ``columns`` order.
+
+        Raises
+        ------
+        ValueError
+            If a fitted mapping lacks a feature column.
+        """
+        return build_feature_arrays(
+            self.columns, self.impute_model, self.outlier_model, self.scaling_model
+        )
 
     def get_component_coefficients(self, component: int) -> pl.DataFrame:
         """Return coefficients for one component ordered by absolute value.
@@ -201,7 +221,7 @@ class PcaModel:
         return reconstruct_features(
             scores,
             self.pca,
-            self.scaling_model,
+            self.feature_arrays.scaling,
             self.columns,
             self.pca_column_names,
             cumulative_explained_variance,

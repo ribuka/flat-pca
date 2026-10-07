@@ -11,10 +11,7 @@ from flat_pca.feature_engineering.pca import (
     prepare_rows,
     transform_pca,
 )
-from flat_pca.feature_engineering.pca.reconstruct import (
-    reconstruct_standardized,
-    unscale,
-)
+from flat_pca.feature_engineering.pca.reconstruct import reconstruct_standardized
 
 FEATURES = ("feature_a", "feature_b", "feature_c")
 
@@ -122,15 +119,10 @@ def test_residual_of_imputed_rows_has_no_nan(values: np.ndarray) -> None:
     model = _fit(values, "median")
     prepared = prepare_rows(values, model)
 
-    leading = unscale(
-        reconstruct_standardized(prepared.scores, model.pca, 1),
-        model.scaling_model,
-        model.columns,
-    )
-    full = unscale(
-        reconstruct_standardized(prepared.scores, model.pca, model.n_component),
-        model.scaling_model,
-        model.columns,
+    scaling = model.feature_arrays.scaling
+    leading = scaling.unscale(reconstruct_standardized(prepared.scores, model.pca, 1))
+    full = scaling.unscale(
+        reconstruct_standardized(prepared.scores, model.pca, model.n_component)
     )
 
     assert np.isfinite(prepared.values - leading).all()
