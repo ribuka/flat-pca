@@ -34,6 +34,7 @@ def test_load_settings_resolves_paths_against_settings_directory(
         "yield_pct": "number",
     }
     assert settings.ui.heatmap_max_cells == 1_200_000
+    assert settings.ui.explore_max_files == 20
     assert settings.jobs.artifact_dtype == "float32"
 
 

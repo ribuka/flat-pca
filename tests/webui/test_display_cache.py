@@ -20,6 +20,8 @@ from flat_pca.webui.services.fit_artifacts import (
 from flat_pca.webui.services.spectral_matrix import SpectralMatrix
 from flat_pca.webui.settings import Settings
 
+PREPARED_ROW_ENTRIES = 4
+
 
 def test_lru_cache_evicts_the_least_recently_used_entry() -> None:
     """A hit refreshes an entry; the oldest entry is evicted beyond the limit."""
@@ -86,7 +88,7 @@ def test_lru_cache_requires_size_of_with_max_bytes() -> None:
 
 def test_shown_matrices_are_kept_by_their_choices() -> None:
     """Kept matrices are returned for the same key and replaced by a new one."""
-    cache = DisplayCache()
+    cache = DisplayCache(PREPARED_ROW_ENTRIES)
     matrix = SpectralMatrix(
         values=np.zeros((2, 3)), wavelengths=np.arange(3.0), step_times=np.arange(2.0)
     )
@@ -107,7 +109,7 @@ def test_raw_spectra_adds_step_time_and_rereads_changed_files(tmp_path: Path) ->
     pl.DataFrame(
         {"Time": [1.0, 0.0], "Step": [1, 1], "Sequence": [1, 1], "400.0nm": [2.0, 1.0]}
     ).write_parquet(path)
-    cache = DisplayCache()
+    cache = DisplayCache(PREPARED_ROW_ENTRIES)
 
     first = cache.raw_spectra(path)
     assert cache.raw_spectra(path) is first
@@ -127,7 +129,7 @@ def test_fit_artifacts_keep_matrices_memory_mapped(
     """Display artifacts restore no model, so the components stay memory-mapped."""
     run_dir = _fit_run_dir(settings, spectra_paths)
 
-    artifacts = DisplayCache().fit_artifacts(run_dir)
+    artifacts = DisplayCache(PREPARED_ROW_ENTRIES).fit_artifacts(run_dir)
 
     assert isinstance(artifacts.x, np.memmap)
     assert isinstance(artifacts.components, np.memmap)

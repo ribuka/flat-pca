@@ -30,6 +30,12 @@ def _workspace(client: TestClient) -> Workspace:
     return client.app.state.workspace
 
 
+def _clear_cache(client: TestClient) -> None:
+    """Replace the workspace's display cache with an empty one."""
+    workspace = _workspace(client)
+    workspace.cache = DisplayCache(workspace.settings.ui.explore_max_files)
+
+
 def _embedded(html: str, element_id: str) -> dict[str, object]:
     """Return the JSON embedded in the page's ``<script id=element_id>``."""
     match = re.search(rf'id="{element_id}">(.*?)</script>', html, re.DOTALL)
@@ -420,7 +426,7 @@ def test_trend_of_a_shown_view_reuses_its_matrices(
         "/explore/trend", params={**params, "run": fit_run, **point}
     ).json()
     assert len(expected["by_step_time"]["data"]) == 2
-    _workspace(client).cache = DisplayCache()
+    _clear_cache(client)
     html = client.get("/explore", params=params).text
 
     def fail(*args: object, **kwargs: object) -> None:
@@ -445,6 +451,72 @@ def test_trend_is_resolved_again_after_eviction(client: TestClient, fit_run: str
     expected = client.get(url).json()
     assert expected["step_time"] == 2
 
-    _workspace(client).cache = DisplayCache()
+    _clear_cache(client)
 
     assert client.get(url).json() == expected
+
+
+@pytest.fixture
+def limited_client(settings: Settings, wait_for: Wait) -> Iterator[TestClient]:
+    """Run the application on a cataloged workspace showing up to 2 files."""
+    limited = settings.model_copy(update={"ui": UiSettings(explore_max_files=2)})
+    with TestClient(create_app(limited)) as opened:
+        workspace = _workspace(opened)
+        run = wait_for(workspace.database, workspace.submit_catalog())
+        assert run["status"] == "succeeded"
+        yield opened
+
+
+def test_files_beyond_the_limit_are_not_shown(limited_client: TestClient) -> None:
+    """Above ``ui.explore_max_files`` the leading files are shown and the rest listed."""
+    html = limited_client.get(
+        "/explore", params={"file": ["run-1", "run-2", "run-10"]}
+    ).text
+
+    assert '<option value="run-1" selected>' in html
+    assert '<option value="run-2" selected>' in html
+    assert '<option value="run-10" selected>' not in html
+    omitted = html.split("data-omitted", 1)[1].split("</p>", 1)[0]
+    assert "2 件まで" in omitted
+    assert "（1 件）：run-10" in omitted
+    assert "file=run-1&amp;file=run-2&amp;segment" in html
+
+
+def test_files_within_the_limit_list_nothing_omitted(limited_client: TestClient) -> None:
+    """Up to ``ui.explore_max_files`` files, nothing is reported as omitted."""
+    html = limited_client.get("/explore", params={"file": ["run-1", "run-2"]}).text
+
+    assert "data-omitted" not in html
+    assert "一度に表示できるのは 2 件までです" in html
+
+
+def test_trend_at_the_file_limit_prepares_no_row_again(
+    limited_client: TestClient,
+    settings: Settings,
+    spectra_paths: list[Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With the limit of files chosen, resolving a trend again reuses the prepared rows."""
+    workspace = _workspace(limited_client)
+    run_id = register_fit_run(
+        workspace.database, settings, spectra_paths, FIT_RUN_ID, "median"
+    )
+    assert workspace.cache.prepared_row_entries == 2
+    html = limited_client.get(
+        "/explore",
+        params={"view": "residual", "run": run_id, "file": ["s-00", "s-01"], "k": "1"},
+    ).text
+    assert "data-omitted" not in html
+
+    def fail(*args: object, **kwargs: object) -> None:
+        """Fail if rows are prepared again."""
+        raise AssertionError("rows were prepared again")
+
+    # Evict the kept matrices, so the trend resolves the view again.
+    monkeypatch.setattr(workspace.cache, "shown_matrices", lambda key: None)
+    monkeypatch.setattr("flat_pca.webui.services.display_cache.prepare_rows", fail)
+
+    response = limited_client.get(_trend_url(html, wavelength=400, step_time=1))
+
+    assert response.status_code == 200
+    assert len(response.json()["by_step_time"]["data"]) == 2

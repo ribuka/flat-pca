@@ -42,7 +42,7 @@ class Workspace:
         interrupted = fail_interrupted_runs(self.database)
         if interrupted:
             logger.warning(f"marked {interrupted} interrupted runs as failed")
-        self.cache = DisplayCache()
+        self.cache = DisplayCache(settings.ui.explore_max_files)
         self.selection = FileSelection()
         self._submit_lock = threading.Lock()
         self.executor = JobExecutor(

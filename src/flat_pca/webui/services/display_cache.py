@@ -21,7 +21,6 @@ RAW_SPECTRA_ENTRIES = 8
 FIT_ARTIFACT_ENTRIES = 4
 # A restored model holds every component in float64, so keep only a few.
 PCA_MODEL_ENTRIES = 2
-PREPARED_ROW_ENTRIES = 16
 # Unbinned matrices of shown views, one (StepTime x wavelength) float64
 # matrix per file, so the trends of a shown view are cut without resolving it.
 SHOWN_MATRIX_ENTRIES = 8
@@ -207,20 +206,31 @@ class DisplayCache:
     the reconstruction views are kept separately, so the other views never
     restore a model. The matrices of shown views are kept by their choices,
     up to ``SHOWN_MATRIX_ENTRIES`` views and ``SHOWN_MATRIX_BYTES`` in all.
+
+    Parameters
+    ----------
+    prepared_row_entries : int
+        Number of prepared rows kept. At least the number of files a view
+        shows, so redrawing a view prepares no row again.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, prepared_row_entries: int) -> None:
         self._raw: LruCache[tuple[str, int, int], pl.DataFrame] = LruCache(
             RAW_SPECTRA_ENTRIES
         )
         self._runs: LruCache[str, DisplayArtifacts] = LruCache(FIT_ARTIFACT_ENTRIES)
         self._models: LruCache[str, PcaModel] = LruCache(PCA_MODEL_ENTRIES)
         self._prepared: LruCache[tuple[str, int], PreparedRows] = LruCache(
-            PREPARED_ROW_ENTRIES
+            prepared_row_entries
         )
         self._shown: LruCache[Hashable, ShownMatrices] = LruCache(
             SHOWN_MATRIX_ENTRIES, SHOWN_MATRIX_BYTES, lambda shown: shown.nbytes
         )
+
+    @property
+    def prepared_row_entries(self) -> int:
+        """Return the number of prepared rows kept."""
+        return self._prepared.max_entries
 
     def raw_spectra(self, path: Path) -> pl.DataFrame:
         """Return one file's spectra with ``StepTime`` columns.

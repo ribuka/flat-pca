@@ -51,7 +51,7 @@
           </select>
         </label>
         <span class="muted">
-          先頭のファイルをヒートマップに描き、選んだすべてのファイルをトレンドに重ねます。
+          先頭のファイルをヒートマップに描き、選んだすべてのファイルをトレンドに重ねます。一度に表示できるのは {{ max_files }} 件までです。
           {% if shown.view == "raw" %}データ選択で選んだファイル（未選択なら catalog の全ファイル）から選べます。{% endif %}
         </span>
       </div>
@@ -60,6 +60,9 @@
 </section>
 
 <section>
+  {% if shown.omitted %}
+    <p class="warnings" data-omitted>選べるのは {{ max_files }} 件までのため表示しなかったファイル（{{ shown.omitted|length }} 件）：{{ shown.omitted|join("、") }}</p>
+  {% endif %}
   {% if shown.error %}
     <p class="error" data-explore-error>{{ shown.error }}</p>
   {% elif not shown.matrices %}
