@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 _ENV_PATTERN = re.compile(r"%(\w+)%|\$\{(\w+)\}")
-_PLACEHOLDER_PATTERN = re.compile(r"\{(\w+)\}")
+_PLACEHOLDER_PATTERN = re.compile(r"\{([^{}]*)\}")
 
 
 def _expand_environment(value: str) -> str:

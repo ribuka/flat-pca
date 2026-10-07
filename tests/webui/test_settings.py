@@ -188,6 +188,18 @@ def test_load_settings_expands_home_directory(
             r"unknown placeholder \{data\}",
         ),
         (
+            "[workspace]\ndir = '{data.root}/w'\n[data]\nroot = 'd'\n",
+            r"unknown placeholder \{data\.root\}",
+        ),
+        (
+            "[workspace]\ndir = '{unknown-name}/w'\n[data]\nroot = 'd'\n",
+            r"unknown placeholder \{unknown-name\}",
+        ),
+        (
+            "[workspace]\ndir = '{}/w'\n[data]\nroot = 'd'\n",
+            r"unknown placeholder \{\}",
+        ),
+        (
             "[workspace]\ndir = 'w'\n[data]\nroot = '{root}/d'\n",
             r"unknown placeholder \{root\}",
         ),
