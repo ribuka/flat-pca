@@ -35,7 +35,7 @@ def _cataloged(client: TestClient, wait_for: Wait) -> TestClient:
     workspace = _workspace(client)
     run = wait_for(workspace.database, workspace.submit_catalog())
     assert run["status"] == "succeeded"
-    client.post("/catalog/selection", data={"stems": STEMS})
+    client.post("/catalog/selection", data={"stems": json.dumps(STEMS)})
     return client
 
 

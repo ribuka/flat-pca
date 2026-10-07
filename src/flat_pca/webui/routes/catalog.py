@@ -15,6 +15,7 @@ from ..services.catalog_query import (
 )
 from ..services.pagination import paginate
 from ..services.runs import latest_run_status
+from ..services.selection import parse_stems_json
 from ..templating import templates
 from ..workspace import CATALOG_JOB, Workspace
 from .dependencies import get_workspace
@@ -165,7 +166,7 @@ def file_table(request: Request, workspace: WorkspaceDependency) -> HTMLResponse
 def select_files(
     request: Request,
     workspace: WorkspaceDependency,
-    stems: Annotated[list[str] | None, Form()] = None,
+    stems: Annotated[str, Form()] = "[]",
 ) -> HTMLResponse:
     """Replace the selected file set.
 
@@ -175,17 +176,26 @@ def select_files(
         Current request.
     workspace : Workspace
         Application workspace.
-    stems : list[str] | None, default None
-        Selected file stems over all pages and filters; stems not in the
-        catalog are ignored.
+    stems : str, default "[]"
+        JSON array of the selected file stems over all pages and filters,
+        parsed by ``parse_stems_json``; stems not in the catalog are ignored.
 
     Returns
     -------
     HTMLResponse
         Selection summary partial with a success icon. It triggers
         ``selection-updated`` so the sidebar status refreshes.
+
+    Raises
+    ------
+    HTTPException
+        With status 400 if ``stems`` is not a JSON array of strings.
     """
-    selected = workspace.selection.replace(workspace.database, stems or [])
+    try:
+        requested = parse_stems_json(stems)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    selected = workspace.selection.replace(workspace.database, requested)
     response = templates.TemplateResponse(
         request, "partials/selection_summary.html", {"selected": selected, "saved": True}
     )

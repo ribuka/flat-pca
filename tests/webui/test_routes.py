@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable, Iterator
 
@@ -216,7 +217,7 @@ def test_file_table_rejects_invalid_filter(cataloged_client: TestClient) -> None
 def test_selection_keeps_cataloged_stems(cataloged_client: TestClient) -> None:
     """The selection ignores unknown stems and is reflected in the table."""
     response = cataloged_client.post(
-        "/catalog/selection", data={"stems": ["run-2", "ghost", "run-10"]}
+        "/catalog/selection", data={"stems": '["run-2", "ghost", "run-10"]'}
     )
 
     assert response.status_code == 200
@@ -229,16 +230,38 @@ def test_selection_keeps_cataloged_stems(cataloged_client: TestClient) -> None:
     assert re.search(r'value="run-2"[^>]*checked', table)
     assert not re.search(r'value="run-1"[^>]*checked', table)
     page = cataloged_client.get("/").text
-    assert re.search(
-        r'id="selected-stems"[^>]*>'
-        r'<input type="hidden" name="stems" value="run-2">'
-        r'<input type="hidden" name="stems" value="run-10"></div>',
-        page,
-    )
+    assert (
+        '<input type="hidden" id="selected-stems" name="stems"'
+        """ value='["run-2", "run-10"]'>"""
+    ) in page
 
     cleared = cataloged_client.post("/catalog/selection")
 
     assert 'data-selected-count="0"' in cleared.text
+
+
+def test_selection_saves_more_stems_than_form_fields(
+    cataloged_client: TestClient,
+) -> None:
+    """The selection is one JSON field, so its size has no field-count limit."""
+    stems = ["run-1", *(f"ghost-{index}" for index in range(5000))]
+
+    response = cataloged_client.post(
+        "/catalog/selection", data={"stems": json.dumps(stems)}
+    )
+
+    assert response.status_code == 200
+    assert _workspace(cataloged_client).selection.stems == ["run-1"]
+
+
+@pytest.mark.parametrize("stems", ["run-1", '{"a": 1}', "[1]"])
+def test_selection_rejects_invalid_stems(
+    cataloged_client: TestClient, stems: str
+) -> None:
+    """The selection must be a JSON array of strings."""
+    response = cataloged_client.post("/catalog/selection", data={"stems": stems})
+
+    assert response.status_code == 400
 
 
 def test_cancel_rejects_unknown_and_finished_runs(cataloged_client: TestClient) -> None:
@@ -306,7 +329,7 @@ def test_sidebar_status_shows_catalog_and_selection(
     active = client.get("/sidebar/status").text
     assert 'hx-trigger="every 2s"' in active
     wait_for(workspace.database, run_id)
-    client.post("/catalog/selection", data={"stems": ["run-1", "run-2"]})
+    client.post("/catalog/selection", data={"stems": '["run-1", "run-2"]'})
 
     finished = client.get("/sidebar/status").text
 

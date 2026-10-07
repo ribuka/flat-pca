@@ -16,10 +16,9 @@
          hx-trigger="load, catalog-updated from:body, file-query-changed">
       <p class="muted">読み込み中…</p>
     </div>
-    {#- The selection over all pages and filters, kept outside the reloaded table. -#}
-    <div id="selected-stems" hidden data-selected-stems>
-      {%- for stem in selected %}<input type="hidden" name="stems" value="{{ stem }}">{% endfor -%}
-    </div>
+    {#- The selection over all pages and filters as a JSON array, kept outside
+        the reloaded table. -#}
+    <input type="hidden" id="selected-stems" name="stems" value='{{ selected|tojson }}'>
     <div class="selection-actions">
       {% include "partials/selection_summary.html" %}
       <button id="select-files" type="button" class="button-primary" hx-post="/catalog/selection" hx-include="#selected-stems"

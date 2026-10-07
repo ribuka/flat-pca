@@ -2,23 +2,15 @@
 
 const FILE_QUERY_DELAY_MS = 300;
 
-// The data selection's file selection over all pages and filters lives in the
-// hidden inputs of #selected-stems, outside the reloaded file table; Select
-// sends them.
+// The data selection's file selection over all pages and filters lives as a
+// JSON array in the hidden input #selected-stems, outside the reloaded file
+// table; Select sends it as one form field.
 function selectedStems() {
-  const container = document.getElementById("selected-stems");
-  return new Set([...container.querySelectorAll("input")].map((input) => input.value));
+  return new Set(JSON.parse(document.getElementById("selected-stems").value));
 }
 
 function setSelectedStems(stems) {
-  const inputs = [...stems].map((stem) => {
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = "stems";
-    input.value = stem;
-    return input;
-  });
-  document.getElementById("selected-stems").replaceChildren(...inputs);
+  document.getElementById("selected-stems").value = JSON.stringify([...stems]);
 }
 
 // Returns the stems of every file matching the file table's filters, on all

@@ -2,10 +2,41 @@
 
 from __future__ import annotations
 
+import json
 import threading
 
 from ..database import Database
 from .catalog_query import existing_stems
+
+
+def parse_stems_json(text: str) -> list[str]:
+    """Parse a JSON array of file stems.
+
+    The selection is sent as one form field so that its size is not bound by
+    the limit on the number of form fields.
+
+    Parameters
+    ----------
+    text : str
+        JSON array of strings.
+
+    Returns
+    -------
+    list[str]
+        The stems.
+
+    Raises
+    ------
+    ValueError
+        If ``text`` is not a JSON array of strings.
+    """
+    try:
+        stems = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"stems must be a JSON array: {error}") from error
+    if not isinstance(stems, list) or not all(isinstance(stem, str) for stem in stems):
+        raise ValueError("stems must be a JSON array of strings")
+    return stems
 
 
 class FileSelection:
