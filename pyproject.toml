@@ -22,6 +22,7 @@ webui = [
     "duckdb==1.5.6",
     "fastapi==0.142.2",
     "jinja2==3.1.6",
+    "psutil==7.2.2",
     "pydantic==2.13.5",
     "python-multipart==0.0.32",
     "uvicorn==0.54.0",
@@ -51,6 +52,8 @@ packages = ["src/flat_pca"]
 
 [tool.uv]
 cache-dir = ".uv-cache"
+# The version comes from VERSION, so a change to it reinstalls the package.
+cache-keys = [{ file = "pyproject.toml" }, { file = "VERSION" }]
 
 [tool.uv.sources]
 wiggum = { git = "https://github.com/ribuka/wiggum.git" }

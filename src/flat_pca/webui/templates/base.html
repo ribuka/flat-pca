@@ -1,4 +1,4 @@
-<!doctype html>
+{% from "macros/icon.html" import icon %}<!doctype html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
@@ -6,6 +6,19 @@
   <title>{% block title %}flat-pca{% endblock %}</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+  <script>
+    // Applies the kept sidebar and width choices before the first paint.
+    try {
+      for (const [key, name] of [["flat-pca:sidebar", "sidebar"], ["flat-pca:width", "width"]]) {
+        const value = localStorage.getItem(key);
+        if (value) {
+          document.documentElement.dataset[name] = value;
+        }
+      }
+    } catch {
+      // Without storage the defaults are used.
+    }
+  </script>
   <script src="{{ url_for('static', path='vendor/htmx.min.js') }}"></script>
   {% block scripts %}{% endblock %}
   <script src="{{ url_for('static', path='app.js') }}" defer></script>
@@ -13,27 +26,47 @@
 <body>
   <div class="layout">
     <aside class="sidebar">
-      <div class="brand">flat-pca</div>
-      <nav class="sidebar-nav" aria-label="画面">
-        <ul>
-          {% for item in nav_items %}
-            {% if item.path is none %}
-              <li><span class="nav-item nav-disabled" aria-disabled="true" title="未実装">{{ item.label }}</span></li>
-            {% elif item.path == request.url.path %}
-              <li><a class="nav-item nav-current" href="{{ item.path }}" aria-current="page">{{ item.label }}</a></li>
-            {% else %}
-              <li><a class="nav-item" href="{{ item.path }}">{{ item.label }}</a></li>
-            {% endif %}
-          {% endfor %}
-        </ul>
-      </nav>
-      <div id="view-selection" class="view-selection"
-           hx-get="/sidebar/selection" hx-target="this" hx-swap="innerHTML"
-           hx-trigger="load, fit-updated from:body">
+      <div class="sidebar-top">
+        <div class="sidebar-header">
+          <button id="sidebar-toggle" type="button" class="icon-button"
+                  aria-controls="sidebar-body" aria-expanded="true" aria-label="サイドバーを折りたたむ" title="サイドバーを折りたたむ">
+            {{ icon("left_panel_close", class="icon-collapse") }}{{ icon("left_panel_open", class="icon-expand") }}
+          </button>
+          <div class="brand">flat-pca</div>
+        </div>
+        <div class="segmented" role="group" aria-label="メインページの幅">
+          <button type="button" data-width-choice="compact" aria-pressed="false">コンパクト</button>
+          <button type="button" data-width-choice="wide" aria-pressed="true">ワイド</button>
+        </div>
       </div>
-      <div id="sidebar-status" class="sidebar-status"
-           hx-get="/sidebar/status" hx-target="this" hx-swap="innerHTML"
-           hx-trigger="load, catalog-started from:body, catalog-updated from:body, selection-updated from:body">
+      <div id="sidebar-body" class="sidebar-body">
+        <nav class="sidebar-nav" aria-label="画面">
+          <ul>
+            {% for item in nav_items %}
+              {% if item.path is none %}
+                <li><span class="nav-item nav-disabled" aria-disabled="true" title="未実装">{{ item.label }}</span></li>
+              {% elif item.path == request.url.path %}
+                <li><a class="nav-item nav-current" href="{{ item.path }}" aria-current="page">{{ item.label }}</a></li>
+              {% else %}
+                <li><a class="nav-item" href="{{ item.path }}">{{ item.label }}</a></li>
+              {% endif %}
+            {% endfor %}
+          </ul>
+        </nav>
+        <div id="view-selection" class="view-selection"
+             hx-get="/sidebar/selection" hx-target="this" hx-swap="innerHTML"
+             hx-trigger="load, fit-updated from:body">
+        </div>
+        <div id="sidebar-status" class="sidebar-status"
+             hx-get="/sidebar/status" hx-target="this" hx-swap="innerHTML"
+             hx-trigger="load, catalog-started from:body, catalog-updated from:body, selection-updated from:body">
+        </div>
+      </div>
+      <div class="sidebar-bottom">
+        <div id="sidebar-system" class="sidebar-system"
+             hx-get="/sidebar/system" hx-target="this" hx-swap="innerHTML" hx-trigger="load">
+        </div>
+        <p class="app-version" data-sidebar="version">{{ app_version }}</p>
       </div>
     </aside>
     <main class="content">

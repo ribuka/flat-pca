@@ -77,6 +77,7 @@ default_color_by = "lot"              # 散布図・軌跡の色分け既定
 default_order_by = "date"             # T²/Q管理図の横軸順の既定（省略時はファイル名の自然順）
 heatmap_max_cells = 1_200_000         # ヒートマップ送信時のセル数上限
 explore_max_files = 20                # サイドバーで選べる表示ファイル数の上限
+memory_poll_seconds = 5               # サイドバーのメモリ使用量を更新する間隔（秒）
 
 [jobs]
 artifact_dtype = "float32"            # "float32" | "float64"
@@ -156,6 +157,11 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 ### 共通レイアウト
 
 - 左にサイドバーを置き、各画面へのナビゲーション（未実装の画面は無効表示）、表示する run とファイルの選択、catalogの状態・fit 対象のファイル数を表示する。
+- サイドバーは上から、折りたたみボタンとメインページの幅の切り替え、ナビゲーション、run とファイルの選択、catalogの状態・fit 対象のファイル数、メモリ使用量と version の順に並べる。中身（ナビゲーションから catalog の状態まで）だけをスクロールさせ、上端と下端は常に表示する。
+  - 折りたたみボタン（Material Symbols の`left_panel_close`・`left_panel_open`）は、折りたたむとボタンだけを残してサイドバーを狭める。ボタンの画面上の位置は折りたたみの前後で変えない。折りたたんでも、メインページはそのとき選ばれている run とファイルで表示したままとする。
+  - メインページの幅は segmented control で「コンパクト」（最大幅を固定して中央に寄せる）と「ワイド」（ウィンドウの幅に合わせる。既定）から選ぶ。
+  - 折りたたみ状態と幅は`localStorage`に保存し、ページを移っても保つ。最初の描画の前に`<html>`の`data-sidebar`・`data-width`へ反映し、ちらつかせない。「戻る」で bfcache から復帰したページ（`pageshow`の`persisted`）にも、離れた後に変えた保存値を反映する。幅や折りたたみを変えたら、Plotly の図を`Plotly.Plots.resize`で新しい幅に合わせて描き直す。
+  - 下端には、Web UI のサーバープロセスのメモリ使用量（RSS）、マシン全体のメモリ使用量 / 総量（と使用率）、flat-pca の version（`VERSION`ファイルの値。インストール済みパッケージのメタデータから読む）を表示する。メモリ（`/sidebar/system`。`psutil`で取得）は`ui.memory_poll_seconds`秒（既定 5）ごとにポーリングする。
 - サイドバーの状態は、catalog更新の開始・完了とファイル集合の選択（`catalog-started`・`catalog-updated`・`selection-updated`イベント）で再取得し、catalog実行中は2秒ごとにポーリングする。
 - 用語：データ選択で選ぶファイル集合を「fit 対象」、サイドバーで選ぶファイルを「表示ファイル」と呼び、画面の文言で区別する。
 - サイドバーの run と表示ファイル（`/sidebar/selection`。どの画面でも常に表示する）：

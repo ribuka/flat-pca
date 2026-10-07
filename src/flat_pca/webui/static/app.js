@@ -514,3 +514,88 @@ function initPlot(target) {
 for (const target of document.querySelectorAll("[data-plot]")) {
   initPlot(target);
 }
+
+const SIDEBAR_KEY = "flat-pca:sidebar";
+const WIDTH_KEY = "flat-pca:width";
+
+// Keeps a layout choice on the root element and, across pages, in storage.
+function keepLayoutChoice(key, name, value) {
+  document.documentElement.dataset[name] = value;
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Without storage the choice lasts only for this page.
+  }
+}
+
+// Redraws every Plotly figure at the width of its container.
+function resizePlots() {
+  requestAnimationFrame(() => {
+    for (const plot of document.querySelectorAll(".js-plotly-plot")) {
+      Plotly.Plots.resize(plot);
+    }
+  });
+}
+
+// Applies the kept layout choices to the root element, as base.html does
+// before the first paint.
+function applyKeptLayoutChoices() {
+  for (const [key, name] of [[SIDEBAR_KEY, "sidebar"], [WIDTH_KEY, "width"]]) {
+    let value = null;
+    try {
+      value = localStorage.getItem(key);
+    } catch {
+      // Without storage the choice shown on this page stays.
+      continue;
+    }
+    if (value) {
+      document.documentElement.dataset[name] = value;
+    } else {
+      delete document.documentElement.dataset[name];
+    }
+  }
+}
+
+// Shows the collapse button's label and pressed width choice for the layout
+// applied before the first paint (see base.html).
+function syncLayoutControls() {
+  const root = document.documentElement;
+  const collapsed = root.dataset.sidebar === "collapsed";
+  const toggle = document.getElementById("sidebar-toggle");
+  const label = collapsed ? "サイドバーを広げる" : "サイドバーを折りたたむ";
+  toggle.setAttribute("aria-expanded", `${!collapsed}`);
+  toggle.setAttribute("aria-label", label);
+  toggle.title = label;
+  const width = root.dataset.width === "compact" ? "compact" : "wide";
+  for (const button of document.querySelectorAll("[data-width-choice]")) {
+    button.setAttribute("aria-pressed", `${button.dataset.widthChoice === width}`);
+  }
+}
+
+document.getElementById("sidebar-toggle").addEventListener("click", () => {
+  const collapsed = document.documentElement.dataset.sidebar === "collapsed";
+  keepLayoutChoice(SIDEBAR_KEY, "sidebar", collapsed ? "expanded" : "collapsed");
+  syncLayoutControls();
+  resizePlots();
+});
+
+for (const button of document.querySelectorAll("[data-width-choice]")) {
+  button.addEventListener("click", () => {
+    keepLayoutChoice(WIDTH_KEY, "width", button.dataset.widthChoice);
+    syncLayoutControls();
+    resizePlots();
+  });
+}
+
+syncLayoutControls();
+
+// A page restored by "back" from the bfcache shows the choices made since it
+// was left, possibly on another page.
+window.addEventListener("pageshow", (event) => {
+  if (!event.persisted) {
+    return;
+  }
+  applyKeptLayoutChoices();
+  syncLayoutControls();
+  resizePlots();
+});

@@ -68,16 +68,19 @@ a {
 
 .layout {
   display: grid;
-  grid-template-columns: 14rem minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   min-height: 100vh;
 }
 
+/* The sidebar keeps its top (collapse button, width choice) and bottom
+   (memory, version) in view and scrolls only its body. Collapsed, it shows
+   just the collapse button, which stays where it was. */
 .sidebar {
   position: sticky;
   top: 0;
   align-self: start;
+  width: 14rem;
   height: 100vh;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -86,8 +89,89 @@ a {
   background: var(--surface);
 }
 
+:root[data-sidebar="collapsed"] .sidebar {
+  width: auto;
+}
+
+:root[data-sidebar="collapsed"] .sidebar-body,
+:root[data-sidebar="collapsed"] .sidebar-bottom,
+:root[data-sidebar="collapsed"] .segmented,
+:root[data-sidebar="collapsed"] .brand {
+  display: none;
+}
+
+.sidebar-top {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sidebar-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sidebar-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.icon-button {
+  padding: 0.25rem;
+  border-color: transparent;
+  color: var(--muted);
+  background: transparent;
+}
+
+.icon-button .material-symbols-outlined {
+  font-size: 1.5rem;
+}
+
+:root[data-sidebar="collapsed"] .icon-collapse,
+:root:not([data-sidebar="collapsed"]) .icon-expand {
+  display: none;
+}
+
+/* Two buttons side by side; the pressed one is the current choice. */
+.segmented {
+  display: flex;
+}
+
+.segmented button {
+  flex: 1;
+  justify-content: center;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.segmented button:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.segmented button:last-child {
+  margin-left: -1px;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.segmented button[aria-pressed="true"] {
+  position: relative;
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .brand {
-  padding: 0 0.75rem;
   font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -211,11 +295,30 @@ a.nav-current:hover {
   margin-bottom: 0;
 }
 
+.sidebar-system {
+  padding: 0 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.app-version {
+  margin: 0;
+  padding: 0 0.75rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
 .content {
   display: flex;
   flex-direction: column;
   gap: 1rem;
   padding: 1.5rem;
+}
+
+/* Compact width: a fixed maximum width, centered. */
+:root[data-width="compact"] .content {
+  width: 100%;
+  max-width: 80rem;
+  justify-self: center;
 }
 
 /* Each section of a page is a card. */
@@ -236,6 +339,7 @@ a.nav-current:hover {
 
   .sidebar {
     position: static;
+    width: auto;
     height: auto;
     border-right: none;
     border-bottom: 1px solid var(--border);
