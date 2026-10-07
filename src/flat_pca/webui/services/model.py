@@ -14,10 +14,18 @@ from flat_pca.feature_engineering.flatten_pca import (
     LoadingAggregation,
     aggregate_loadings_by_wavelength,
 )
+from flat_pca.feature_engineering.pca import PcaModel
 
 from .component_choice import choose_component
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError
+from .preprocess_parameters import (
+    FIXED_PARAMETER_LABELS,
+    PARAMETER_VALUE_NAME,
+    is_parameter_key,
+    parameter_options,
+    parameter_values,
+)
 from .segment_choice import (
     choose_segment,
     feature_segments,
@@ -33,6 +41,8 @@ AGGREGATION_LABELS: dict[LoadingAggregation, str] = {
 }
 DEFAULT_AGGREGATION: LoadingAggregation = "rms"
 COMPONENT_VALUE_NAME = "coefficient"
+COMPONENT_VIEW = "component"
+COMPONENT_VIEW_LABEL = "PCA 成分 k"
 
 
 @dataclass(frozen=True)
@@ -49,23 +59,27 @@ class ModelRequest:
         1-based component number n of the loading plot's vertical axis.
     aggregation : str | None
         A key of ``AGGREGATION_LABELS``; ``None`` for the default.
+    view : str | None
+        Values of the heatmap: ``COMPONENT_VIEW`` or a preprocessing
+        parameter key; ``None`` for ``COMPONENT_VIEW``.
     component : int | None
         1-based component number k of the component heatmap.
     segment : str | None
-        ``"{Step}:{Sequence}"`` of the component heatmap.
+        ``"{Step}:{Sequence}"`` of the heatmap.
     """
 
     run: str | None = None
     x: int | None = None
     y: int | None = None
     aggregation: str | None = None
+    view: str | None = None
     component: int | None = None
     segment: str | None = None
 
 
 @dataclass(frozen=True)
-class ComponentRequest:
-    """Choices that fix the matrix of the component heatmap.
+class HeatmapRequest:
+    """Choices that fix the matrix of the heatmap.
 
     The model screen keeps the matrix it draws under this key, so its trend
     requests are cut from it.
@@ -74,6 +88,8 @@ class ComponentRequest:
     ----------
     run : str
         Fit run.
+    view : str
+        ``COMPONENT_VIEW`` or a preprocessing parameter key.
     component : int
         1-based component number k.
     segment : str
@@ -81,6 +97,7 @@ class ComponentRequest:
     """
 
     run: str
+    view: str
     component: int
     segment: str
 
@@ -103,6 +120,11 @@ class ModelView:
         Chosen component number n.
     aggregation : LoadingAggregation
         Chosen loading aggregation.
+    view_options : dict[str, str]
+        Labels of the heatmap's values keyed by ``COMPONENT_VIEW`` and the
+        preprocessing parameter keys the run holds.
+    view : str
+        Chosen key of ``view_options``.
     component : int
         Chosen component number k.
     segment_options : list[tuple[int, int]]
@@ -115,7 +137,10 @@ class ModelView:
         ``wavelength`` with the aggregated ``PC{m}`` and ``PC{n}``
         loadings.
     matrices : dict[str, SpectralMatrix]
-        Unbinned matrix of component k keyed by ``PC{k}``.
+        Unbinned matrix of the heatmap, keyed by ``PC{k}`` or the
+        parameter's label.
+    notice : str | None
+        Message telling that the requested parameter is absent from the run.
     error : str | None
         Message shown instead of the screen.
     """
@@ -126,13 +151,23 @@ class ModelView:
     x: int = 1
     y: int = 1
     aggregation: LoadingAggregation = DEFAULT_AGGREGATION
+    view_options: dict[str, str] = field(
+        default_factory=lambda: {COMPONENT_VIEW: COMPONENT_VIEW_LABEL}
+    )
+    view: str = COMPONENT_VIEW
     component: int = 1
     segment_options: list[tuple[int, int]] = field(default_factory=list)
     segment: tuple[int, int] | None = None
     explained_variance: pl.DataFrame | None = None
     loadings: pl.DataFrame | None = None
     matrices: dict[str, SpectralMatrix] = field(default_factory=dict)
+    notice: str | None = None
     error: str | None = None
+
+    @property
+    def value_name(self) -> str:
+        """Return the name of the heatmap's values, shown on its color bar."""
+        return COMPONENT_VALUE_NAME if self.view == COMPONENT_VIEW else PARAMETER_VALUE_NAME
 
     @property
     def x_name(self) -> str:
@@ -217,6 +252,65 @@ def component_matrices(
     return {f"PC{component}": feature_segment_matrix(artifacts.features, values, *segment)}
 
 
+def parameter_matrices(
+    artifacts: DisplayArtifacts,
+    model: PcaModel,
+    key: str,
+    label: str,
+    segment: tuple[int, int],
+) -> dict[str, SpectralMatrix]:
+    """Reshape one preprocessing parameter into a ``(Step, Sequence)`` matrix.
+
+    Parameters
+    ----------
+    artifacts : DisplayArtifacts
+        The run's artifacts.
+    model : PcaModel
+        The run's PCA model, whose columns follow ``artifacts.features``.
+    key : str
+        A key of ``parameter_options(model)``.
+    label : str
+        Label of the parameter.
+    segment : tuple[int, int]
+        ``(Step, Sequence)`` to show.
+
+    Returns
+    -------
+    dict[str, SpectralMatrix]
+        The matrix keyed by ``label``.
+    """
+    values = parameter_values(model, key)
+    return {label: feature_segment_matrix(artifacts.features, values, *segment)}
+
+
+def _choose_view(requested: str | None, options: dict[str, str]) -> tuple[str, str | None]:
+    """Return the requested heatmap values if the run holds them.
+
+    Parameters
+    ----------
+    requested : str | None
+        ``COMPONENT_VIEW``, a preprocessing parameter key, or ``None``.
+    options : dict[str, str]
+        Available values keyed as ``ModelView.view_options``.
+
+    Returns
+    -------
+    tuple[str, str | None]
+        The chosen key, ``COMPONENT_VIEW`` when the run lacks the requested
+        parameter, and the message telling so.
+    """
+    if requested is None or requested in options:
+        return requested or COMPONENT_VIEW, None
+    label = FIXED_PARAMETER_LABELS.get(requested, requested)
+    return (
+        COMPONENT_VIEW,
+        (
+            f"この run には「{label}」がありません（前処理の設定で持たない値です）。"
+            f"{COMPONENT_VIEW_LABEL}を表示します。"
+        ),
+    )
+
+
 def _run_view(
     run: dict[str, object],
     artifacts: DisplayArtifacts,
@@ -242,7 +336,7 @@ def _run_view(
     Returns
     -------
     ModelView
-        Explained variance, loadings, and component matrix of the run.
+        Explained variance, loadings, and heatmap matrix of the run.
     """
     component_count = artifacts.components.shape[0]
     x = choose_component(request.x, 1, component_count)
@@ -272,11 +366,21 @@ def _run_view(
         model = cache.pca_model(Path(str(run["artifact_dir"])))
     except RunArtifactError as error:
         return ModelView(**common, error=str(error))  # type: ignore[arg-type]
+    view_options = {COMPONENT_VIEW: COMPONENT_VIEW_LABEL} | parameter_options(model)
+    view, notice = _choose_view(request.view, view_options)
+    matrices = (
+        component_matrices(artifacts, component, segment)
+        if view == COMPONENT_VIEW
+        else parameter_matrices(artifacts, model, view, view_options[view], segment)
+    )
     return ModelView(
         **common,  # type: ignore[arg-type]
+        view_options=view_options,
+        view=view,
         explained_variance=model.get_explained_variance_table(),
         loadings=wavelength_loadings(artifacts, x, y, aggregation),
-        matrices=component_matrices(artifacts, component, segment),
+        matrices=matrices,
+        notice=notice,
     )
 
 
@@ -307,11 +411,14 @@ def resolve_model(
     Raises
     ------
     ValueError
-        If the run, the loading aggregation, or the segment format is
-        invalid.
+        If the run, the loading aggregation, the heatmap values, or the
+        segment format is invalid.
     """
     if request.aggregation is not None and request.aggregation not in LOADING_AGGREGATIONS:
         raise ValueError(f"unknown aggregation: {request.aggregation!r}")
+    view = request.view
+    if view is not None and view != COMPONENT_VIEW and not is_parameter_key(view):
+        raise ValueError(f"unknown view: {request.view!r}")
     parse_segment(request.segment)
     runs = [run for run in fit_runs if run["status"] == "succeeded"]
     by_id = {str(run["run_id"]): run for run in runs}
@@ -327,8 +434,8 @@ def resolve_model(
     return _run_view(run, artifacts, cache, request, runs)
 
 
-def component_request(view: ModelView) -> ComponentRequest | None:
-    """Return the key of the component matrix a resolved view draws.
+def heatmap_request(view: ModelView) -> HeatmapRequest | None:
+    """Return the key of the heatmap matrix a resolved view draws.
 
     Parameters
     ----------
@@ -337,11 +444,13 @@ def component_request(view: ModelView) -> ComponentRequest | None:
 
     Returns
     -------
-    ComponentRequest | None
-        Run, component, and segment of the drawn matrix, or ``None`` when
-        the view draws none.
+    HeatmapRequest | None
+        Run, values, component, and segment of the drawn matrix, or
+        ``None`` when the view draws none.
     """
     segment = format_segment(view.segment)
     if not view.matrices or view.run_id is None or segment is None:
         return None
-    return ComponentRequest(run=view.run_id, component=view.component, segment=segment)
+    return HeatmapRequest(
+        run=view.run_id, view=view.view, component=view.component, segment=segment
+    )

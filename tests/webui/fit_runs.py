@@ -22,13 +22,13 @@ def register_fit_run(
     run_id: str,
     impute_strategy: str,
     metadata: Mapping[str, Mapping[str, object]] | None = None,
+    scaling_strategy: str = "z-score",
 ) -> str:
     """Execute and register a succeeded fit run of the synthetic spectra.
 
     The workspace fixture's own files are too few to fit, so the run is
     executed directly on the synthetic spectra. It uses the ``sqrt``
-    intensity transform with scale 2, ``z-score`` scaling, and three
-    components.
+    intensity transform with scale 2 and three components.
 
     Parameters
     ----------
@@ -45,6 +45,8 @@ def register_fit_run(
     metadata : Mapping[str, Mapping[str, object]] | None, default None
         Metadata column values keyed by stem; without them every metadata
         value is missing.
+    scaling_strategy : str, default "z-score"
+        Feature scaling of the fit.
 
     Returns
     -------
@@ -67,7 +69,7 @@ def register_fit_run(
             "n_component": 3,
             "impute_strategy": impute_strategy,
             "impute_kmeans_n_clusters": None,
-            "scaling_strategy": "z-score",
+            "scaling_strategy": scaling_strategy,
         },
         STATISTICS,
         STATISTICS,

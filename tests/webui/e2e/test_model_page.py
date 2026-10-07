@@ -43,7 +43,7 @@ def test_choices_reload_the_page(page: Page, fitted_server_url: str) -> None:
     k_input.dispatch_event("change")
 
     expect(page).to_have_url(
-        f"{fitted_server_url}/model?run=fit-1&x=1&y=2&aggregation=rms&k=3&segment=2%3A1"
+        f"{fitted_server_url}/model?run=fit-1&x=1&y=2&aggregation=rms&view=component&k=3&segment=2%3A1"
     )
     _open(page, page.url)
     expect(page.locator("#explore-heatmap")).to_have_attribute("data-heatmap-label", "PC3")
@@ -51,7 +51,7 @@ def test_choices_reload_the_page(page: Page, fitted_server_url: str) -> None:
     page.locator('select[name="aggregation"]').select_option("abs_mean")
 
     expect(page).to_have_url(
-        f"{fitted_server_url}/model?run=fit-1&x=1&y=2&aggregation=abs_mean&k=3&segment=2%3A1"
+        f"{fitted_server_url}/model?run=fit-1&x=1&y=2&aggregation=abs_mean&view=component&k=3&segment=2%3A1"
     )
     expect(page.locator("#model-loadings")).to_have_attribute("data-plot-ready", "true")
     expect(page.locator("#model-loadings .gtitle")).to_have_text("ローディング（絶対値平均）")
