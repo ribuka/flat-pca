@@ -537,6 +537,25 @@ function resizePlots() {
   });
 }
 
+// Applies the kept layout choices to the root element, as base.html does
+// before the first paint.
+function applyKeptLayoutChoices() {
+  for (const [key, name] of [[SIDEBAR_KEY, "sidebar"], [WIDTH_KEY, "width"]]) {
+    let value = null;
+    try {
+      value = localStorage.getItem(key);
+    } catch {
+      // Without storage the choice shown on this page stays.
+      continue;
+    }
+    if (value) {
+      document.documentElement.dataset[name] = value;
+    } else {
+      delete document.documentElement.dataset[name];
+    }
+  }
+}
+
 // Shows the collapse button's label and pressed width choice for the layout
 // applied before the first paint (see base.html).
 function syncLayoutControls() {
@@ -569,3 +588,14 @@ for (const button of document.querySelectorAll("[data-width-choice]")) {
 }
 
 syncLayoutControls();
+
+// A page restored by "back" from the bfcache shows the choices made since it
+// was left, possibly on another page.
+window.addEventListener("pageshow", (event) => {
+  if (!event.persisted) {
+    return;
+  }
+  applyKeptLayoutChoices();
+  syncLayoutControls();
+  resizePlots();
+});

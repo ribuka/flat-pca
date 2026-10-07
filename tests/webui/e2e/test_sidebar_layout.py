@@ -101,3 +101,37 @@ def test_sidebar_shows_memory_and_version(page: Page, server_url: str) -> None:
     expect(page.locator('[data-sidebar="version"]')).to_have_text(
         re.compile(r"^v\d+\.\d+\.\d+")
     )
+
+
+def test_page_restored_by_back_shows_the_choices_made_since(
+    page: Page, fitted_server_url: str
+) -> None:
+    """A page restored from the bfcache takes the choices kept since it was left.
+
+    Playwright's Chrome does not keep pages in the bfcache, so the test keeps
+    other choices, as another page would, and dispatches the ``pageshow``
+    event of a restored page.
+    """
+    _open(page, f"{fitted_server_url}/monitoring")
+    width = _figure_width(page)
+
+    page.evaluate(
+        """() => {
+          localStorage.setItem("flat-pca:sidebar", "collapsed");
+          localStorage.setItem("flat-pca:width", "compact");
+          window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+        }"""
+    )
+
+    root = page.locator("html")
+    expect(root).to_have_attribute("data-sidebar", "collapsed")
+    expect(root).to_have_attribute("data-width", "compact")
+    expect(page.locator("#sidebar-body")).to_be_hidden()
+    expect(page.locator("#sidebar-toggle")).to_have_attribute("aria-expanded", "false")
+    expect(page.locator('[data-width-choice="compact"]')).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    page.wait_for_function(
+        f"document.querySelector('{FIGURE} .main-svg').getBoundingClientRect().width"
+        f" != {width}"
+    )
