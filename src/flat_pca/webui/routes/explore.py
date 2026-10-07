@@ -57,6 +57,7 @@ def _resolve(workspace: Workspace, request: ExploreRequest) -> ExploreView:
             workspace.cache,
             list_succeeded_runs(workspace.database, FIT_JOB, request.run),
             request,
+            workspace.settings.ui.explore_max_files,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -185,6 +186,7 @@ def explore_page(
         "shown": shown,
         "view_labels": VIEW_LABELS,
         "max_cells": workspace.settings.ui.heatmap_max_cells,
+        "max_files": workspace.settings.ui.explore_max_files,
     }
     if shown.matrices:
         workspace.cache.keep_shown_matrices(

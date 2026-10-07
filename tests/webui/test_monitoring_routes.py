@@ -291,6 +291,7 @@ def test_q_contributions_add_up_to_the_saved_q(
         workspace.cache,
         fit_runs,
         ExploreRequest(view="q_contribution", files=(stem,)),
+        workspace.settings.ui.explore_max_files,
     )
     total = 0.0
     for step, sequence in first.segment_options:
@@ -302,6 +303,7 @@ def test_q_contributions_add_up_to_the_saved_q(
             ExploreRequest(
                 view="q_contribution", files=(stem,), segment=f"{step}:{sequence}"
             ),
+            workspace.settings.ui.explore_max_files,
         )
         assert shown.error is None
         total += float(np.nansum(shown.matrices[stem].values))

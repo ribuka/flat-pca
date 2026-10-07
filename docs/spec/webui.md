@@ -76,6 +76,7 @@ yield_pct = { type = "number" }
 default_color_by = "lot"              # 散布図・軌跡の色分け既定
 default_order_by = "date"             # T²/Q管理図の横軸順の既定（省略時はファイル名の自然順）
 heatmap_max_cells = 1_200_000         # ヒートマップ送信時のセル数上限
+explore_max_files = 20                # スペクトル探索で一度に表示するファイル数の上限
 
 [jobs]
 artifact_dtype = "float32"            # "float32" | "float64"
@@ -196,6 +197,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - 選択項目：fit run（成功したrun。既定は最新）、ファイル（成分表示時は不要）、`(Step, Sequence)`、成分番号k。
   - 元データで選べるファイルは、データ選択で選んだファイル（未選択ならcatalogの全ファイル）とする。前処理済みでは、そのrunの`samples.parquet`のファイルとする。
   - ファイルは複数選べる。先頭のファイルをヒートマップに描き、選んだすべてのファイルをトレンドに重ねる。
+  - 一度に表示するファイルは`ui.explore_max_files`件（既定 20）までとする。超えて選んだ場合は選択肢の順で先頭から上限までを表示し、表示しなかったファイルの件数と一覧を表示する。準備済みの行（再構成・残差・Q寄与で使う、補完・外れ値処理後の行）の表示キャッシュも同じ件数を保持するため、上限までのファイルなら表示し直しても`prepare_rows`は再実行されない。
   - `(Step, Sequence)`の選択肢は、元データでは先頭のファイルのcatalogの`segments`、前処理済み・成分では`features.parquet`から求める。選んだ`(Step, Sequence)`を持たないファイルはトレンドから除き、その旨を表示する。
   - 選択は`/explore?view=…&run=…&file=…&segment={Step}:{Sequence}&k=…`のクエリで表し、URLで再訪できる。
   - Q寄与（`view=q_contribution`）は成分数をrunのQの設定で固定するため、kを選ばない（再構成に使う成分数を画面に表示する）。

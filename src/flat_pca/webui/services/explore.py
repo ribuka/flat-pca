@@ -131,6 +131,8 @@ class ExploreView:
     q_mismatches : list[QMismatch]
         Chosen stems of the Q contribution view whose unbinned
         contributions do not add up to their saved Q.
+    omitted : list[str]
+        Requested stems left out beyond ``ui.explore_max_files``.
     error : str | None
         Message shown instead of the view.
     """
@@ -151,6 +153,7 @@ class ExploreView:
     skipped: list[str] = field(default_factory=list)
     dropped: list[str] = field(default_factory=list)
     q_mismatches: list[QMismatch] = field(default_factory=list)
+    omitted: list[str] = field(default_factory=list)
     error: str | None = None
 
 
@@ -183,8 +186,10 @@ def parse_segment(text: str | None) -> tuple[int, int] | None:
         raise ValueError(f"segment must be '<Step>:<Sequence>': {text!r}") from error
 
 
-def _choose_files(options: list[str], requested: Sequence[str]) -> list[str]:
-    """Return the requested options, or the first option without any.
+def _choose_files(
+    options: list[str], requested: Sequence[str], max_files: int
+) -> tuple[list[str], list[str]]:
+    """Return the requested options up to a limit, or the first option without any.
 
     Parameters
     ----------
@@ -192,15 +197,18 @@ def _choose_files(options: list[str], requested: Sequence[str]) -> list[str]:
         Stems that can be chosen.
     requested : Sequence[str]
         Requested stems; unknown ones are ignored.
+    max_files : int
+        Maximum number of chosen stems.
 
     Returns
     -------
-    list[str]
-        Chosen stems in option order.
+    tuple[list[str], list[str]]
+        Chosen stems in option order, at most ``max_files`` of them, and
+        the requested stems left out beyond the limit.
     """
     wanted = set(requested)
-    chosen = [stem for stem in options if stem in wanted]
-    return chosen or options[:1]
+    chosen = [stem for stem in options if stem in wanted] or options[:1]
+    return chosen[:max_files], chosen[max_files:]
 
 
 def _choose_segment(
@@ -249,6 +257,7 @@ def _raw_view(
     request: ExploreRequest,
     runs: list[dict[str, object]],
     run_id: str | None,
+    max_files: int,
 ) -> ExploreView:
     """Resolve the raw-data view.
 
@@ -267,6 +276,8 @@ def _raw_view(
         Succeeded fit runs, newest first.
     run_id : str | None
         Fit run in use.
+    max_files : int
+        Maximum number of shown files.
 
     Returns
     -------
@@ -282,7 +293,7 @@ def _raw_view(
         return ExploreView(
             view="raw", runs=runs, run_id=run_id, error="catalog にファイルがありません"
         )
-    files = _choose_files(options, request.files)
+    files, omitted = _choose_files(options, request.files, max_files)
     segment_options = list_segments(database, files[0])
     segment = _choose_segment(segment_options, parse_segment(request.segment))
     matrices: dict[str, SpectralMatrix] = {}
@@ -308,6 +319,7 @@ def _raw_view(
         segment=segment,
         matrices=matrices if error is None else {},
         skipped=skipped,
+        omitted=omitted,
         error=error,
     )
 
@@ -406,6 +418,7 @@ def _run_view(
     cache: DisplayCache,
     request: ExploreRequest,
     runs: list[dict[str, object]],
+    max_files: int,
 ) -> ExploreView:
     """Resolve a view of one fit run's artifacts.
 
@@ -423,6 +436,8 @@ def _run_view(
         Requested choices.
     runs : list[dict[str, object]]
         Succeeded fit runs, newest first.
+    max_files : int
+        Maximum number of shown files.
 
     Returns
     -------
@@ -456,11 +471,12 @@ def _run_view(
             },
         )
     stems = artifacts.samples["stem"].to_list()
-    files = _choose_files(stems, request.files)
+    files, omitted = _choose_files(stems, request.files, max_files)
     preprocess = cast(dict[str, object], json.loads(str(run["config_json"]))["preprocess"])
     common |= {
         "file_options": stems,
         "files": files,
+        "omitted": omitted,
         "intensity_transform": {
             "name": preprocess.get("intensity_transform", "none"),
             "scale": preprocess.get("intensity_transform_scale", 1.0),
@@ -546,6 +562,7 @@ def resolve_explore(
     cache: DisplayCache,
     fit_runs: list[dict[str, object]],
     request: ExploreRequest,
+    max_files: int,
 ) -> ExploreView:
     """Resolve the requested choices and load the matrices they show.
 
@@ -564,6 +581,9 @@ def resolve_explore(
         Fit runs, newest first; only succeeded ones are used.
     request : ExploreRequest
         Requested choices.
+    max_files : int
+        Maximum number of shown files; requested files beyond it are left
+        out and listed in ``omitted``.
 
     Returns
     -------
@@ -586,14 +606,14 @@ def resolve_explore(
     run = by_id[request.run] if request.run is not None else (runs[0] if runs else None)
     run_id = None if run is None else str(run["run_id"])
     if view == "raw":
-        return _raw_view(database, selected, cache, request, runs, run_id)
+        return _raw_view(database, selected, cache, request, runs, run_id, max_files)
     if run is None:
         return ExploreView(view=view, runs=runs, error="成功した fit run がありません")
     try:
         artifacts = cache.fit_artifacts(Path(str(run["artifact_dir"])))
     except RunArtifactError as error:
         return ExploreView(view=view, runs=runs, run_id=run_id, error=str(error))
-    return _run_view(view, run, artifacts, cache, request, runs)
+    return _run_view(view, run, artifacts, cache, request, runs, max_files)
 
 
 def shown_request(view: ExploreView) -> ExploreRequest:
