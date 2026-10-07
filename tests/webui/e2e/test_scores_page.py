@@ -102,3 +102,23 @@ def test_a_failed_click_request_releases_the_page(
     expect(page.locator("#busy-overlay")).to_be_hidden()
     expect(page.locator(".layout")).not_to_have_attribute("inert", "")
     assert page.url == url
+
+
+def _frame_size(page: Page) -> tuple[float, float]:
+    """Return the width and height of the score scatter plot's frame."""
+    box = page.locator("#scores-scatter .nsewdrag").first.bounding_box()
+    assert box is not None
+    return box["width"], box["height"]
+
+
+def test_score_frame_stays_square(page: Page, fitted_server_url: str) -> None:
+    """The frame stays square after Autoscale and at another window width."""
+    _open(page, f"{fitted_server_url}/scores")
+    width, height = _frame_size(page)
+    assert width == pytest.approx(height, abs=1)
+
+    page.locator("#scores-scatter .nsewdrag").first.hover()
+    page.locator('#scores-scatter [data-title="Autoscale"]').click()
+    page.set_viewport_size({"width": 700, "height": 800})
+
+    assert _frame_size(page) == pytest.approx((width, height), abs=1)
