@@ -19,9 +19,11 @@ src/flat_pca/
   feature_engineering/          データ生成（既存）。UIで必要な計算関数もここに追加する
   visualize/                    データ → go.Figure の純粋関数（Notebookからも使う）
   webui/
-    __main__.py                 uv run -m flat_pca.webui --settings <path> で起動
+    __main__.py                 uv run -m flat_pca.webui [--settings <path>] で起動
     app.py                      FastAPIアプリ生成、router登録、static mount
     settings.py                 settings.tomlの読み込み・検証
+    settings_files.py           読み込む設定ファイルの選択（settings.local.toml優先）と読み込み
+    settings_paths.py           パス設定値の展開（環境変数・{root}・相対パス）
     workspace.py                Workspace（DB接続・キャッシュ・ジョブ実行器）
     routes/                     画面・機能単位のAPIRouter（薄く保つ）
     services/                   routesから呼ぶ処理本体（catalog, runs, views）
@@ -49,7 +51,7 @@ tests/webui/
 
 ## 設定（settings.toml）
 
-起動時に`--settings`で指定する。`tomllib`で読み込み、pydanticで検証する。不正な場合は起動時にエラーとする。
+起動時に`--settings`で指定する。省略時はカレントディレクトリの`config/settings.toml`を読む。`tomllib`で読み込み、pydanticで検証する。不正な場合は起動時にエラーとする。
 
 ```toml
 [workspace]
@@ -80,6 +82,11 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 - 型`category`・`number`・`datetime`のみを受け付ける。`format`は`datetime`のみに指定でき、省略時は形式を推定する。
 - メタデータ列名に、結合キー列名と、ファイル一覧の列名（`stem`・`path`・`n_rows`・`n_steps`・`n_segments`）、run 成果物`samples.parquet`の列名`source`は使えない。
+- settings.tomlと同じディレクトリに`settings.local.toml`（`<stem>.local<suffix>`）があれば、settings.tomlの代わりにそちらだけを読む（マージはしない）。`*.local.toml`はgit管理外とし、個人環境のパスを置く。
+- `workspace.dir`・`data.root`・`metadata.csv`では次の順に展開する。
+  1. 環境変数`%NAME%`・`${NAME}`を置換する。未設定の変数はエラーとする。
+  2. `{root}`を展開済みの`data.root`に置換する（`workspace.dir`・`metadata.csv`のみ。例：`csv = "{root}/meta.csv"`）。それ以外の`{name}`はエラーとする。
+  3. 先頭の`~`をホームディレクトリに展開する。
 - `workspace.dir`・`data.root`・`metadata.csv`の相対パスは、settings.tomlのあるディレクトリ基準で解決する。未知のキーはエラーとする。
 - メタデータの結合キーは`Path.stem`とする。`data.root`配下でstemが重複する場合はcatalog構築をエラーとする（UI経由の実行では`stem_uniqueness="error"`を使う）。
 - メタデータCSVの結合キーが空または重複する場合、取り込む列が無い場合、値を型に変換できない場合はcatalog構築をエラーとする。

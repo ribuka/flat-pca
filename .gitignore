@@ -46,3 +46,6 @@ graphify-out/
 
 # playwright
 /test-results/
+
+# local
+*.local.toml

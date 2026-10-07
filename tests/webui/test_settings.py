@@ -93,3 +93,112 @@ def test_load_settings_rejects_missing_file(tmp_path: Path) -> None:
     """A missing file is reported as ``SettingsError``."""
     with pytest.raises(SettingsError, match="cannot read"):
         load_settings(tmp_path / "missing.toml")
+
+
+def test_load_settings_reads_local_file_instead(tmp_path: Path) -> None:
+    """A sibling ``*.local.toml`` is read in place of the given file."""
+    path = _write(
+        tmp_path / "settings.toml",
+        _BASE + "glob = '*.parquet'\n" + _METADATA + "lot = { type = 'category' }\n",
+    )
+    _write(
+        tmp_path / "settings.local.toml",
+        "[workspace]\ndir = 'lw'\n[data]\nroot = 'ld'\n",
+    )
+
+    settings = load_settings(path)
+
+    assert settings.workspace.dir == tmp_path / "lw"
+    assert settings.data.root == tmp_path / "ld"
+    assert settings.data.glob == "**/*.parquet"
+    assert settings.metadata is None
+
+
+def test_load_settings_rejects_invalid_local_file(tmp_path: Path) -> None:
+    """A TOML syntax error in the local file names that file."""
+    path = _write(tmp_path / "settings.toml", _BASE)
+    _write(tmp_path / "settings.local.toml", "[data\n")
+
+    with pytest.raises(SettingsError, match=r"invalid TOML in .*settings\.local\.toml"):
+        load_settings(path)
+
+
+def test_load_settings_reads_default_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a path, ``config/settings.toml`` under the cwd is read."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    _write(config_dir / "settings.toml", _BASE)
+    monkeypatch.chdir(tmp_path)
+
+    settings = load_settings()
+
+    assert settings.workspace.dir == config_dir / "w"
+
+
+def test_load_settings_expands_root_placeholder(tmp_path: Path) -> None:
+    """``{root}`` in ``workspace.dir`` and ``metadata.csv`` is ``data.root``."""
+    body = (
+        "[workspace]\ndir = '{root}/w'\n[data]\nroot = 'd'\n"
+        "[metadata]\ncsv = '{root}/meta.csv'\nkey = 'k'\n"
+    )
+    settings = load_settings(_write(tmp_path / "s.toml", body))
+
+    assert settings.workspace.dir == tmp_path / "d" / "w"
+    assert settings.metadata is not None
+    assert settings.metadata.csv == tmp_path / "d" / "meta.csv"
+
+
+@pytest.mark.parametrize("reference", ["%FLATPCA_TEST_DIR%", "${FLATPCA_TEST_DIR}"])
+def test_load_settings_expands_environment_variables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reference: str
+) -> None:
+    """``%NAME%`` and ``${NAME}`` are replaced with environment variables."""
+    monkeypatch.setenv("FLATPCA_TEST_DIR", str(tmp_path / "env"))
+    body = f"[workspace]\ndir = 'w'\n[data]\nroot = '{reference}/d'\n"
+
+    settings = load_settings(_write(tmp_path / "s.toml", body))
+
+    assert settings.data.root == tmp_path / "env" / "d"
+
+
+def test_load_settings_expands_home_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A leading ``~`` is the user's home directory."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
+    body = "[workspace]\ndir = 'w'\n[data]\nroot = '~/d'\n"
+
+    settings = load_settings(_write(tmp_path / "s.toml", body))
+
+    assert settings.data.root == tmp_path / "home" / "d"
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        (
+            "[workspace]\ndir = 'w'\n[data]\nroot = '%FLATPCA_UNSET%'\n",
+            "environment variable is not set: 'FLATPCA_UNSET'",
+        ),
+        (
+            "[workspace]\ndir = '{data}/w'\n[data]\nroot = 'd'\n",
+            r"unknown placeholder \{data\}",
+        ),
+        (
+            "[workspace]\ndir = 'w'\n[data]\nroot = '{root}/d'\n",
+            r"unknown placeholder \{root\}",
+        ),
+    ],
+)
+def test_load_settings_rejects_unexpandable_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str, message: str
+) -> None:
+    """Unset environment variables and unknown placeholders are errors."""
+    monkeypatch.delenv("FLATPCA_UNSET", raising=False)
+    path = _write(tmp_path / "s.toml", body)
+
+    with pytest.raises(SettingsError, match=message):
+        load_settings(path)

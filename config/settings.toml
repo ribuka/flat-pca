@@ -1,0 +1,19 @@
+[workspace]
+dir = "workspace"
+
+[data]
+root = "data"
+glob = "**/*.parquet"
+
+[metadata]
+csv = "meta.csv"
+key = "file_name"
+
+[metadata.columns]
+lot = { type = "category" }
+date = { type = "datetime", format = "%Y-%m-%d %H:%M:%S" }
+yield_pct = { type = "number" }
+
+[ui]
+default_color_by = "lot"
+default_order_by = "date"
