@@ -1,0 +1,7 @@
+{#- Material Symbols icon. The name must be in the bundled subset font
+    (see static/vendor/README.md). Without a label the icon is decorative and
+    hidden from assistive technology. -#}
+{% macro icon(name, class="", label=none) -%}
+<span class="material-symbols-outlined{{ ' ' ~ class if class }}"
+  {%- if label %} role="img" aria-label="{{ label }}" title="{{ label }}"{% else %} aria-hidden="true"{% endif %}>{{ name }}</span>
+{%- endmacro %}

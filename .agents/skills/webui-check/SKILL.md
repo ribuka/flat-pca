@@ -65,7 +65,7 @@ and get element references for `browser_click`, `browser_select_option`, and `br
 | Numeric / datetime filters | e.g. `yield_pct 下限` = 90 leaves only `run-1`. |
 | Sort / order selects | The table reorders. |
 | "表示中をすべて選択" / "選択を外す" | All visible checkboxes are checked / cleared. |
-| "このファイル集合を選択" | "選択中：N ファイル" and the sidebar's 選択中 count update. |
+| "このファイル集合を選択" | A green check icon (Material Symbols `check_circle`) and "選択中：N ファイル" appear right of the button; the sidebar's 選択中 count updates. |
 
 ### Preprocessing and PCA (`/fit`)
 

@@ -76,3 +76,34 @@ def test_catalog_update_shows_progress_and_replaces_category_filters(
     expect(lot_options).to_have_text(["(すべて)", "A", "B"])
     expect(_file_stems(page)).to_have_text(["run-1", "run-2", "run-10"])
     expect(page.locator('[data-sidebar="catalog"]')).to_contain_text("succeeded")
+
+
+def test_selecting_files_shows_success_icon_offline(
+    page: Page, cataloged_server_url: str
+) -> None:
+    """Selecting files shows a green check icon from the bundled font.
+
+    Requests to other hosts are aborted, so the icon must render without a
+    network.
+    """
+    page.route(
+        re.compile(r"^(?!" + re.escape(cataloged_server_url) + r")"),
+        lambda route: route.abort(),
+    )
+    page.goto(cataloged_server_url)
+    expect(_file_stems(page)).to_have_text(["run-1", "run-2", "run-10"])
+    icon = page.locator("#selection-summary .material-symbols-outlined")
+    expect(icon).to_have_count(0)
+
+    page.get_by_role("button", name="表示中をすべて選択").click()
+    page.get_by_role("button", name="このファイル集合を選択").click()
+
+    expect(icon).to_have_text("check_circle")
+    expect(icon).to_have_css("color", "rgb(26, 127, 55)")
+    assert page.evaluate(
+        "document.fonts.check('24px \"Material Symbols Outlined\"', 'check_circle')"
+    )
+    # A ligature renders one square glyph instead of the text "check_circle".
+    box = icon.bounding_box()
+    assert box is not None
+    assert box["width"] < box["height"] * 1.5

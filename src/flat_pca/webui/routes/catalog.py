@@ -216,12 +216,12 @@ def select_files(
     Returns
     -------
     HTMLResponse
-        Selection summary partial. It triggers ``selection-updated`` so the
-        sidebar status refreshes.
+        Selection summary partial with a success icon. It triggers
+        ``selection-updated`` so the sidebar status refreshes.
     """
     selected = workspace.selection.replace(workspace.database, stems or [])
     response = templates.TemplateResponse(
-        request, "partials/selection_summary.html", {"selected": selected}
+        request, "partials/selection_summary.html", {"selected": selected, "saved": True}
     )
     response.headers["HX-Trigger"] = "selection-updated"
     return response
