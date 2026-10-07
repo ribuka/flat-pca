@@ -7,6 +7,7 @@ import json
 import re
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from urllib.parse import urlencode
 
 import numpy as np
 import pytest
@@ -15,6 +16,7 @@ from fit_runs import register_fit_run
 from spectra import SPECTRA_SHORT_FILE
 
 from flat_pca.webui.app import create_app
+from flat_pca.webui.services.display_cache import DisplayCache
 from flat_pca.webui.services.runs import insert_run, update_run
 from flat_pca.webui.settings import Settings, UiSettings
 from flat_pca.webui.workspace import FIT_JOB, Workspace
@@ -397,3 +399,52 @@ def test_drop_strategy_excludes_files_with_missing_values(
     assert short in html.split("data-dropped", 1)[1].split("</p>", 1)[0]
     assert "data-explore-error" in alone
     assert "補完方法 drop で除外される" in alone
+
+
+def _trend_url(html: str, wavelength: float, step_time: float) -> str:
+    """Return the trend URL that the page's JavaScript requests at one point."""
+    match = re.search(r'data-trend-url="([^"]*)"', html)
+    assert match is not None
+    point = urlencode({"wavelength": wavelength, "step_time": step_time})
+    return f"{match.group(1).replace('&amp;', '&')}&{point}"
+
+
+def test_trend_of_a_shown_view_reuses_its_matrices(
+    client: TestClient, fit_run: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Trends of a drawn page are cut from its matrices without resolving the view."""
+    short = f"s-{SPECTRA_SHORT_FILE:02d}"
+    params = {"view": "contribution", "file": ["s-00", short], "segment": "2:1", "k": "2"}
+    point = {"wavelength": 400, "step_time": 2}
+    expected = client.get(
+        "/explore/trend", params={**params, "run": fit_run, **point}
+    ).json()
+    assert len(expected["by_step_time"]["data"]) == 2
+    _workspace(client).cache = DisplayCache()
+    html = client.get("/explore", params=params).text
+
+    def fail(*args: object, **kwargs: object) -> None:
+        """Fail if the view is resolved or rows are prepared again."""
+        raise AssertionError("the shown view was resolved again")
+
+    monkeypatch.setattr("flat_pca.webui.routes.explore.resolve_explore", fail)
+    monkeypatch.setattr("flat_pca.webui.services.display_cache.prepare_rows", fail)
+
+    for step_time in (0, 1, 2):
+        assert client.get(_trend_url(html, 401, step_time)).status_code == 200
+    assert client.get(_trend_url(html, **point)).json() == expected
+
+
+def test_trend_is_resolved_again_after_eviction(client: TestClient, fit_run: str) -> None:
+    """Trends are the same after the kept matrices are evicted."""
+    html = client.get(
+        "/explore",
+        params={"view": "residual", "file": ["s-00"], "segment": "2:1", "k": "1"},
+    ).text
+    url = _trend_url(html, wavelength=400, step_time=2)
+    expected = client.get(url).json()
+    assert expected["step_time"] == 2
+
+    _workspace(client).cache = DisplayCache()
+
+    assert client.get(url).json() == expected

@@ -12,11 +12,12 @@ import polars as pl
 import pytest
 
 from flat_pca.webui.jobs.fit_run import COMPONENTS_FILE, build_fit_config, run_fit
-from flat_pca.webui.services.display_cache import DisplayCache, LruCache
+from flat_pca.webui.services.display_cache import DisplayCache, LruCache, ShownMatrices
 from flat_pca.webui.services.fit_artifacts import (
     RunArtifactError,
     load_display_artifacts,
 )
+from flat_pca.webui.services.spectral_matrix import SpectralMatrix
 from flat_pca.webui.settings import Settings
 
 
@@ -56,6 +57,48 @@ def test_lru_cache_does_not_keep_failed_loads() -> None:
     with pytest.raises(ValueError, match="broken"):
         cache.get_or_load("a", fail)
     assert len(cache) == 0
+
+
+def test_lru_cache_evicts_beyond_the_size_limit() -> None:
+    """Oldest entries are evicted beyond ``max_bytes``; oversized values are not kept."""
+    cache: LruCache[str, bytes] = LruCache(10, max_bytes=5, size_of=len)
+
+    cache.put("a", b"aa")
+    cache.put("b", b"bb")
+    assert cache.get("a") == b"aa"
+    cache.put("c", b"cc")
+
+    assert cache.get("b") is None
+    assert cache.get("a") == b"aa"
+    assert cache.total_bytes == 4
+
+    cache.put("a", b"toolarge")
+    assert cache.get("a") is None
+    assert cache.get("c") == b"cc"
+    assert cache.total_bytes == 2
+
+
+def test_lru_cache_requires_size_of_with_max_bytes() -> None:
+    """A size limit without a way to measure values is rejected."""
+    with pytest.raises(ValueError, match="together"):
+        LruCache(1, max_bytes=1)
+
+
+def test_shown_matrices_are_kept_by_their_choices() -> None:
+    """Kept matrices are returned for the same key and replaced by a new one."""
+    cache = DisplayCache()
+    matrix = SpectralMatrix(
+        values=np.zeros((2, 3)), wavelengths=np.arange(3.0), step_times=np.arange(2.0)
+    )
+    first = ShownMatrices(value_name="intensity", matrices={"a": matrix})
+    second = ShownMatrices(value_name="residual", matrices={"a": matrix})
+
+    assert cache.shown_matrices(("raw", "a")) is None
+    cache.keep_shown_matrices(("raw", "a"), first)
+    assert cache.shown_matrices(("raw", "a")) is first
+    cache.keep_shown_matrices(("raw", "a"), second)
+    assert cache.shown_matrices(("raw", "a")) is second
+    assert first.nbytes == 6 * 8 + 3 * 8 + 2 * 8
 
 
 def test_raw_spectra_adds_step_time_and_rereads_changed_files(tmp_path: Path) -> None:

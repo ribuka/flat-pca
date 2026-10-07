@@ -11,12 +11,14 @@ from fastapi.responses import HTMLResponse, Response
 
 from flat_pca.visualize import create_heatmap, create_trend
 
+from ..services.display_cache import ShownMatrices
 from ..services.explore import (
     VIEW_LABELS,
     ExploreRequest,
     ExploreView,
     explore_trends,
     resolve_explore,
+    shown_request,
 )
 from ..services.heatmap_binning import bin_step_times
 from ..services.runs import list_succeeded_runs
@@ -74,15 +76,54 @@ def _query_string(shown: ExploreView) -> str:
         Query string selecting the same view, so trend requests show the
         data of the drawn heatmap.
     """
-    parameters = [("view", shown.view)]
-    if shown.run_id is not None:
-        parameters.append(("run", shown.run_id))
-    parameters.extend(("file", stem) for stem in shown.files)
-    if shown.segment is not None:
-        parameters.append(("segment", f"{shown.segment[0]}:{shown.segment[1]}"))
-    if shown.component is not None:
-        parameters.append(("k", str(shown.component)))
+    request = shown_request(shown)
+    parameters = [("view", request.view)]
+    if request.run is not None:
+        parameters.append(("run", request.run))
+    parameters.extend(("file", stem) for stem in request.files)
+    if request.segment is not None:
+        parameters.append(("segment", request.segment))
+    if request.component is not None:
+        parameters.append(("k", str(request.component)))
     return urlencode(parameters)
+
+
+def _shown_matrices(workspace: Workspace, request: ExploreRequest) -> ShownMatrices:
+    """Return the unbinned matrices of a view, kept from its page when possible.
+
+    The page keeps the matrices of the view it draws, so the trend requests
+    of that page are cut from them without resolving the view again. After
+    they are evicted, or for a request no page drew, the view is resolved
+    and its matrices are kept under its resolved choices, so a request
+    relying on a default (such as the latest run) is always resolved.
+
+    Parameters
+    ----------
+    workspace : Workspace
+        Application workspace.
+    request : ExploreRequest
+        Requested choices.
+
+    Returns
+    -------
+    ShownMatrices
+        Matrices and value name of the view.
+
+    Raises
+    ------
+    HTTPException
+        With status 400 if a parameter is invalid, or 404 if the view has
+        nothing to show.
+    """
+    kept = workspace.cache.shown_matrices(request)
+    if kept is not None:
+        return kept
+    shown = _resolve(workspace, request)
+    if not shown.matrices:
+        raise HTTPException(status_code=404, detail=shown.error or "nothing to show")
+    kept = ShownMatrices(value_name=shown.value_name, matrices=shown.matrices)
+    workspace.cache.keep_shown_matrices(shown_request(shown), kept)
+    return kept
 
 
 def _script_json(text: str) -> str:
@@ -146,6 +187,10 @@ def explore_page(
         "max_cells": workspace.settings.ui.heatmap_max_cells,
     }
     if shown.matrices:
+        workspace.cache.keep_shown_matrices(
+            shown_request(shown),
+            ShownMatrices(value_name=shown.value_name, matrices=shown.matrices),
+        )
         label, matrix = next(iter(shown.matrices.items()))
         binned = bin_step_times(matrix, workspace.settings.ui.heatmap_max_cells)
         figure = create_heatmap(
@@ -210,15 +255,13 @@ def explore_trend(
         With status 400 if a parameter is invalid, or 404 if the view has
         nothing to show.
     """
-    shown = _resolve(
+    shown = _shown_matrices(
         workspace,
         ExploreRequest(
             view=view, run=run, files=tuple(file or ()), segment=segment, component=k
         ),
     )
-    if not shown.matrices:
-        raise HTTPException(status_code=404, detail=shown.error or "nothing to show")
-    by_time, by_wavelength = explore_trends(shown, wavelength, step_time)
+    by_time, by_wavelength = explore_trends(shown.matrices, wavelength, step_time)
     first_time = next(iter(by_time.values()))
     first_wavelength = next(iter(by_wavelength.values()))
     time_figure = create_trend(
