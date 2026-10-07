@@ -1,32 +1,20 @@
-"""Choice of the data shown on the score and loading screen."""
+"""Choice of the data shown on the score screen."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import cast
 
 import numpy as np
 import polars as pl
 
-from flat_pca.feature_engineering.flatten_pca import (
-    LOADING_AGGREGATIONS,
-    LoadingAggregation,
-    aggregate_loadings_by_wavelength,
-)
 from flat_pca.feature_engineering.pca import partial_scores, time_point_order
 
+from .component_choice import choose_component
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError, artifact_error
 from .scored_samples import choose_metadata_column, metadata_columns, scored_samples
-
-AGGREGATION_LABELS: dict[LoadingAggregation, str] = {
-    "mean": "平均",
-    "rms": "RMS",
-    "abs_mean": "絶対値平均",
-}
-DEFAULT_AGGREGATION: LoadingAggregation = "rms"
 
 
 @dataclass(frozen=True)
@@ -44,8 +32,6 @@ class ScoresRequest:
     color : str | None
         Metadata column coloring the score points; ``None`` for the
         default column and ``""`` for no coloring.
-    aggregation : str | None
-        A key of ``AGGREGATION_LABELS``; ``None`` for the default.
     files : tuple[str, ...]
         Stems whose partial score trajectories are drawn.
     """
@@ -54,7 +40,6 @@ class ScoresRequest:
     x: int | None = None
     y: int | None = None
     color: str | None = None
-    aggregation: str | None = None
     files: tuple[str, ...] = ()
 
 
@@ -118,19 +103,12 @@ class ScoresView:
         Metadata columns of the run's samples.
     color : str | None
         Chosen coloring column, or ``None`` for no coloring.
-    aggregation : LoadingAggregation
-        Chosen loading aggregation.
     file_options : list[str]
         Stems of the run's samples.
     files : list[str]
         Stems whose trajectories are drawn, in option order.
     scores : ScorePoints | None
         Scores of components m and n with each file's metadata.
-    loadings : pl.DataFrame | None
-        ``wavelength`` with the aggregated ``PC{m}`` and ``PC{n}``
-        loadings.
-    explained_variance : pl.DataFrame | None
-        Result of ``PcaModel.get_explained_variance_table``.
     trajectories : dict[str, Trajectory]
         Trajectories keyed by stem.
     dropped : list[str]
@@ -146,12 +124,9 @@ class ScoresView:
     y: int = 1
     color_options: list[str] = field(default_factory=list)
     color: str | None = None
-    aggregation: LoadingAggregation = DEFAULT_AGGREGATION
     file_options: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
     scores: ScorePoints | None = None
-    loadings: pl.DataFrame | None = None
-    explained_variance: pl.DataFrame | None = None
     trajectories: dict[str, Trajectory] = field(default_factory=dict)
     dropped: list[str] = field(default_factory=list)
     error: str | None = None
@@ -165,29 +140,6 @@ class ScoresView:
     def y_name(self) -> str:
         """Return the label of component n, such as ``"PC2"``."""
         return f"PC{self.y}"
-
-
-def _choose_component(requested: int | None, default: int, component_count: int) -> int:
-    """Return the requested component number if available, otherwise ``default``.
-
-    Parameters
-    ----------
-    requested : int | None
-        Requested 1-based component number.
-    default : int
-        Component number used without a valid request; it is capped at
-        ``component_count``.
-    component_count : int
-        Number of components of the run.
-
-    Returns
-    -------
-    int
-        Chosen 1-based component number.
-    """
-    if requested is not None and 1 <= requested <= component_count:
-        return requested
-    return min(default, component_count)
 
 
 def score_table(
@@ -227,54 +179,6 @@ def score_table(
         x=scores[wanted[0]].cast(pl.Float64).to_numpy(),
         y=scores[wanted[1]].cast(pl.Float64).to_numpy(),
     )
-
-
-def wavelength_loadings(
-    artifacts: DisplayArtifacts, x: int, y: int, method: LoadingAggregation
-) -> pl.DataFrame:
-    """Return two components' coefficients aggregated by wavelength.
-
-    Parameters
-    ----------
-    artifacts : DisplayArtifacts
-        The run's artifacts.
-    x, y : int
-        1-based component numbers m and n.
-    method : LoadingAggregation
-        Aggregation over the features of each wavelength.
-
-    Returns
-    -------
-    pl.DataFrame
-        ``wavelength``, ``PC{m}``, and ``PC{n}``, one row per wavelength in
-        ascending order.
-    """
-    long = pl.concat(
-        [
-            artifacts.features.select("wavelength").with_columns(
-                pl.lit(component, dtype=pl.Int64).alias("component"),
-                # Read only this row of the memory-mapped components.
-                pl.Series(
-                    "coefficient",
-                    np.asarray(artifacts.components[component - 1], dtype=np.float64),
-                ),
-            )
-            for component in sorted({x, y})
-        ]
-    )
-    aggregated = aggregate_loadings_by_wavelength(long, method)
-    by_component = {
-        component: aggregated.filter(pl.col("component") == component).select(
-            "wavelength", pl.col("loading").alias(f"PC{component}")
-        )
-        for component in {x, y}
-    }
-    loadings = by_component[x]
-    if y != x:
-        loadings = loadings.join(by_component[y], on="wavelength", how="inner")
-    else:
-        loadings = loadings.with_columns(pl.col(f"PC{x}").alias(f"PC{y}"))
-    return loadings.sort("wavelength")
 
 
 def score_trajectories(
@@ -366,19 +270,13 @@ def _run_view(
     Returns
     -------
     ScoresView
-        Scores, loadings, explained variance, and trajectories of the run.
+        Scores and trajectories of the run.
     """
     run_dir = Path(str(run["artifact_dir"]))
     component_count = artifacts.components.shape[0]
-    x = _choose_component(request.x, 1, component_count)
-    y = _choose_component(request.y, 2, component_count)
+    x = choose_component(request.x, 1, component_count)
+    y = choose_component(request.y, 2, component_count)
     color_options = metadata_columns(artifacts.samples)
-    aggregation = cast(
-        LoadingAggregation,
-        request.aggregation
-        if request.aggregation in LOADING_AGGREGATIONS
-        else DEFAULT_AGGREGATION,
-    )
     stems = artifacts.samples["stem"].to_list()
     wanted = set(request.files)
     files = [stem for stem in stems if stem in wanted] or stems[:1]
@@ -390,7 +288,6 @@ def _run_view(
         "y": y,
         "color_options": color_options,
         "color": choose_metadata_column(request.color, default_color, color_options),
-        "aggregation": aggregation,
         "file_options": stems,
         "files": files,
     }
@@ -403,8 +300,6 @@ def _run_view(
     return ScoresView(
         **common,  # type: ignore[arg-type]
         scores=scores,
-        loadings=wavelength_loadings(artifacts, x, y, aggregation),
-        explained_variance=model.get_explained_variance_table(),
         trajectories=trajectories,
         dropped=dropped,
     )
@@ -440,10 +335,8 @@ def resolve_scores(
     Raises
     ------
     ValueError
-        If the run or the loading aggregation is invalid.
+        If the run is invalid.
     """
-    if request.aggregation is not None and request.aggregation not in LOADING_AGGREGATIONS:
-        raise ValueError(f"unknown aggregation: {request.aggregation!r}")
     runs = [run for run in fit_runs if run["status"] == "succeeded"]
     by_id = {str(run["run_id"]): run for run in runs}
     if request.run is not None and request.run not in by_id:

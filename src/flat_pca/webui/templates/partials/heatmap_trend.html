@@ -1,0 +1,22 @@
+{# Heatmap with the point sliders and the two trends; context from routes/heatmap_trend.py::heatmap_context. #}
+{% if binned.binned %}
+  <p class="warnings" data-binned>
+    セル数が上限 {{ max_cells }} を超えるため、時間方向の {{ binned.source_rows }} 行を
+    {{ binned.matrix.step_times|length }} 個のビンに平均して表示しています（トレンドはビニング前の値です）。
+  </p>
+{% endif %}
+<div id="explore-heatmap" class="plot plot-heatmap" data-heatmap-label="{{ heatmap_label }}"></div>
+<div class="field-row explore-sliders">
+  <label for="explore-wavelength">波長</label>
+  <input type="range" id="explore-wavelength" min="0" max="{{ n_wavelengths - 1 }}" step="1" value="{{ (n_wavelengths - 1) // 2 }}">
+  <output id="explore-wavelength-value" for="explore-wavelength"></output>
+  <label for="explore-step-time">StepTime</label>
+  <input type="range" id="explore-step-time" min="0" max="{{ n_step_times - 1 }}" step="1" value="{{ (n_step_times - 1) // 2 }}">
+  <output id="explore-step-time-value" for="explore-step-time"></output>
+</div>
+<div class="plot-grid">
+  <div id="explore-trend-step-time" class="plot"></div>
+  <div id="explore-trend-wavelength" class="plot"></div>
+</div>
+<script type="application/json" id="explore-heatmap-figure">{{ figure_json|safe }}</script>
+<script type="application/json" id="explore-axes">{{ axes_json|safe }}</script>

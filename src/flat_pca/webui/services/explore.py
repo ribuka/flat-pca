@@ -16,11 +16,18 @@ from flat_pca.feature_engineering.pca.mahalanobis import resolve_mahalanobis_com
 
 from ..database import Database
 from .catalog_query import FileQuery, list_files, list_segments
+from .component_choice import choose_component
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError
 from .monitoring import statistic_configs
 from .q_consistency import QMismatch, q_mismatch, saved_q_by_stem
 from .reconstruction import ReconstructionKind, reconstruction_values
+from .segment_choice import (
+    choose_segment,
+    feature_segments,
+    format_segment,
+    parse_segment,
+)
 from .spectral_matrix import (
     SpectralMatrix,
     TrendLine,
@@ -33,7 +40,6 @@ from .spectral_matrix import (
 ExploreViewKind = Literal[
     "raw",
     "preprocessed",
-    "component",
     "contribution",
     "reconstruction",
     "residual",
@@ -44,14 +50,12 @@ PreparedViewKind = Literal["contribution", "reconstruction", "residual", "q_cont
 VIEW_LABELS: dict[ExploreViewKind, str] = {
     "raw": "元データ",
     "preprocessed": "前処理済み",
-    "component": "PCA 成分",
     "contribution": "第 k 成分のみの寄与",
     "reconstruction": "累積再構成（1..k 成分）",
     "residual": "残差",
     "q_contribution": "Q 寄与",
 }
 VALUE_NAMES: dict[ExploreViewKind, str] = {
-    "component": "coefficient",
     "contribution": "contribution",
     "residual": "residual",
     "q_contribution": "q_contribution",
@@ -75,8 +79,8 @@ class ExploreRequest:
     segment : str | None
         ``"{Step}:{Sequence}"`` to show.
     component : int | None
-        1-based component number k of the component and reconstruction
-        views.
+        1-based component number k of the contribution, reconstruction,
+        and residual views.
     """
 
     view: str = "raw"
@@ -99,7 +103,7 @@ class ExploreView:
     run_id : str | None
         Fit run in use, or ``None`` when no fit run succeeded.
     file_options : list[str]
-        Stems that can be chosen; empty for the component view.
+        Stems that can be chosen.
     files : list[str]
         Chosen stems in option order.
     segment_options : list[tuple[int, int]]
@@ -109,15 +113,14 @@ class ExploreView:
     component_count : int
         Number of components of the run, or 0 without a run.
     component : int | None
-        Chosen 1-based component number k of the component and
-        reconstruction views.
+        Chosen 1-based component number k of the contribution,
+        reconstruction, and residual views.
     q_components : int | None
         Number of leading components the Q contribution view reconstructs
         from, fixed by the run's ``SpeConfig``.
     value_name : str
-        ``"coefficient"`` for components, ``"contribution"``,
-        ``"residual"``, and ``"q_contribution"`` for those views, otherwise
-        ``"intensity"``.
+        ``"contribution"``, ``"residual"``, and ``"q_contribution"`` for
+        those views, otherwise ``"intensity"``.
     intensity_transform : dict[str, object] | None
         ``name`` and ``scale`` of the run's intensity transform, given for
         the preprocessed and reconstruction views.
@@ -157,35 +160,6 @@ class ExploreView:
     error: str | None = None
 
 
-def parse_segment(text: str | None) -> tuple[int, int] | None:
-    """Parse ``"{Step}:{Sequence}"``.
-
-    Parameters
-    ----------
-    text : str | None
-        Query parameter value.
-
-    Returns
-    -------
-    tuple[int, int] | None
-        The pair, or ``None`` for an empty value.
-
-    Raises
-    ------
-    ValueError
-        If the value is not two integers separated by ``:``.
-    """
-    if not text:
-        return None
-    parts = text.split(":")
-    if len(parts) != 2:
-        raise ValueError(f"segment must be '<Step>:<Sequence>': {text!r}")
-    try:
-        return int(parts[0]), int(parts[1])
-    except ValueError as error:
-        raise ValueError(f"segment must be '<Step>:<Sequence>': {text!r}") from error
-
-
 def _choose_files(
     options: list[str], requested: Sequence[str], max_files: int
 ) -> tuple[list[str], list[str]]:
@@ -209,45 +183,6 @@ def _choose_files(
     wanted = set(requested)
     chosen = [stem for stem in options if stem in wanted] or options[:1]
     return chosen[:max_files], chosen[max_files:]
-
-
-def _choose_segment(
-    options: list[tuple[int, int]], requested: tuple[int, int] | None
-) -> tuple[int, int] | None:
-    """Return the requested segment if available, otherwise the first one.
-
-    Parameters
-    ----------
-    options : list[tuple[int, int]]
-        Available pairs.
-    requested : tuple[int, int] | None
-        Requested pair.
-
-    Returns
-    -------
-    tuple[int, int] | None
-        Chosen pair, or ``None`` without options.
-    """
-    if requested in options:
-        return requested
-    return options[0] if options else None
-
-
-def _feature_segments(artifacts: DisplayArtifacts) -> list[tuple[int, int]]:
-    """Return the ``(Step, Sequence)`` pairs of a run's features.
-
-    Parameters
-    ----------
-    artifacts : DisplayArtifacts
-        Fit-run artifacts.
-
-    Returns
-    -------
-    list[tuple[int, int]]
-        Pairs in ascending order.
-    """
-    pairs = artifacts.features.select("Step", "Sequence").unique().sort("Step", "Sequence")
-    return [(int(step), int(sequence)) for step, sequence in pairs.iter_rows()]
 
 
 def _raw_view(
@@ -295,7 +230,7 @@ def _raw_view(
         )
     files, omitted = _choose_files(options, request.files, max_files)
     segment_options = list_segments(database, files[0])
-    segment = _choose_segment(segment_options, parse_segment(request.segment))
+    segment = choose_segment(segment_options, parse_segment(request.segment))
     matrices: dict[str, SpectralMatrix] = {}
     skipped: list[str] = []
     error = None
@@ -322,26 +257,6 @@ def _raw_view(
         omitted=omitted,
         error=error,
     )
-
-
-def _choose_component(requested: int | None, component_count: int) -> int:
-    """Return the requested component number if available, otherwise 1.
-
-    Parameters
-    ----------
-    requested : int | None
-        Requested 1-based component number.
-    component_count : int
-        Number of components of the run.
-
-    Returns
-    -------
-    int
-        Chosen 1-based component number.
-    """
-    if requested is None or not 1 <= requested <= component_count:
-        return 1
-    return requested
 
 
 def _reconstruction_matrices(
@@ -442,15 +357,15 @@ def _run_view(
     Returns
     -------
     ExploreView
-        Reshaped ``X.npy`` rows, one reshaped component, or the
+        Reshaped ``X.npy`` rows, or the
         contributions, reconstructions, residuals, or Q contributions of the
         chosen files.
     """
-    segment_options = _feature_segments(artifacts)
-    segment = _choose_segment(segment_options, parse_segment(request.segment))
+    segment_options = feature_segments(artifacts)
+    segment = choose_segment(segment_options, parse_segment(request.segment))
     assert segment is not None  # a fit run always has features
     component_count = artifacts.components.shape[0]
-    component = _choose_component(request.component, component_count)
+    component = choose_component(request.component, 1, component_count)
     common = {
         "runs": runs,
         "run_id": str(run["run_id"]),
@@ -459,17 +374,6 @@ def _run_view(
         "component_count": component_count,
         "value_name": VALUE_NAMES.get(view, "intensity"),
     }
-    if view == "component":
-        # Read only this row of the memory-mapped components.
-        values = np.asarray(artifacts.components[component - 1], dtype=np.float64)
-        return ExploreView(
-            view=view,
-            **common,  # type: ignore[arg-type]
-            component=component,
-            matrices={
-                f"PC{component}": feature_segment_matrix(artifacts.features, values, *segment)
-            },
-        )
     stems = artifacts.samples["stem"].to_list()
     files, omitted = _choose_files(stems, request.files, max_files)
     preprocess = cast(dict[str, object], json.loads(str(run["config_json"]))["preprocess"])
@@ -554,8 +458,6 @@ def _run_view(
     )
 
 
-
-
 def resolve_explore(
     database: Database,
     selected: list[str],
@@ -634,7 +536,7 @@ def shown_request(view: ExploreView) -> ExploreRequest:
         view=view.view,
         run=view.run_id,
         files=tuple(view.files),
-        segment=None if view.segment is None else f"{view.segment[0]}:{view.segment[1]}",
+        segment=format_segment(view.segment),
         component=view.component,
     )
 

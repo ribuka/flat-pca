@@ -1,4 +1,4 @@
-"""Tests for the score and loading screen through FastAPI's ``TestClient``."""
+"""Tests for the score screen through FastAPI's ``TestClient``."""
 
 from __future__ import annotations
 
@@ -117,14 +117,15 @@ def test_default_page_colors_scores_by_the_default_column(client: TestClient) ->
     assert 'name="x" min="1" max="3" value="1"' in html
     assert 'name="y" min="1" max="3" value="2"' in html
     assert '<option value="lot" selected>' in html
-    assert '<option value="rms" selected>' in html
+    assert 'name="aggregation"' not in html
     assert 'data-explore-url="/explore?view=preprocessed&amp;run=fit-1"' in html
     traces = _traces(html, "scatter")
     assert [trace["name"] for trace in traces] == ["A", "B"]
     assert _decode(traces[0]["customdata"]) == [f"s-{index:02d}" for index in range(0, 12, 2)]
     layout = _figure(html, "scatter")["layout"]
     assert layout["xaxis"]["title"]["text"] == "PC1"  # type: ignore[index]
-    assert html.count("<td>PC") == 3
+    assert "data-explained-variance" not in html
+    assert 'id="scores-loadings-figure"' not in html
 
 
 @pytest.mark.usefixtures("run_dir")
@@ -148,36 +149,6 @@ def test_scores_match_the_saved_scores(client: TestClient, run_dir: Path) -> Non
     )
     for stem, x, y in points:
         np.testing.assert_allclose((x, y), by_stem[stem])
-
-
-@pytest.mark.parametrize(
-    ("aggregation", "reduce"),
-    [
-        ("mean", np.mean),
-        ("rms", lambda values: np.sqrt(np.mean(values**2))),
-        ("abs_mean", lambda values: np.mean(np.abs(values))),
-    ],
-)
-def test_loadings_aggregate_the_components_by_wavelength(
-    client: TestClient,
-    run_dir: Path,
-    aggregation: str,
-    reduce: Callable[[np.ndarray], float],
-) -> None:
-    """Each loading point aggregates one wavelength's coefficients."""
-    html = client.get(
-        "/scores", params={"x": 2, "y": 3, "aggregation": aggregation}
-    ).text
-
-    trace = _traces(html, "loadings")[0]
-    wavelengths = pl.read_parquet(run_dir / "features.parquet")["wavelength"].to_numpy()
-    components = np.load(run_dir / "components.npy").astype(np.float64)
-    expected = sorted(set(wavelengths.tolist()))
-    assert _decode(trace["customdata"]) == expected
-    for index, wavelength in enumerate(expected):
-        mask = wavelengths == wavelength
-        assert _decode(trace["x"])[index] == pytest.approx(reduce(components[1, mask]))
-        assert _decode(trace["y"])[index] == pytest.approx(reduce(components[2, mask]))
 
 
 def test_trajectories_end_at_the_saved_scores(client: TestClient, run_dir: Path) -> None:
@@ -225,13 +196,11 @@ def test_out_of_range_components_fall_back_to_the_defaults(client: TestClient) -
 
 
 @pytest.mark.usefixtures("run_dir")
-@pytest.mark.parametrize(
-    "params", [{"aggregation": "median"}, {"run": "missing"}, {"x": "one"}]
-)
+@pytest.mark.parametrize("params", [{"run": "missing"}, {"x": "one"}])
 def test_invalid_parameters_are_rejected(
     client: TestClient, params: dict[str, str]
 ) -> None:
-    """Unknown aggregations and runs, and non-integer components, are client errors."""
+    """Unknown runs and non-integer components are client errors."""
     response = client.get("/scores", params=params)
 
     assert response.status_code in (400, 422)

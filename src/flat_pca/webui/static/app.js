@@ -119,8 +119,9 @@ function crosshair(x, y) {
   ];
 }
 
-// Spectral exploration: the heatmap click and the two sliders choose one
-// point; the trends at that point are fetched from the server.
+// Spectral exploration and the model screen's component heatmap: the heatmap
+// click and the two sliders choose one point; the trends at that point are
+// fetched from the server.
 function initExplore(root) {
   const heatmap = root.querySelector("#explore-heatmap");
   const figure = JSON.parse(root.querySelector("#explore-heatmap-figure").textContent);
@@ -184,8 +185,8 @@ for (const root of document.querySelectorAll("[data-explore]")) {
   initExplore(root);
 }
 
-// Score and T²/Q screens: draws each embedded figure; clicking a point that
-// names a file opens the spectral exploration of that file.
+// Model, score, and T²/Q screens: draws each embedded figure; clicking a point
+// that names a file opens the spectral exploration of that file.
 function initPlot(target) {
   const figure = JSON.parse(document.getElementById(target.dataset.plot).textContent);
   Plotly.newPlot(target, figure.data, figure.layout, { responsive: true }).then(() => {
