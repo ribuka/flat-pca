@@ -6,19 +6,9 @@
 {% block content %}
 <section>
   <h2>モデル</h2>
-  <p class="muted">fit run だけで決まる図です（ファイルの選択によらない）。</p>
+  <p class="muted">サイドバーで選んだ run だけで決まる図です（表示ファイルの選択によらない）。{% if shown.run_id %}run：{{ shown.run_id }}{% endif %}</p>
   {% if shown.runs %}
     <form id="model-form" class="explore-form" method="get" action="/model" data-auto-submit>
-      <div class="field-row">
-        <label>fit run
-          <select name="run">
-            {% for run in shown.runs %}
-              <option value="{{ run.run_id }}" {% if run.run_id == shown.run_id %}selected{% endif %}>{{ run.run_id }}（{{ run.created_at|cell }}）</option>
-            {% endfor %}
-          </select>
-        </label>
-        <button type="submit">表示</button>
-      </div>
       {% if shown.component_count %}
         <div class="field-row">
           <label>ローディング 横軸 PCm
@@ -56,6 +46,7 @@
               </select>
             </label>
           {% endif %}
+          <button type="submit">表示</button>
         </div>
       {% endif %}
     </form>

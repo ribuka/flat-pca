@@ -13,9 +13,9 @@ import polars as pl
 
 from flat_pca.feature_engineering.pca import PcaModel, PreparedRows, q_contribution
 from flat_pca.feature_engineering.pca.mahalanobis import resolve_mahalanobis_components
+from flat_pca.spectral.schema import SOURCE_COLUMN
+from flat_pca.utils import natural_keys
 
-from ..database import Database
-from .catalog_query import FileQuery, list_files, list_segments
 from .component_choice import choose_component
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError
@@ -27,6 +27,7 @@ from .segment_choice import (
     feature_segments,
     format_segment,
     parse_segment,
+    raw_segments,
 )
 from .spectral_matrix import (
     SpectralMatrix,
@@ -103,7 +104,7 @@ class ExploreView:
     run_id : str | None
         Fit run in use, or ``None`` when no fit run succeeded.
     file_options : list[str]
-        Stems that can be chosen.
+        Transform targets of the run that can be chosen, in natural order.
     files : list[str]
         Chosen stems in option order.
     segment_options : list[tuple[int, int]]
@@ -186,62 +187,59 @@ def _choose_files(
 
 
 def _raw_view(
-    database: Database,
-    selected: list[str],
     cache: DisplayCache,
     request: ExploreRequest,
     runs: list[dict[str, object]],
-    run_id: str | None,
+    run_id: str,
+    artifacts: DisplayArtifacts,
     max_files: int,
 ) -> ExploreView:
-    """Resolve the raw-data view.
+    """Resolve the raw-data view of the run's transform targets.
 
     Parameters
     ----------
-    database : Database
-        Workspace database.
-    selected : list[str]
-        Stems selected on the data selection screen. Without any, every
-        cataloged file can be chosen.
     cache : DisplayCache
         Display cache holding the read files.
     request : ExploreRequest
         Requested choices.
     runs : list[dict[str, object]]
         Succeeded fit runs, newest first.
-    run_id : str | None
+    run_id : str
         Fit run in use.
+    artifacts : DisplayArtifacts
+        The run's artifacts, whose ``samples.parquet`` lists the transform
+        targets and their paths (``source``).
     max_files : int
         Maximum number of shown files.
 
     Returns
     -------
     ExploreView
-        Raw spectra of the chosen files.
+        Raw spectra of the chosen files. The ``(Step, Sequence)`` options
+        are those of the first chosen file.
     """
-    paths = {
-        str(file["stem"]): Path(str(file["path"]))
-        for file in list_files(database, FileQuery())
-    }
-    options = [stem for stem in selected if stem in paths] or list(paths)
-    if not options:
-        return ExploreView(
-            view="raw", runs=runs, run_id=run_id, error="catalog にファイルがありません"
-        )
+    stems = artifacts.samples["stem"].to_list()
+    paths = dict(zip(stems, artifacts.samples[SOURCE_COLUMN].to_list(), strict=True))
+    options = sorted(stems, key=natural_keys)
     files, omitted = _choose_files(options, request.files, max_files)
-    segment_options = list_segments(database, files[0])
-    segment = choose_segment(segment_options, parse_segment(request.segment))
+    segment_options: list[tuple[int, int]] = []
+    segment: tuple[int, int] | None = None
     matrices: dict[str, SpectralMatrix] = {}
     skipped: list[str] = []
     error = None
-    for stem in files if segment is not None else []:
+    for stem in files:
         try:
-            spectra = cache.raw_spectra(paths[stem])
+            spectra = cache.raw_spectra(Path(str(paths[stem])))
         except (OSError, ValueError, pl.exceptions.PolarsError) as caught:
             error = f"{stem} を読み込めません（{type(caught).__name__}: {caught}）"
             break
+        if stem == files[0]:
+            segment_options = raw_segments(spectra)
+            segment = choose_segment(segment_options, parse_segment(request.segment))
+        if segment is None:
+            break
         try:
-            matrices[stem] = raw_segment_matrix(spectra, *segment)  # type: ignore[misc]
+            matrices[stem] = raw_segment_matrix(spectra, *segment)
         except ValueError:
             skipped.append(stem)
     return ExploreView(
@@ -375,10 +373,11 @@ def _run_view(
         "value_name": VALUE_NAMES.get(view, "intensity"),
     }
     stems = artifacts.samples["stem"].to_list()
-    files, omitted = _choose_files(stems, request.files, max_files)
+    options = sorted(stems, key=natural_keys)
+    files, omitted = _choose_files(options, request.files, max_files)
     preprocess = cast(dict[str, object], json.loads(str(run["config_json"]))["preprocess"])
     common |= {
-        "file_options": stems,
+        "file_options": options,
         "files": files,
         "omitted": omitted,
         "intensity_transform": {
@@ -459,8 +458,6 @@ def _run_view(
 
 
 def resolve_explore(
-    database: Database,
-    selected: list[str],
     cache: DisplayCache,
     fit_runs: list[dict[str, object]],
     request: ExploreRequest,
@@ -469,14 +466,12 @@ def resolve_explore(
     """Resolve the requested choices and load the matrices they show.
 
     Unavailable choices fall back to the first available one, so a view is
-    shown whenever data exist.
+    shown whenever data exist. Every view, the raw data included, chooses
+    from the transform targets of the fit run (its ``samples.parquet``) in
+    natural order.
 
     Parameters
     ----------
-    database : Database
-        Workspace database.
-    selected : list[str]
-        Stems selected on the data selection screen.
     cache : DisplayCache
         Display cache of the workspace.
     fit_runs : list[dict[str, object]]
@@ -506,15 +501,19 @@ def resolve_explore(
     if request.run is not None and request.run not in by_id:
         raise ValueError(f"succeeded fit run not found: {request.run}")
     run = by_id[request.run] if request.run is not None else (runs[0] if runs else None)
-    run_id = None if run is None else str(run["run_id"])
-    if view == "raw":
-        return _raw_view(database, selected, cache, request, runs, run_id, max_files)
     if run is None:
-        return ExploreView(view=view, runs=runs, error="成功した fit run がありません")
+        return ExploreView(
+            view=view,
+            runs=runs,
+            error="成功した fit run がありません。先に前処理・PCA で fit を実行してください",
+        )
+    run_id = str(run["run_id"])
     try:
         artifacts = cache.fit_artifacts(Path(str(run["artifact_dir"])))
     except RunArtifactError as error:
         return ExploreView(view=view, runs=runs, run_id=run_id, error=str(error))
+    if view == "raw":
+        return _raw_view(cache, request, runs, run_id, artifacts, max_files)
     return _run_view(view, run, artifacts, cache, request, runs, max_files)
 
 

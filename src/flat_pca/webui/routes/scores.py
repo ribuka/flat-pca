@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 from typing import Annotated
-from urllib.parse import urlencode
 
 import plotly.graph_objects as go
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from flat_pca.visualize import create_partial_score_trajectories, create_score_scatter
 
-from ..services.runs import list_succeeded_runs
 from ..services.scores import ScoresRequest, ScoresView, resolve_scores
 from ..templating import templates
-from ..workspace import FIT_JOB, Workspace
+from ..workspace import Workspace
 from .dependencies import get_workspace
+from .view_selection import current_view_choice
 
 router = APIRouter(prefix="/scores")
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
@@ -78,13 +77,15 @@ def _figures(shown: ScoresView) -> dict[str, str]:
 def scores_page(
     request: Request,
     workspace: WorkspaceDependency,
-    run: str | None = None,
     x: int | None = None,
     y: int | None = None,
     color: str | None = None,
-    file: Annotated[list[str] | None, Query()] = None,
 ) -> HTMLResponse:
     """Render the score page.
+
+    The fit run and the files of the partial score trajectories are those
+    chosen in the sidebar; without chosen files, the first transform target
+    is drawn.
 
     Parameters
     ----------
@@ -92,8 +93,6 @@ def scores_page(
         Current request.
     workspace : Workspace
         Application workspace.
-    run : str | None, default None
-        Succeeded fit run; the latest one by default.
     x : int | None, default None
         1-based component number m of the horizontal axes; 1 by default.
     y : int | None, default None
@@ -101,9 +100,6 @@ def scores_page(
     color : str | None, default None
         Metadata column coloring the score points; ``ui.default_color_by``
         by default and none for ``""``.
-    file : list[str] | None, default None
-        Stems whose partial score trajectories are drawn; the first file by
-        default.
 
     Returns
     -------
@@ -115,11 +111,14 @@ def scores_page(
     HTTPException
         With status 400 if the run is invalid.
     """
-    scores_request = ScoresRequest(run=run, x=x, y=y, color=color, files=tuple(file or ()))
+    choice = current_view_choice(workspace)
+    scores_request = ScoresRequest(
+        run=choice.run_id, x=x, y=y, color=color, files=tuple(choice.files)
+    )
     try:
         shown = resolve_scores(
             workspace.cache,
-            list_succeeded_runs(workspace.database, FIT_JOB, run),
+            choice.runs,
             scores_request,
             workspace.settings.ui.default_color_by,
         )
@@ -128,7 +127,4 @@ def scores_page(
     context: dict[str, object] = {"shown": shown}
     if shown.error is None and shown.run_id is not None:
         context["figures"] = _figures(shown)
-        context["explore_url"] = "/explore?" + urlencode(
-            {"view": "preprocessed", "run": shown.run_id}
-        )
     return templates.TemplateResponse(request, "pages/scores.html", context)

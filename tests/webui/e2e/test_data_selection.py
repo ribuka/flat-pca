@@ -96,7 +96,7 @@ def test_selecting_files_shows_success_icon_offline(
     expect(icon).to_have_count(0)
 
     page.get_by_label("表示中をすべて選択").check()
-    page.get_by_role("button", name="このファイル集合を選択").click()
+    page.get_by_role("button", name="このファイル集合を fit 対象にする").click()
 
     expect(icon).to_have_text("check_circle")
     expect(icon).to_have_css("color", "rgb(26, 127, 55)")

@@ -24,6 +24,7 @@ from ..templating import templates
 from ..workspace import FIT_JOB, Workspace
 from .dependencies import get_workspace
 from .heatmap_trend import heatmap_context, script_json, trend_response
+from .view_selection import current_view_choice
 
 router = APIRouter(prefix="/model")
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
@@ -107,7 +108,6 @@ def _trend_url(key: HeatmapRequest) -> str:
 def model_page(
     request: Request,
     workspace: WorkspaceDependency,
-    run: str | None = None,
     x: int | None = None,
     y: int | None = None,
     aggregation: str | None = None,
@@ -115,7 +115,7 @@ def model_page(
     k: int | None = None,
     segment: str | None = None,
 ) -> HTMLResponse:
-    """Render the model page.
+    """Render the model page of the fit run chosen in the sidebar.
 
     Parameters
     ----------
@@ -123,8 +123,6 @@ def model_page(
         Current request.
     workspace : Workspace
         Application workspace.
-    run : str | None, default None
-        Succeeded fit run; the latest one by default.
     x : int | None, default None
         1-based component number m of the loading plot's horizontal axis;
         1 by default.
@@ -151,7 +149,7 @@ def model_page(
     shown = _resolve(
         workspace,
         ModelRequest(
-            run=run,
+            run=current_view_choice(workspace).run_id,
             x=x,
             y=y,
             aggregation=aggregation,
@@ -202,7 +200,9 @@ def model_trend(
         Requested wavelength; the nearest one is used.
     step_time : float
         Requested ``StepTime``; the nearest one is used.
-    run, view, k, segment
+    run : str | None, default None
+        Succeeded fit run; the latest one by default.
+    view, k, segment
         Same as ``model_page``.
 
     Returns

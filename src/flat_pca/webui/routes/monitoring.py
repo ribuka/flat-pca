@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import Annotated
-from urllib.parse import urlencode
 
 import plotly.graph_objects as go
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -12,10 +11,10 @@ from fastapi.responses import HTMLResponse
 from flat_pca.visualize import create_control_chart, create_t2_q_scatter
 
 from ..services.monitoring import MonitoringRequest, MonitoringView, resolve_monitoring
-from ..services.runs import list_succeeded_runs
 from ..templating import format_value, templates
-from ..workspace import FIT_JOB, Workspace
+from ..workspace import Workspace
 from .dependencies import get_workspace
+from .view_selection import current_view_choice
 
 router = APIRouter(prefix="/monitoring")
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
@@ -90,10 +89,9 @@ def _figures(shown: MonitoringView) -> dict[str, str]:
 def monitoring_page(
     request: Request,
     workspace: WorkspaceDependency,
-    run: str | None = None,
     order: str | None = None,
 ) -> HTMLResponse:
-    """Render the T² and Q page.
+    """Render the T² and Q page of the fit run chosen in the sidebar.
 
     Parameters
     ----------
@@ -101,8 +99,6 @@ def monitoring_page(
         Current request.
     workspace : Workspace
         Application workspace.
-    run : str | None, default None
-        Succeeded fit run; the latest one by default.
     order : str | None, default None
         Metadata column ordering the control charts; ``ui.default_order_by``
         by default and the natural order of the stems for ``""``.
@@ -117,11 +113,12 @@ def monitoring_page(
     HTTPException
         With status 400 if the run is invalid.
     """
+    choice = current_view_choice(workspace)
     try:
         shown = resolve_monitoring(
             workspace.cache,
-            list_succeeded_runs(workspace.database, FIT_JOB, run),
-            MonitoringRequest(run=run, order=order),
+            choice.runs,
+            MonitoringRequest(run=choice.run_id, order=order),
             workspace.settings.ui.default_order_by,
         )
     except ValueError as error:
@@ -129,7 +126,4 @@ def monitoring_page(
     context: dict[str, object] = {"shown": shown}
     if shown.error is None and shown.run_id is not None:
         context["figures"] = _figures(shown)
-        context["explore_url"] = "/explore?" + urlencode(
-            {"view": "q_contribution", "run": shown.run_id}
-        )
     return templates.TemplateResponse(request, "pages/monitoring.html", context)

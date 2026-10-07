@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 from fit_runs import register_fit_run
 from spectra import SPECTRA_SHORT_FILE
+from view_choice import choose_view
 
 from flat_pca.webui.app import create_app
 from flat_pca.webui.settings import Settings
@@ -118,7 +119,10 @@ def test_default_page_colors_scores_by_the_default_column(client: TestClient) ->
     assert 'name="y" min="1" max="3" value="2"' in html
     assert '<option value="lot" selected>' in html
     assert 'name="aggregation"' not in html
-    assert 'data-explore-url="/explore?view=preprocessed&amp;run=fit-1"' in html
+    assert 'data-select-url="/sidebar/selection/files/add"' in html
+    assert "data-open-url" not in html
+    assert 'name="run"' not in html
+    assert 'name="file"' not in html
     traces = _traces(html, "scatter")
     assert [trace["name"] for trace in traces] == ["A", "B"]
     assert _decode(traces[0]["customdata"]) == [f"s-{index:02d}" for index in range(0, 12, 2)]
@@ -154,7 +158,8 @@ def test_scores_match_the_saved_scores(client: TestClient, run_dir: Path) -> Non
 def test_trajectories_end_at_the_saved_scores(client: TestClient, run_dir: Path) -> None:
     """Each trajectory ends at the file's score, including the imputed file."""
     stems = ["s-00", SHORT]
-    html = client.get("/scores", params={"x": 1, "y": 2, "file": stems}).text
+    choose_view(client, files=stems)
+    html = client.get("/scores", params={"x": 1, "y": 2}).text
 
     traces = _traces(html, "trajectories")
     assert [trace["name"] for trace in traces] == stems
@@ -176,7 +181,8 @@ def test_drop_run_reports_files_without_trajectory(
     """Under ``impute_strategy="drop"``, the file with a missing value is reported."""
     _register(client, settings, spectra_paths, "fit-drop", "drop")
 
-    html = client.get("/scores", params={"file": ["s-00", SHORT]}).text
+    choose_view(client, files=["s-00", SHORT])
+    html = client.get("/scores").text
 
     assert f"描けないファイル：{SHORT}" in html
     assert [trace["name"] for trace in _traces(html, "trajectories")] == ["s-00"]
@@ -196,11 +202,11 @@ def test_out_of_range_components_fall_back_to_the_defaults(client: TestClient) -
 
 
 @pytest.mark.usefixtures("run_dir")
-@pytest.mark.parametrize("params", [{"run": "missing"}, {"x": "one"}])
+@pytest.mark.parametrize("params", [{"x": "one"}])
 def test_invalid_parameters_are_rejected(
     client: TestClient, params: dict[str, str]
 ) -> None:
-    """Unknown runs and non-integer components are client errors."""
+    """Non-integer components are client errors."""
     response = client.get("/scores", params=params)
 
     assert response.status_code in (400, 422)

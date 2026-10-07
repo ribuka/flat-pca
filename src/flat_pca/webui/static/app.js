@@ -106,12 +106,112 @@ document.addEventListener("submit", (event) => {
 
 // A page restored by "back" (from the bfcache or with restored form state)
 // keeps neither the overlay nor the conditions that were never shown.
-window.addEventListener("pageshow", () => {
+// A page from the bfcache also shows the sidebar choices the server holds now.
+window.addEventListener("pageshow", (event) => {
   busyOverlay.stop();
   for (const form of document.querySelectorAll("form[data-auto-submit]")) {
     form.reset();
   }
+  if (event.persisted && document.getElementById("view-selection")) {
+    htmx.ajax("GET", "/sidebar/selection", { target: "#view-selection", swap: "innerHTML" });
+  }
 });
+
+// The sidebar's run and shown-file choices: the server answers a change with
+// HX-Refresh, so the overlay covers the page until it is reloaded. Cancelling
+// stops the request or the reload and shows the choices the server holds.
+document.addEventListener("htmx:beforeRequest", (event) => {
+  const form = event.detail.elt.closest("[data-busy-reload]");
+  if (!form) {
+    return;
+  }
+  busyOverlay.start(() => {
+    htmx.trigger(form, "htmx:abort");
+    window.stop();
+    htmx.ajax("GET", "/sidebar/selection", { target: "#view-selection", swap: "innerHTML" });
+  });
+});
+
+document.addEventListener("htmx:afterRequest", (event) => {
+  if (event.detail.elt.closest("[data-busy-reload]") && !event.detail.successful) {
+    busyOverlay.stop();
+  }
+});
+
+const VIEW_FILE_SEARCH_KEY = "flat-pca:view-file-search";
+
+// Hides the shown-file choices whose names do not contain the search text.
+function filterViewFiles(input) {
+  const text = input.value.trim().toLowerCase();
+  for (const item of document.querySelectorAll("#view-selection li[data-stem]")) {
+    item.hidden = text !== "" && !item.dataset.stem.toLowerCase().includes(text);
+  }
+}
+
+// The search text survives the reload that follows each choice in this tab.
+document.addEventListener("input", (event) => {
+  if (!event.target.matches("[data-view-file-search]")) {
+    return;
+  }
+  try {
+    sessionStorage.setItem(VIEW_FILE_SEARCH_KEY, event.target.value);
+  } catch {
+    // Without storage the search text is simply not kept.
+  }
+  filterViewFiles(event.target);
+});
+
+// Once settled, the sidebar's choices are processed by htmx and marked ready.
+document.addEventListener("htmx:afterSettle", (event) => {
+  if (event.detail.elt.id !== "view-selection") {
+    return;
+  }
+  event.detail.elt.dataset.ready = "true";
+  const input = event.detail.elt.querySelector("[data-view-file-search]");
+  if (!input) {
+    return;
+  }
+  try {
+    input.value = sessionStorage.getItem(VIEW_FILE_SEARCH_KEY) ?? "";
+  } catch {
+    input.value = "";
+  }
+  filterViewFiles(input);
+});
+
+// Adds a clicked file to the sidebar's shown files, then reloads the page or
+// opens `openUrl`. The request names the run of the figure, so a figure
+// drawn before the sidebar's run changed adds nothing. At the limit of shown
+// files, or for such a stale figure, a warning is shown instead.
+async function selectClickedFile(target, stem) {
+  const warning = document.getElementById("plot-select-warning");
+  // The overlay blocks further clicks until the page is replaced.
+  busyOverlay.start(() => window.stop());
+  let result = {};
+  try {
+    const response = await fetch(target.dataset.selectUrl, {
+      method: "POST",
+      body: new URLSearchParams({ run: target.dataset.runId, stem }),
+    });
+    result = response.ok ? await response.json() : {};
+  } catch {
+    // A failed request or response is reported below like a refusal.
+  }
+  if (result.added) {
+    if (target.dataset.openUrl) {
+      window.location.href = target.dataset.openUrl;
+    } else {
+      window.location.reload();
+    }
+    return;
+  }
+  busyOverlay.stop();
+  const message = result.message ?? `${stem} を表示ファイルに追加できませんでした。`;
+  if (warning) {
+    warning.textContent = message;
+    warning.hidden = false;
+  }
+}
 
 const TREND_DEBOUNCE_MS = 150;
 
@@ -253,12 +353,12 @@ for (const root of document.querySelectorAll("[data-explore]")) {
 }
 
 // Model, score, and T²/Q screens: draws each embedded figure; clicking a point
-// that names a file opens the spectral exploration of that file.
+// that names a file adds the file to the sidebar's shown files.
 function initPlot(target) {
   const figure = JSON.parse(document.getElementById(target.dataset.plot).textContent);
   Plotly.newPlot(target, figure.data, figure.layout, { responsive: true }).then(() => {
     target.dataset.plotReady = "true";
-    if (!target.dataset.exploreUrl) {
+    if (!target.dataset.selectUrl) {
       return;
     }
     target.on("plotly_click", (event) => {
@@ -266,7 +366,7 @@ function initPlot(target) {
       if (stem === undefined) {
         return;
       }
-      window.location.href = `${target.dataset.exploreUrl}&file=${encodeURIComponent(stem)}`;
+      selectClickedFile(target, stem);
     });
   });
 }

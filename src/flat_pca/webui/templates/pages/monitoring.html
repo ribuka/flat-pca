@@ -9,13 +9,6 @@
   {% if shown.runs %}
     <form id="monitoring-form" class="explore-form" method="get" action="/monitoring" data-auto-submit>
       <div class="field-row">
-        <label>fit run
-          <select name="run">
-            {% for run in shown.runs %}
-              <option value="{{ run.run_id }}" {% if run.run_id == shown.run_id %}selected{% endif %}>{{ run.run_id }}（{{ run.created_at|cell }}）</option>
-            {% endfor %}
-          </select>
-        </label>
         <label>管理図の並び順
           <select name="order">
             <option value="" {% if shown.order is none %}selected{% endif %}>ファイル名（自然順）</option>
@@ -37,9 +30,11 @@
 {% elif figures %}
   <section>
     <p class="muted">
+      run {{ shown.run_id }} の T² と Q です。
       {% if shown.order is none %}管理図はファイル名の自然順に並べています。{% else %}管理図は {{ shown.order }} の昇順（欠損は末尾、同じ値はファイル名の自然順）に並べています。{% endif %}
-      UCL を超えた点を強調します。点をクリックすると、そのファイルの Q 寄与ヒートマップ（スペクトル探索）を開きます。
+      UCL を超えた点を強調します。点をクリックすると、そのファイルをサイドバーの表示ファイルに追加して、Q 寄与ヒートマップ（スペクトル探索）を開きます。
     </p>
+    <p class="warnings" id="plot-select-warning" hidden></p>
     <p data-exceeding>
       UCL 超過：T² {{ shown.points.t2_exceeding|length }} 件{% if shown.points.t2_exceeding %}（{{ shown.points.t2_exceeding|join("、") }}）{% endif %}、
       Q {{ shown.points.q_exceeding|length }} 件{% if shown.points.q_exceeding %}（{{ shown.points.q_exceeding|join("、") }}）{% endif %}
@@ -49,10 +44,10 @@
       <p class="warnings" data-unscored>欠損値を含み、補完方法 drop で除外されたため T²・Q を持たないファイル：{{ shown.unscored|join("、") }}</p>
     {% endif %}
     <div class="plot-grid">
-      <div id="monitoring-t2" class="plot" data-plot="monitoring-t2-figure" data-explore-url="{{ explore_url }}"></div>
-      <div id="monitoring-q" class="plot" data-plot="monitoring-q-figure" data-explore-url="{{ explore_url }}"></div>
+      <div id="monitoring-t2" class="plot" data-plot="monitoring-t2-figure" data-select-url="/sidebar/selection/files/add" data-run-id="{{ shown.run_id }}" data-open-url="/explore?view=q_contribution"></div>
+      <div id="monitoring-q" class="plot" data-plot="monitoring-q-figure" data-select-url="/sidebar/selection/files/add" data-run-id="{{ shown.run_id }}" data-open-url="/explore?view=q_contribution"></div>
     </div>
-    <div id="monitoring-scatter" class="plot" data-plot="monitoring-scatter-figure" data-explore-url="{{ explore_url }}"></div>
+    <div id="monitoring-scatter" class="plot" data-plot="monitoring-scatter-figure" data-select-url="/sidebar/selection/files/add" data-run-id="{{ shown.run_id }}" data-open-url="/explore?view=q_contribution"></div>
   </section>
 
   {% for name, figure in figures.items() %}

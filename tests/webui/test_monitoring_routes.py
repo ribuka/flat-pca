@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 from fit_runs import register_fit_run
 from spectra import SPECTRA_FILE_COUNT, SPECTRA_SHORT_FILE
+from view_choice import choose_view
 
 from flat_pca.webui.app import create_app
 from flat_pca.webui.services.explore import ExploreRequest, resolve_explore
@@ -129,7 +130,12 @@ def test_default_order_follows_the_default_column(client: TestClient) -> None:
     assert response.status_code == 200
     html = response.text
     assert '<option value="date" selected>' in html
-    assert 'data-explore-url="/explore?view=q_contribution&amp;run=fit-1"' in html
+    assert (
+        'data-select-url="/sidebar/selection/files/add" data-run-id="fit-1" '
+        'data-open-url="/explore?view=q_contribution"'
+    ) in html
+    assert "run fit-1 の T² と Q です。" in html
+    assert 'name="run"' not in html
     # The last file has the earliest date and the undated file comes last.
     expected = [f"s-{index:02d}" for index in reversed(range(SPECTRA_FILE_COUNT))]
     expected.remove(UNDATED)
@@ -187,12 +193,16 @@ def test_drop_run_reports_files_without_statistics(
 
 
 @pytest.mark.usefixtures("run_dir")
-@pytest.mark.parametrize("params", [{"run": "missing"}])
-def test_invalid_parameters_are_rejected(
-    client: TestClient, params: dict[str, str]
+def test_page_shows_the_run_chosen_in_the_sidebar(
+    client: TestClient, settings: Settings, spectra_paths: list[Path]
 ) -> None:
-    """Unknown runs are client errors."""
-    assert client.get("/monitoring", params=params).status_code == 400
+    """The page shows the sidebar's run, not the newest one, once it is chosen."""
+    _register(client, settings, spectra_paths, "fit-2", "median")
+    assert "run fit-2 の T² と Q です。" in client.get("/monitoring").text
+
+    choose_view(client, run="fit-1")
+
+    assert "run fit-1 の T² と Q です。" in client.get("/monitoring").text
 
 
 @pytest.mark.usefixtures("run_dir")
@@ -206,9 +216,9 @@ def test_unknown_order_column_falls_back_to_the_default(client: TestClient) -> N
 @pytest.mark.usefixtures("run_dir")
 def test_q_contribution_page_shows_the_fixed_component_count(client: TestClient) -> None:
     """The view reconstructs from the run's Q component count without a k input."""
-    response = client.get(
-        "/explore", params={"view": "q_contribution", "run": "fit-1", "file": SHORT, "k": 3}
-    )
+    choose_view(client, files=[SHORT])
+
+    response = client.get("/explore", params={"view": "q_contribution", "k": 3})
 
     assert response.status_code == 200
     html = response.text
@@ -263,10 +273,9 @@ def test_q_contribution_page_warns_when_float32_artifacts_lose_the_saved_q(
         "median",
     )
     run_dir = settings.runs_dir / "fit-1"
+    choose_view(client, files=["s-01"])
 
-    html = client.get(
-        "/explore", params={"view": "q_contribution", "run": "fit-1", "file": "s-01"}
-    ).text
+    html = client.get("/explore", params={"view": "q_contribution"}).text
 
     saved = _scores_by_stem(run_dir).filter(pl.col("stem") == "s-01")["spe"][0]
     match = re.search(r'data-q-mismatch="s-01">(.*?)</p>', html, re.DOTALL)
@@ -286,8 +295,6 @@ def test_q_contributions_add_up_to_the_saved_q(
     workspace = _workspace(client)
     fit_runs = list_succeeded_runs(workspace.database, FIT_JOB, None)
     first = resolve_explore(
-        workspace.database,
-        [],
         workspace.cache,
         fit_runs,
         ExploreRequest(view="q_contribution", files=(stem,)),
@@ -296,8 +303,6 @@ def test_q_contributions_add_up_to_the_saved_q(
     total = 0.0
     for step, sequence in first.segment_options:
         shown = resolve_explore(
-            workspace.database,
-            [],
             workspace.cache,
             fit_runs,
             ExploreRequest(

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}transform - flat-pca{% endblock %}
+{% block content %}
+<section>
+  <h2>transform</h2>
+  <label>
+    <input type="checkbox" name="use_same_data_for_fit" checked disabled data-use-same-data>
+    use same data for fit
+  </label>
+  <p class="muted">
+    transform の対象は、fit の対象と同じファイルです（変更できません）。
+    スペクトル探索・スコア、サイドバーの表示ファイルの選択肢は、この transform 対象のファイルです。
+  </p>
+  {% if choice.run_id %}
+    <p data-transform-targets="{{ choice.file_options|length }}">
+      run {{ choice.run_id }} の transform 対象：{{ choice.file_options|length }} ファイル
+    </p>
+  {% else %}
+    <p class="muted">成功した fit run がありません。先に<a href="/fit">前処理・PCA</a>で fit を実行してください。</p>
+  {% endif %}
+</section>
+{% endblock %}

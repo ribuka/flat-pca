@@ -11,7 +11,18 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .routes import catalog, explore, fit, layout, model, monitoring, runs, scores
+from .routes import (
+    catalog,
+    explore,
+    fit,
+    layout,
+    model,
+    monitoring,
+    runs,
+    scores,
+    transform,
+    view_selection,
+)
 from .settings import Settings
 from .templating import STATIC_DIR
 from .workspace import Workspace
@@ -67,10 +78,12 @@ def create_app(settings: Settings) -> FastAPI:
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.include_router(catalog.router)
     app.include_router(fit.router)
+    app.include_router(transform.router)
     app.include_router(model.router)
     app.include_router(explore.router)
     app.include_router(scores.router)
     app.include_router(monitoring.router)
     app.include_router(runs.router)
     app.include_router(layout.router)
+    app.include_router(view_selection.router)
     return app

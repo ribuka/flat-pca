@@ -21,6 +21,7 @@ from ..templating import templates
 from ..workspace import FIT_JOB, Workspace
 from .dependencies import get_workspace
 from .heatmap_trend import heatmap_context, trend_response
+from .view_selection import current_view_choice
 
 router = APIRouter(prefix="/explore")
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
@@ -48,8 +49,6 @@ def _resolve(workspace: Workspace, request: ExploreRequest) -> ExploreView:
     """
     try:
         return resolve_explore(
-            workspace.database,
-            workspace.selection.stems,
             workspace.cache,
             list_succeeded_runs(workspace.database, FIT_JOB, request.run),
             request,
@@ -128,12 +127,13 @@ def explore_page(
     request: Request,
     workspace: WorkspaceDependency,
     view: str = "raw",
-    run: str | None = None,
-    file: Annotated[list[str] | None, Query()] = None,
     segment: str | None = None,
     k: int | None = None,
 ) -> HTMLResponse:
     """Render the spectral exploration page.
+
+    The fit run and the files are those chosen in the sidebar; without
+    chosen files, the first transform target is shown.
 
     Parameters
     ----------
@@ -143,10 +143,6 @@ def explore_page(
         Application workspace.
     view : str, default ``"raw"``
         A key of ``VIEW_LABELS``.
-    run : str | None, default None
-        Succeeded fit run; the latest one by default.
-    file : list[str] | None, default None
-        Stems to show; the first available one by default.
     segment : str | None, default None
         ``"{Step}:{Sequence}"``; the first available one by default.
     k : int | None, default None
@@ -158,8 +154,13 @@ def explore_page(
     HTMLResponse
         Full page with the heatmap figure and its unbinned axes.
     """
+    choice = current_view_choice(workspace)
     explore_request = ExploreRequest(
-        view=view, run=run, files=tuple(file or ()), segment=segment, component=k
+        view=view,
+        run=choice.run_id,
+        files=tuple(choice.files),
+        segment=segment,
+        component=k,
     )
     shown = _resolve(workspace, explore_request)
     context: dict[str, object] = {
@@ -202,8 +203,12 @@ def explore_trend(
         Requested wavelength; each trace uses its nearest one.
     step_time : float
         Requested ``StepTime``; each trace uses its nearest one.
-    view, run, file, segment, k
+    view, segment, k
         Same as ``explore_page``.
+    run : str | None, default None
+        Succeeded fit run; the latest one by default.
+    file : list[str] | None, default None
+        Stems to overlay; the first transform target by default.
 
     Returns
     -------

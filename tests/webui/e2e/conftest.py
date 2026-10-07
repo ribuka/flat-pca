@@ -102,6 +102,28 @@ def cataloged_server_url(cataloged_settings: Settings) -> Iterator[str]:
     yield from serve(cataloged_settings)
 
 
+def register_fit_runs(
+    settings: Settings, spectra_paths: list[Path], run_ids: tuple[str, ...]
+) -> None:
+    """Register succeeded fit runs, oldest first, that impute with the median.
+
+    Parameters
+    ----------
+    settings : Settings
+        Settings of the workspace.
+    spectra_paths : list[Path]
+        Synthetic spectra files.
+    run_ids : tuple[str, ...]
+        Identifiers of the runs in creation order.
+    """
+    workspace = Workspace(settings)
+    try:
+        for run_id in run_ids:
+            register_fit_run(workspace.database, settings, spectra_paths, run_id, "median")
+    finally:
+        workspace.close()
+
+
 @pytest.fixture
 def fitted_server_url(
     cataloged_settings: Settings, spectra_paths: list[Path]
@@ -116,14 +138,37 @@ def fitted_server_url(
     str
         Base URL of the running server.
     """
-    workspace = Workspace(cataloged_settings)
-    try:
-        register_fit_run(
-            workspace.database, cataloged_settings, spectra_paths, "fit-1", "median"
-        )
-    finally:
-        workspace.close()
+    register_fit_runs(cataloged_settings, spectra_paths, ("fit-1",))
     yield from serve(cataloged_settings)
+
+
+@pytest.fixture
+def two_fits_server_url(settings: Settings, spectra_paths: list[Path]) -> Iterator[str]:
+    """Serve the Web UI on a workspace holding the fit runs ``fit-1`` and ``fit-2``.
+
+    Yields
+    ------
+    str
+        Base URL of the running server.
+    """
+    register_fit_runs(settings, spectra_paths, ("fit-1", "fit-2"))
+    yield from serve(settings)
+
+
+@pytest.fixture
+def one_file_server_url(settings: Settings, spectra_paths: list[Path]) -> Iterator[str]:
+    """Serve the Web UI showing one file at a time, with the fit run ``fit-1``.
+
+    Yields
+    ------
+    str
+        Base URL of the running server.
+    """
+    limited = settings.model_copy(
+        update={"ui": settings.ui.model_copy(update={"explore_max_files": 1})}
+    )
+    register_fit_runs(limited, spectra_paths, ("fit-1",))
+    yield from serve(limited)
 
 
 @pytest.fixture(autouse=True)
