@@ -52,7 +52,7 @@ def resolve_kmeans_n_clusters(n_clusters: int | None, complete_row_count: int) -
     return min(resolved, complete_row_count)
 
 
-def _nearest_centroid_fill(values: np.ndarray, centroids: np.ndarray) -> np.ndarray:
+def nearest_centroid_fill(values: np.ndarray, centroids: np.ndarray) -> np.ndarray:
     """Fill each row's missing entries from its nearest cluster centroid.
 
     Parameters
@@ -169,7 +169,7 @@ def fit_kmeans_impute(
     kmeans.fit(values[complete_row_mask])
     centroids = kmeans.cluster_centers_
 
-    filled = _nearest_centroid_fill(values, centroids)
+    filled = nearest_centroid_fill(values, centroids)
     prepared = collected.with_columns(
         [pl.Series(column, filled[:, index]) for index, column in enumerate(columns)]
     )
@@ -204,7 +204,7 @@ def apply_kmeans_impute(
     """
     collected = df.collect()
     values = collected.select(columns).to_numpy().astype(float)
-    filled = _nearest_centroid_fill(values, _centroids_from_payload(centroids, columns))
+    filled = nearest_centroid_fill(values, _centroids_from_payload(centroids, columns))
     prepared = collected.with_columns(
         [pl.Series(column, filled[:, index]) for index, column in enumerate(columns)]
     )
