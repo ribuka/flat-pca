@@ -180,16 +180,19 @@ document.addEventListener("htmx:afterSettle", (event) => {
 });
 
 // Adds a clicked file to the sidebar's shown files, then reloads the page or
-// opens `openUrl`. At the limit of shown files, a warning is shown instead.
+// opens `openUrl`. The request names the run of the figure, so a figure
+// drawn before the sidebar's run changed adds nothing. At the limit of shown
+// files, or for such a stale figure, a warning is shown instead.
 async function selectClickedFile(target, stem) {
   const warning = document.getElementById("plot-select-warning");
+  // The overlay blocks further clicks until the page is replaced.
+  busyOverlay.start(() => window.stop());
   const response = await fetch(target.dataset.selectUrl, {
     method: "POST",
-    body: new URLSearchParams({ stem }),
+    body: new URLSearchParams({ run: target.dataset.runId, stem }),
   });
   const result = response.ok ? await response.json() : {};
   if (result.added) {
-    busyOverlay.start(() => window.stop());
     if (target.dataset.openUrl) {
       window.location.href = target.dataset.openUrl;
     } else {
@@ -197,6 +200,7 @@ async function selectClickedFile(target, stem) {
     }
     return;
   }
+  busyOverlay.stop();
   const message = result.message ?? `${stem} を表示ファイルに追加できませんでした。`;
   if (warning) {
     warning.textContent = message;

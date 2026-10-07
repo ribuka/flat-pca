@@ -73,13 +73,20 @@ class ViewSelection:
         with self._lock:
             self._stems = list(stems)
 
-    def add_stem(self, stem: str, max_files: int) -> bool:
+    def add_stem(self, stem: str, options: list[str], max_files: int) -> bool:
         """Add one stem unless the limit of chosen files is reached.
+
+        The chosen stems that are no longer among ``options`` are dropped
+        first, so they do not count toward the limit. Dropping, the limit
+        check, and the addition happen under one lock, so concurrent
+        additions never undo each other.
 
         Parameters
         ----------
         stem : str
-            Stem to add, already validated by the caller.
+            Stem to add, one of ``options``.
+        options : list[str]
+            Transform targets of the run in use.
         max_files : int
             Maximum number of chosen stems.
 
@@ -89,7 +96,9 @@ class ViewSelection:
             Whether ``stem`` is chosen afterwards; ``False`` if it was not
             chosen and the limit is reached.
         """
+        allowed = set(options)
         with self._lock:
+            self._stems = [chosen for chosen in self._stems if chosen in allowed]
             if stem in self._stems:
                 return True
             if len(self._stems) >= max_files:

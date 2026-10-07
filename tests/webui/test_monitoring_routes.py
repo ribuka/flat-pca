@@ -131,7 +131,7 @@ def test_default_order_follows_the_default_column(client: TestClient) -> None:
     html = response.text
     assert '<option value="date" selected>' in html
     assert (
-        'data-select-url="/sidebar/selection/files/add" '
+        'data-select-url="/sidebar/selection/files/add" data-run-id="fit-1" '
         'data-open-url="/explore?view=q_contribution"'
     ) in html
     assert "run fit-1 の T² と Q です。" in html

@@ -44,10 +44,10 @@
       <p class="warnings" data-unscored>欠損値を含み、補完方法 drop で除外されたため T²・Q を持たないファイル：{{ shown.unscored|join("、") }}</p>
     {% endif %}
     <div class="plot-grid">
-      <div id="monitoring-t2" class="plot" data-plot="monitoring-t2-figure" data-select-url="/sidebar/selection/files/add" data-open-url="/explore?view=q_contribution"></div>
-      <div id="monitoring-q" class="plot" data-plot="monitoring-q-figure" data-select-url="/sidebar/selection/files/add" data-open-url="/explore?view=q_contribution"></div>
+      <div id="monitoring-t2" class="plot" data-plot="monitoring-t2-figure" data-select-url="/sidebar/selection/files/add" data-run-id="{{ shown.run_id }}" data-open-url="/explore?view=q_contribution"></div>
+      <div id="monitoring-q" class="plot" data-plot="monitoring-q-figure" data-select-url="/sidebar/selection/files/add" data-run-id="{{ shown.run_id }}" data-open-url="/explore?view=q_contribution"></div>
     </div>
-    <div id="monitoring-scatter" class="plot" data-plot="monitoring-scatter-figure" data-select-url="/sidebar/selection/files/add" data-open-url="/explore?view=q_contribution"></div>
+    <div id="monitoring-scatter" class="plot" data-plot="monitoring-scatter-figure" data-select-url="/sidebar/selection/files/add" data-run-id="{{ shown.run_id }}" data-open-url="/explore?view=q_contribution"></div>
   </section>
 
   {% for name, figure in figures.items() %}

@@ -40,7 +40,7 @@
   <section>
     <p class="muted">run {{ shown.run_id }} のスコアです。点をクリックすると、そのファイルをサイドバーの表示ファイルに追加します。</p>
     <p class="warnings" id="plot-select-warning" hidden></p>
-    <div id="scores-scatter" class="plot" data-plot="scores-scatter-figure" data-select-url="/sidebar/selection/files/add"></div>
+    <div id="scores-scatter" class="plot" data-plot="scores-scatter-figure" data-select-url="/sidebar/selection/files/add" data-run-id="{{ shown.run_id }}"></div>
   </section>
 
   <section>

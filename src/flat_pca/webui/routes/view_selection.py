@@ -134,13 +134,20 @@ def choose_files(
 
 
 @router.post("/files/add")
-def add_file(workspace: WorkspaceDependency, stem: Annotated[str, Form()]) -> JSONResponse:
+def add_file(
+    workspace: WorkspaceDependency,
+    run: Annotated[str, Form()],
+    stem: Annotated[str, Form()],
+) -> JSONResponse:
     """Add one file to the chosen files, as a click on a score point does.
 
     Parameters
     ----------
     workspace : Workspace
         Application workspace.
+    run : str
+        Fit run of the clicked figure. A figure drawn before the sidebar's
+        run changed (in another tab, for example) adds nothing.
     stem : str
         Transform target of the run in use.
 
@@ -148,9 +155,9 @@ def add_file(workspace: WorkspaceDependency, stem: Annotated[str, Form()]) -> JS
     -------
     JSONResponse
         ``{"added": true}`` if the file is chosen afterwards; otherwise
-        ``{"added": false, "message": ...}`` because the limit of chosen
-        files is reached. The refusal is not an HTTP error, so the browser
-        logs no failed request.
+        ``{"added": false, "message": ...}`` because ``run`` is no longer
+        the run in use or the limit of chosen files is reached. A refusal
+        is not an HTTP error, so the browser logs no failed request.
 
     Raises
     ------
@@ -158,12 +165,18 @@ def add_file(workspace: WorkspaceDependency, stem: Annotated[str, Form()]) -> JS
         With status 400 if ``stem`` is not a transform target of the run.
     """
     choice = current_view_choice(workspace)
+    if run != choice.run_id:
+        return JSONResponse(
+            {
+                "added": False,
+                "message": f"サイドバーの run が {choice.run_id} に変わったため、"
+                f"run {run} の図から {stem} を追加しませんでした。ページを読み直してください。",
+            }
+        )
     if stem not in choice.file_options:
         raise HTTPException(status_code=400, detail=f"not a transform target: {stem}")
     max_files = workspace.settings.ui.explore_max_files
-    # Count only the chosen files that the run in use still has.
-    workspace.view_selection.replace_stems(choice.files)
-    if workspace.view_selection.add_stem(stem, max_files):
+    if workspace.view_selection.add_stem(stem, choice.file_options, max_files):
         return JSONResponse({"added": True})
     return JSONResponse(
         {

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+import threading
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -202,15 +204,19 @@ def test_adding_a_file_stops_at_the_limit(
     _register(limited_client, settings, spectra_paths, "fit-1")
 
     for stem in ("s-05", "s-05", "s-01"):
-        response = limited_client.post("/sidebar/selection/files/add", data={"stem": stem})
+        response = limited_client.post(
+            "/sidebar/selection/files/add", data={"run": "fit-1", "stem": stem}
+        )
         assert response.status_code == 200
         assert response.json() == {"added": True}
-    refused = limited_client.post("/sidebar/selection/files/add", data={"stem": "s-07"})
+    refused = limited_client.post(
+        "/sidebar/selection/files/add", data={"run": "fit-1", "stem": "s-07"}
+    )
 
     assert refused.status_code == 200
     assert refused.json()["added"] is False
     assert "2 件まで" in refused.json()["message"]
-    assert _workspace(limited_client).view_selection.stems == ["s-01", "s-05"]
+    assert _workspace(limited_client).view_selection.stems == ["s-05", "s-01"]
 
 
 def test_adding_an_unknown_file_is_rejected(
@@ -219,9 +225,50 @@ def test_adding_an_unknown_file_is_rejected(
     """Only a transform target of the run in use can be added."""
     _register(client, settings, spectra_paths, "fit-1")
 
-    response = client.post("/sidebar/selection/files/add", data={"stem": "ghost"})
+    response = client.post(
+        "/sidebar/selection/files/add", data={"run": "fit-1", "stem": "ghost"}
+    )
 
     assert response.status_code == 400
+
+
+def test_a_figure_of_another_run_adds_nothing(
+    client: TestClient, settings: Settings, spectra_paths: list[Path]
+) -> None:
+    """A click on a figure drawn before the sidebar's run changed adds nothing."""
+    _register(client, settings, spectra_paths, "fit-1")
+    _register(client, settings, spectra_paths, "fit-2")
+
+    response = client.post(
+        "/sidebar/selection/files/add", data={"run": "fit-1", "stem": "s-01"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["added"] is False
+    assert "fit-2" in response.json()["message"]
+    assert _workspace(client).view_selection.stems == []
+
+
+def test_concurrent_additions_keep_each_other() -> None:
+    """Additions racing from many threads all stay chosen, up to the limit."""
+    selection = ViewSelection()
+    selection.replace_stems(["gone"])
+    options = [f"s-{index:02d}" for index in range(40)]
+    barrier = threading.Barrier(len(options))
+
+    def add(stem: str) -> bool:
+        """Add one stem once every thread is ready."""
+        barrier.wait()
+        return selection.add_stem(stem, options, max_files=30)
+
+    with ThreadPoolExecutor(len(options)) as pool:
+        added = list(pool.map(add, options))
+
+    assert sum(added) == 30
+    assert sorted(selection.stems) == sorted(
+        stem for stem, ok in zip(options, added, strict=True) if ok
+    )
+    assert "gone" not in selection.stems
 
 
 def test_view_selection_clears_files_only_for_another_run() -> None:
