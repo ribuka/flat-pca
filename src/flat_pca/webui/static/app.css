@@ -328,13 +328,15 @@ button:hover:not(:disabled) {
   border-color: var(--muted);
 }
 
-button[type="submit"] {
+button[type="submit"],
+button.button-primary {
   border-color: var(--accent);
   color: #ffffff;
   background: var(--accent);
 }
 
-button[type="submit"]:hover:not(:disabled) {
+button[type="submit"]:hover:not(:disabled),
+button.button-primary:hover:not(:disabled) {
   border-color: var(--accent-hover);
   background: var(--accent-hover);
 }
@@ -455,13 +457,13 @@ p.error {
   font-family: var(--font-mono);
 }
 
-.filters,
 .selection-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 1rem;
   align-items: center;
-  margin-bottom: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
 }
 
 /* ---- Tables ---- */
@@ -484,9 +486,46 @@ p.error {
   position: sticky;
   top: 0;
   z-index: 1;
+  vertical-align: top;
   font-weight: 600;
   color: var(--muted);
   background: var(--surface-alt);
+}
+
+.file-table .sort-button {
+  gap: 0.25rem;
+  padding: 0;
+  border: none;
+  font-weight: 600;
+  color: inherit;
+  background: none;
+}
+
+.file-table .sort-button:hover:not(:disabled) {
+  color: var(--fg);
+  background: none;
+}
+
+.sort-mark {
+  display: inline-block;
+  min-width: 0.75em;
+  font-size: 0.75em;
+  color: var(--accent);
+}
+
+.column-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+  font-weight: 400;
+}
+
+.column-filter input:not([type="checkbox"]),
+.column-filter select {
+  min-height: 1.75rem;
+  max-width: 12rem;
+  padding: 0.15rem 0.4rem;
 }
 
 .file-table tbody tr:hover {
@@ -508,8 +547,34 @@ p.error {
   border-radius: var(--radius);
 }
 
+/* The header and about 12 rows; the header stays while the rows scroll. */
 .file-table-scroll {
-  max-height: 32rem;
+  max-height: 33.5rem;
+}
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.pager button {
+  padding: 0.2rem 0.6rem;
+}
+
+.pager [data-page-range] {
+  margin-right: 0.5rem;
+}
+
+.pager .pager-current {
+  border-color: var(--accent);
+  color: #ffffff;
+  background: var(--accent);
+  opacity: 1;
+  cursor: default;
 }
 
 .stem-list {

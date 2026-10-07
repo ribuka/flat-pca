@@ -372,6 +372,6 @@ def test_fit_and_shown_files_have_distinct_labels(client: TestClient) -> None:
     page = client.get("/").text
 
     assert "<dt>fit 対象</dt>" in status
-    assert "このファイル集合を fit 対象にする" in page
+    assert ">Select</button>" in page
     assert "fit 対象：0 ファイル" in page
     assert "表示ファイル" in client.get("/sidebar/selection").text

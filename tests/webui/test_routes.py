@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from flat_pca.webui.app import create_app
+from flat_pca.webui.routes import catalog as catalog_routes
 from flat_pca.webui.services.runs import latest_run
 from flat_pca.webui.settings import Settings
 from flat_pca.webui.workspace import CATALOG_JOB, Workspace
@@ -53,9 +54,7 @@ def test_data_selection_page_renders_controls(client: TestClient) -> None:
     assert response.status_code == 200
     assert "/static/vendor/htmx.min.js" in response.text
     assert 'hx-post="/catalog/refresh"' in response.text
-    assert 'name="eq__lot"' in response.text
-    assert 'name="min__yield_pct"' in response.text
-    assert 'type="datetime-local" name="max__date"' in response.text
+    assert 'hx-get="/catalog/files"' in response.text
     assert "catalog はまだ作成されていません" in response.text
 
 
@@ -63,8 +62,9 @@ def test_data_selection_groups_are_collapsible(client: TestClient) -> None:
     """Each group of the page is an open accordion, without check-all buttons."""
     text = client.get("/").text
 
-    for group in ("catalog", "filters", "files"):
+    for group in ("catalog", "files"):
         assert f'<details class="card" data-group="{group}" open>' in text
+    assert 'data-group="filters"' not in text
     assert '<button type="button" data-check-all' not in text
     assert "data-uncheck-all" not in text
 
@@ -126,33 +126,73 @@ def test_file_table_lists_files_and_metadata_warnings(
     assert "<li>ghost</li>" in text
     assert text.count("data-check-all") == 1
     assert text.index("data-check-all") < text.index("<tbody>")
+    assert "全 3 件中 1〜3 件" in text
+    assert "data-page=" not in text
 
 
-def test_category_filters_follow_catalog_and_keep_selection(
+def test_file_table_has_column_sort_and_filters(cataloged_client: TestClient) -> None:
+    """Every column name sorts; the stem and metadata columns have filters."""
+    text = cataloged_client.get("/catalog/files", params={"sort": "yield_pct"}).text
+
+    for name in ("stem", "lot", "yield_pct", "date", "n_steps", "n_segments", "n_rows"):
+        assert f'data-sort="{name}"' in text
+    assert text.count('aria-sort="ascending"') == 1
+    assert '<input type="hidden" name="sort" value="yield_pct" data-file-query>' in text
+    assert '<input type="hidden" name="order" value="asc" data-file-query>' in text
+    assert '<input type="hidden" name="page" value="1" data-file-query>' in text
+    assert 'name="q"' in text
+    assert 'name="eq__lot"' in text
+    assert 'name="min__yield_pct"' in text
+    assert 'name="max__yield_pct"' in text
+    assert re.search(r'type="datetime-local" id="[^"]+" name="max__date"', text)
+    assert "min__n_rows" not in text
+    descending = cataloged_client.get(
+        "/catalog/files", params={"sort": "n_rows", "order": "desc"}
+    ).text
+    assert descending.count('aria-sort="descending"') == 1
+
+
+def test_file_table_category_choices_follow_catalog(
     client: TestClient, wait_for: Wait
 ) -> None:
-    """Category choices reload after a catalog update, keeping chosen values."""
-    page = client.get("/").text
-    span = _opening_tag(page, "category-filters")
-    # The span sits inside #file-filter, whose hx-target would otherwise be
-    # inherited and swap the choices into the file table.
-    assert 'hx-trigger="catalog-updated from:body"' in span
-    assert 'hx-target="this"' in span
-    assert '<option value="A"' not in page
+    """Category choices come from the catalog and keep the chosen value."""
+    assert '<option value="A"' not in client.get("/catalog/files").text
     workspace = _workspace(client)
     wait_for(workspace.database, workspace.submit_catalog())
 
-    response = client.get("/catalog/category-filters", params={"eq__lot": "B"})
+    response = client.get("/catalog/files", params={"eq__lot": "B"})
 
     assert response.status_code == 200
     assert '<option value="A" >' in response.text
     assert '<option value="B" selected>' in response.text
-    stale = client.get("/catalog/category-filters", params={"eq__lot": "Z"}).text
+    stale = client.get("/catalog/files", params={"eq__lot": "Z"}).text
     assert '<option value="Z" selected>' in stale
-    assert (
-        client.get("/catalog/category-filters", params={"eq__unknown": "x"}).status_code
-        == 400
-    )
+
+
+def test_file_table_pages_and_lists_matching_stems(
+    cataloged_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Files split into pages; every file matching the filters is listed."""
+    monkeypatch.setattr(catalog_routes, "FILE_PAGE_SIZE", 2)
+
+    first = cataloged_client.get("/catalog/files").text
+    second = cataloged_client.get("/catalog/files", params={"page": "2"}).text
+    past = cataloged_client.get("/catalog/files", params={"page": "9"}).text
+
+    assert 'data-stem="run-2"' in first
+    assert 'data-stem="run-10"' not in first
+    assert "全 3 件中 1〜2 件" in first
+    assert '<button type="button" data-page="2" >次へ</button>' in first
+    assert 'data-stem="run-10"' in second
+    assert 'data-stem="run-1"' not in second
+    assert "全 3 件中 3〜3 件" in second
+    assert 'aria-current="page" disabled>2</button>' in second
+    assert "全 3 件中 3〜3 件" in past
+    for text in (first, second):
+        assert '["run-1", "run-2", "run-10"]</script>' in text
+    filtered = cataloged_client.get("/catalog/files", params={"eq__lot": "B"}).text
+    assert '["run-2"]</script>' in filtered
+    assert cataloged_client.get("/catalog/files", params={"page": "0"}).status_code == 400
 
 
 def test_file_table_applies_filters(cataloged_client: TestClient) -> None:
@@ -186,8 +226,15 @@ def test_selection_keeps_cataloged_stems(cataloged_client: TestClient) -> None:
     assert ">check_circle</span>" not in cataloged_client.get("/").text
     assert _workspace(cataloged_client).selection.stems == ["run-2", "run-10"]
     table = cataloged_client.get("/catalog/files").text
-    assert 'value="run-2" checked' in table
-    assert 'value="run-1" checked' not in table
+    assert re.search(r'value="run-2"[^>]*checked', table)
+    assert not re.search(r'value="run-1"[^>]*checked', table)
+    page = cataloged_client.get("/").text
+    assert re.search(
+        r'id="selected-stems"[^>]*>'
+        r'<input type="hidden" name="stems" value="run-2">'
+        r'<input type="hidden" name="stems" value="run-10"></div>',
+        page,
+    )
 
     cleared = cataloged_client.post("/catalog/selection")
 
@@ -232,14 +279,17 @@ def test_page_has_sidebar_navigation(client: TestClient) -> None:
         assert f"{event} from:body" in sidebar
 
 
-def test_htmx_elements_inside_forms_set_their_own_targets(client: TestClient) -> None:
-    """Elements inside forms do not inherit the form's swap target."""
+def test_file_table_and_select_set_their_own_targets(client: TestClient) -> None:
+    """The file table reloads itself; Select sends the kept selection."""
     page = client.get("/").text
 
     file_table = _opening_tag(page, "file-table")
     assert 'hx-target="this"' in file_table
     assert 'hx-swap="innerHTML"' in file_table
-    assert 'hx-swap="outerHTML"' in _opening_tag(page, "selection-form")
+    select = _opening_tag(page, "select-files")
+    assert 'hx-include="#selected-stems"' in select
+    assert 'hx-target="#selection-summary"' in select
+    assert 'hx-swap="outerHTML"' in select
 
 
 def test_sidebar_status_shows_catalog_and_selection(

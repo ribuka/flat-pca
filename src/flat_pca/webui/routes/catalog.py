@@ -8,12 +8,12 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from ..services.catalog_query import (
-    FILE_SORT_COLUMNS,
     category_options,
     list_files,
     metadata_warnings,
     parse_file_query,
 )
+from ..services.pagination import paginate
 from ..services.runs import latest_run_status
 from ..templating import templates
 from ..workspace import CATALOG_JOB, Workspace
@@ -21,6 +21,8 @@ from .dependencies import get_workspace
 
 router = APIRouter()
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
+
+FILE_PAGE_SIZE = 1000
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -39,58 +41,15 @@ def data_selection_page(
     Returns
     -------
     HTMLResponse
-        Full page with the catalog status, filter form, and file table.
+        Full page with the catalog status and the file table, which loads
+        separately, and the saved selection.
     """
     return templates.TemplateResponse(
         request,
         "pages/data_selection.html",
         {
             **latest_run_status(workspace.database, CATALOG_JOB),
-            "columns": workspace.settings.metadata_columns,
-            "sort_columns": [*FILE_SORT_COLUMNS, *workspace.settings.metadata_columns],
-            "options": category_options(workspace.database),
-            "current_values": {},
             "selected": workspace.selection.stems,
-        },
-    )
-
-
-@router.get("/catalog/category-filters", response_class=HTMLResponse)
-def category_filters(request: Request, workspace: WorkspaceDependency) -> HTMLResponse:
-    """Render the category filter selects with the current catalog values.
-
-    Requested after a catalog update so the choices follow the new metadata.
-
-    Parameters
-    ----------
-    request : Request
-        Current request carrying the filter form's values, parsed by
-        ``parse_file_query``; the selected category values are kept.
-    workspace : Workspace
-        Application workspace.
-
-    Returns
-    -------
-    HTMLResponse
-        Category filter partial.
-
-    Raises
-    ------
-    HTTPException
-        With status 400 if the query parameters are invalid.
-    """
-    try:
-        query = parse_file_query(
-            request.query_params, workspace.settings.metadata_columns
-        )
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    return templates.TemplateResponse(
-        request,
-        "partials/category_filters.html",
-        {
-            "options": category_options(workspace.database),
-            "current_values": query.equals,
         },
     )
 
@@ -155,7 +114,7 @@ def refresh_catalog(request: Request, workspace: WorkspaceDependency) -> HTMLRes
 
 @router.get("/catalog/files", response_class=HTMLResponse)
 def file_table(request: Request, workspace: WorkspaceDependency) -> HTMLResponse:
-    """Render the filtered and sorted file table.
+    """Render one page of the filtered and sorted file table.
 
     Parameters
     ----------
@@ -168,7 +127,10 @@ def file_table(request: Request, workspace: WorkspaceDependency) -> HTMLResponse
     Returns
     -------
     HTMLResponse
-        File table partial with metadata warnings.
+        File table partial with its column filters, the page links, the
+        stems of every file that matches the filters (for the header
+        checkbox), and metadata warnings. Each page holds
+        ``FILE_PAGE_SIZE`` files; a page past the last one shows the last.
 
     Raises
     ------
@@ -183,12 +145,15 @@ def file_table(request: Request, workspace: WorkspaceDependency) -> HTMLResponse
     warnings = (
         metadata_warnings(workspace.database) if workspace.settings.metadata else None
     )
+    files = list_files(workspace.database, query)
     return templates.TemplateResponse(
         request,
         "partials/file_table.html",
         {
-            "files": list_files(workspace.database, query),
+            "page": paginate(files, query.page, FILE_PAGE_SIZE),
+            "matching_stems": [file["stem"] for file in files],
             "columns": columns,
+            "options": category_options(workspace.database),
             "query": query,
             "warnings": warnings,
             "selected": set(workspace.selection.stems),
@@ -211,7 +176,8 @@ def select_files(
     workspace : Workspace
         Application workspace.
     stems : list[str] | None, default None
-        Checked file stems; stems not in the catalog are ignored.
+        Selected file stems over all pages and filters; stems not in the
+        catalog are ignored.
 
     Returns
     -------

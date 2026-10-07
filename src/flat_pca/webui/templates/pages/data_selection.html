@@ -8,56 +8,23 @@
   </div>
 </details>
 
-<details class="card" data-group="filters" open>
-  <summary><h2>絞り込み</h2></summary>
-  <div class="card-body">
-    <form id="file-filter" class="filters"
-          hx-get="/catalog/files" hx-target="#file-table"
-          hx-trigger="change, input delay:300ms, submit">
-      <label>ファイル名 <input type="search" name="q" placeholder="含む文字列"></label>
-      <span id="category-filters" class="filters"
-            hx-get="/catalog/category-filters" hx-include="#file-filter"
-            hx-target="this" hx-swap="innerHTML"
-            hx-trigger="catalog-updated from:body">
-        {% include "partials/category_filters.html" %}
-      </span>
-      {% for name, column in columns.items() if column.type != "category" %}
-        {% set input_type = "datetime-local" if column.type == "datetime" else "number" %}
-        <label>{{ name }}
-          <input type="{{ input_type }}" name="min__{{ name }}" step="any" aria-label="{{ name }} 下限">
-          〜
-          <input type="{{ input_type }}" name="max__{{ name }}" step="any" aria-label="{{ name }} 上限">
-        </label>
-      {% endfor %}
-      <label>ソート
-        <select name="sort">
-          {% for name in sort_columns %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
-        </select>
-      </label>
-      <label>順序
-        <select name="order">
-          <option value="asc">昇順</option>
-          <option value="desc">降順</option>
-        </select>
-      </label>
-    </form>
-  </div>
-</details>
-
 <details class="card" data-group="files" open>
   <summary><h2>ファイル</h2></summary>
   <div class="card-body">
-    <form id="selection-form" hx-post="/catalog/selection" hx-target="#selection-summary" hx-swap="outerHTML">
-      <div class="selection-actions">
-        <button type="submit">このファイル集合を fit 対象にする</button>
-        {% include "partials/selection_summary.html" %}
-      </div>
-      <div id="file-table" hx-get="/catalog/files" hx-include="#file-filter"
-           hx-target="this" hx-swap="innerHTML"
-           hx-trigger="load, catalog-updated from:body">
-        <p class="muted">読み込み中…</p>
-      </div>
-    </form>
+    <div id="file-table" hx-get="/catalog/files" hx-include="this"
+         hx-target="this" hx-swap="innerHTML" hx-sync="this:replace"
+         hx-trigger="load, catalog-updated from:body, file-query-changed">
+      <p class="muted">読み込み中…</p>
+    </div>
+    {#- The selection over all pages and filters, kept outside the reloaded table. -#}
+    <div id="selected-stems" hidden data-selected-stems>
+      {%- for stem in selected %}<input type="hidden" name="stems" value="{{ stem }}">{% endfor -%}
+    </div>
+    <div class="selection-actions">
+      {% include "partials/selection_summary.html" %}
+      <button id="select-files" type="button" class="button-primary" hx-post="/catalog/selection" hx-include="#selected-stems"
+              hx-target="#selection-summary" hx-swap="outerHTML">Select</button>
+    </div>
   </div>
 </details>
 {% endblock %}

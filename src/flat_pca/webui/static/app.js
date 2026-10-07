@@ -1,34 +1,126 @@
 // Bridges between page controls and htmx. Data processing stays on the server.
 
-// Shows in the header checkbox of a table whether all, some, or none of its
-// row checkboxes are checked.
-function syncCheckAll(table) {
-  const header = table.querySelector("[data-check-all]");
-  const boxes = [...table.querySelectorAll("tbody input[type=checkbox]")];
-  const checked = boxes.filter((box) => box.checked).length;
-  header.checked = boxes.length > 0 && checked === boxes.length;
-  header.indeterminate = checked > 0 && checked < boxes.length;
-  header.disabled = boxes.length === 0;
+const FILE_QUERY_DELAY_MS = 300;
+
+// The data selection's file selection over all pages and filters lives in the
+// hidden inputs of #selected-stems, outside the reloaded file table; Select
+// sends them.
+function selectedStems() {
+  const container = document.getElementById("selected-stems");
+  return new Set([...container.querySelectorAll("input")].map((input) => input.value));
 }
 
-// The header checkbox checks or unchecks every shown row; a row checkbox
-// updates the header.
+function setSelectedStems(stems) {
+  const inputs = [...stems].map((stem) => {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "stems";
+    input.value = stem;
+    return input;
+  });
+  document.getElementById("selected-stems").replaceChildren(...inputs);
+}
+
+// Returns the stems of every file matching the file table's filters, on all
+// of its pages.
+function matchingStems(root) {
+  return JSON.parse(root.querySelector("[data-matching-stems]").textContent);
+}
+
+// Shows the selection in the row checkboxes, and in the header checkbox
+// whether all, some, or none of the files matching the filters are selected.
+function syncFileChecks(root) {
+  const stems = selectedStems();
+  for (const box of root.querySelectorAll("[data-stem-check]")) {
+    box.checked = stems.has(box.value);
+  }
+  const matching = matchingStems(root);
+  const checked = matching.filter((stem) => stems.has(stem)).length;
+  const header = root.querySelector("[data-check-all]");
+  header.checked = matching.length > 0 && checked === matching.length;
+  header.indeterminate = checked > 0 && checked < matching.length;
+  header.disabled = matching.length === 0;
+}
+
+// A row checkbox selects its file; the header checkbox selects or clears
+// every file matching the filters, shown on this page or not.
 document.addEventListener("change", (event) => {
-  const table = event.target.closest("table[data-check-table]");
-  if (!table) {
+  const root = event.target.closest("#file-table");
+  if (!root || !event.target.matches("[data-check-all], [data-stem-check]")) {
     return;
   }
-  if (event.target.matches("[data-check-all]")) {
-    for (const box of table.querySelectorAll("tbody input[type=checkbox]")) {
-      box.checked = event.target.checked;
+  const stems = selectedStems();
+  const targets = event.target.matches("[data-check-all]")
+    ? matchingStems(root)
+    : [event.target.value];
+  for (const stem of targets) {
+    if (event.target.checked) {
+      stems.add(stem);
+    } else {
+      stems.delete(stem);
     }
   }
-  syncCheckAll(table);
+  setSelectedStems(stems);
+  syncFileChecks(root);
+});
+
+let fileQueryTimer = null;
+
+// Sets query values of the file table and reloads it from the server.
+function reloadFileTable(root, values) {
+  clearTimeout(fileQueryTimer);
+  for (const [name, value] of Object.entries(values)) {
+    root.querySelector(`[data-file-query][name="${name}"]`).value = value;
+  }
+  htmx.trigger(root, "file-query-changed");
+}
+
+// Typing in a filter reloads the first page after a pause; choosing a
+// category reloads it at once.
+document.addEventListener("input", (event) => {
+  const root = event.target.closest("#file-table");
+  if (!root || !event.target.matches("input[data-file-query]")) {
+    return;
+  }
+  clearTimeout(fileQueryTimer);
+  fileQueryTimer = setTimeout(() => reloadFileTable(root, { page: "1" }), FILE_QUERY_DELAY_MS);
+});
+
+document.addEventListener("change", (event) => {
+  const root = event.target.closest("#file-table");
+  if (root && event.target.matches("select[data-file-query]")) {
+    reloadFileTable(root, { page: "1" });
+  }
+});
+
+// A column name sorts by that column, ascending first and then toggling; the
+// page links move between pages.
+document.addEventListener("click", (event) => {
+  const root = event.target.closest("#file-table");
+  if (!root) {
+    return;
+  }
+  const sort = event.target.closest("[data-sort]");
+  if (sort) {
+    const current = root.querySelector('[data-file-query][name="sort"]').value;
+    const order = root.querySelector('[data-file-query][name="order"]').value;
+    const descending = current === sort.dataset.sort && order === "asc";
+    reloadFileTable(root, {
+      sort: sort.dataset.sort,
+      order: descending ? "desc" : "asc",
+      page: "1",
+    });
+    return;
+  }
+  const page = event.target.closest("[data-page]");
+  if (page) {
+    reloadFileTable(root, { page: page.dataset.page });
+  }
 });
 
 document.addEventListener("htmx:afterSettle", (event) => {
-  for (const table of event.detail.elt.querySelectorAll("table[data-check-table]")) {
-    syncCheckAll(table);
+  if (event.detail.elt.id === "file-table") {
+    syncFileChecks(event.detail.elt);
   }
 });
 
