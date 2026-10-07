@@ -144,7 +144,7 @@ def explore_page(
     workspace : Workspace
         Application workspace.
     view : str, default ``"raw"``
-        ``"raw"``, ``"preprocessed"``, or ``"component"``.
+        A key of ``VIEW_LABELS``.
     run : str | None, default None
         Succeeded fit run; the latest one by default.
     file : list[str] | None, default None
@@ -152,7 +152,8 @@ def explore_page(
     segment : str | None, default None
         ``"{Step}:{Sequence}"``; the first available one by default.
     k : int | None, default None
-        1-based component number of the component view.
+        1-based component number k of the component and reconstruction
+        views.
 
     Returns
     -------

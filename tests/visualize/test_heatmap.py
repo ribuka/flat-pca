@@ -155,3 +155,22 @@ def test_create_heatmap_rejects_ambiguous_or_misshaped_input(
     """Exactly one of a frame or a matrix with matching axes is accepted."""
     with pytest.raises(ValueError):
         create_heatmap(**arguments)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("z_name", ["contribution", "residual"])
+def test_create_heatmap_uses_diverging_scale_for_zero_centered_values(
+    z_name: str,
+) -> None:
+    """Contributions and residuals get the symmetric diverging scale."""
+    figure = create_heatmap(
+        z=np.array([[-1.0, 3.0], [2.0, 0.5]]),
+        x=np.array([650.0, 651.0]),
+        y=np.array([0.0, 0.5]),
+        z_name=z_name,
+        symmetric_range_quantile=1.0,
+    )
+
+    assert (figure.layout.coloraxis.cmin, figure.layout.coloraxis.cmax) == (-3.0, 3.0)
+    assert figure.layout.coloraxis.colorscale[0][1] == create_heatmap(
+        z=np.zeros((1, 1)), x=[1.0], y=[0.0], z_name="coefficient"
+    ).layout.coloraxis.colorscale[0][1]

@@ -10,12 +10,16 @@ from pathlib import Path
 import polars as pl
 
 from flat_pca.feature_engineering.flatten_pca.input import read_parquet
+from flat_pca.feature_engineering.pca import PcaModel, PreparedRows, prepare_rows
 from flat_pca.feature_engineering.preprocess import add_step_time_columns
 
-from .fit_artifacts import DisplayArtifacts, load_display_artifacts
+from .fit_artifacts import DisplayArtifacts, load_display_artifacts, load_pca_model
 
 RAW_SPECTRA_ENTRIES = 8
 FIT_ARTIFACT_ENTRIES = 4
+# A restored model holds every component in float64, so keep only a few.
+PCA_MODEL_ENTRIES = 2
+PREPARED_ROW_ENTRIES = 16
 
 
 class LruCache[K: Hashable, V]:
@@ -101,7 +105,9 @@ class DisplayCache:
     Raw files are keyed by path, size, and modification time, so a changed
     file is read again. Run artifacts are keyed by run directory; their
     matrices (``X.npy`` and ``components.npy``) stay memory-mapped, so only
-    the rows a view needs are read.
+    the rows a view needs are read. The PCA models and the prepared rows of
+    the reconstruction views are kept separately, so the other views never
+    restore a model.
     """
 
     def __init__(self) -> None:
@@ -109,6 +115,10 @@ class DisplayCache:
             RAW_SPECTRA_ENTRIES
         )
         self._runs: LruCache[str, DisplayArtifacts] = LruCache(FIT_ARTIFACT_ENTRIES)
+        self._models: LruCache[str, PcaModel] = LruCache(PCA_MODEL_ENTRIES)
+        self._prepared: LruCache[tuple[str, int], PreparedRows] = LruCache(
+            PREPARED_ROW_ENTRIES
+        )
 
     def raw_spectra(self, path: Path) -> pl.DataFrame:
         """Return one file's spectra with ``StepTime`` columns.
@@ -153,3 +163,52 @@ class DisplayCache:
             If the artifacts cannot be read.
         """
         return self._runs.get_or_load(str(run_dir), lambda: load_display_artifacts(run_dir))
+
+    def pca_model(self, run_dir: Path) -> PcaModel:
+        """Return the PCA pipeline of one fit run.
+
+        Parameters
+        ----------
+        run_dir : Path
+            Run directory written by ``run_fit``.
+
+        Returns
+        -------
+        PcaModel
+            See ``load_pca_model``.
+
+        Raises
+        ------
+        RunArtifactError
+            If the artifacts cannot be read.
+        """
+        return self._models.get_or_load(str(run_dir), lambda: load_pca_model(run_dir))
+
+    def prepared_row(self, run_dir: Path, row: int) -> PreparedRows:
+        """Return one ``X.npy`` row after the run's imputation and outlier handling.
+
+        Parameters
+        ----------
+        run_dir : Path
+            Run directory written by ``run_fit``.
+        row : int
+            Zero-based row of ``X.npy``.
+
+        Returns
+        -------
+        PreparedRows
+            See ``prepare_rows``; ``kept`` is empty when the imputation drops
+            the row.
+
+        Raises
+        ------
+        RunArtifactError
+            If the artifacts cannot be read.
+        """
+
+        def load() -> PreparedRows:
+            # Read only this row of the memory-mapped matrix.
+            values = self.fit_artifacts(run_dir).x[row : row + 1]
+            return prepare_rows(values, self.pca_model(run_dir))
+
+        return self._prepared.get_or_load((str(run_dir), row), load)
