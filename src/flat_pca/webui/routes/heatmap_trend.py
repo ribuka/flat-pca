@@ -56,8 +56,7 @@ def heatmap_context(
     Returns
     -------
     dict[str, object]
-        Heatmap label, binning, figure and axes JSON, axis sizes, and the
-        trend URL.
+        Heatmap label, binning, figure and axes JSON, and the trend URL.
     """
     label, matrix = next(iter(matrices.items()))
     binned = bin_step_times(matrix, max_cells)
@@ -83,8 +82,6 @@ def heatmap_context(
                 }
             )
         ),
-        "n_wavelengths": matrix.wavelengths.size,
-        "n_step_times": matrix.step_times.size,
         "trend_url": trend_url,
     }
 
