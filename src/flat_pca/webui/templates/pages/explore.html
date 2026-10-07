@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}スペクトル探索 - flat-pca{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', path='vendor/plotly.min.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+<section>
+  <h2>スペクトル探索</h2>
+  <form id="explore-form" class="explore-form" method="get" action="/explore" data-auto-submit>
+    <div class="field-row">
+      <label>表示対象
+        <select name="view">
+          {% for key, label in view_labels.items() %}
+            <option value="{{ key }}" {% if key == shown.view %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% if shown.runs %}
+        <label>fit run
+          <select name="run">
+            {% for run in shown.runs %}
+              <option value="{{ run.run_id }}" {% if run.run_id == shown.run_id %}selected{% endif %}>{{ run.run_id }}（{{ run.created_at|cell }}）</option>
+            {% endfor %}
+          </select>
+        </label>
+      {% endif %}
+      {% if shown.segment_options %}
+        <label>(Step, Sequence)
+          <select name="segment">
+            {% for step, sequence in shown.segment_options %}
+              <option value="{{ step }}:{{ sequence }}" {% if shown.segment == (step, sequence) %}selected{% endif %}>({{ step }}, {{ sequence }})</option>
+            {% endfor %}
+          </select>
+        </label>
+      {% endif %}
+      {% if shown.view == "component" and shown.component_count %}
+        <label>成分 k
+          <input type="number" name="k" min="1" max="{{ shown.component_count }}" value="{{ shown.component }}">
+        </label>
+        <span class="muted">（1〜{{ shown.component_count }}）</span>
+      {% endif %}
+      <button type="submit">表示</button>
+    </div>
+    {% if shown.file_options %}
+      <div class="field-row">
+        <label>ファイル
+          <select name="file" multiple size="{{ [shown.file_options|length, 6]|min }}">
+            {% for stem in shown.file_options %}
+              <option value="{{ stem }}" {% if stem in shown.files %}selected{% endif %}>{{ stem }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <span class="muted">
+          先頭のファイルをヒートマップに描き、選んだすべてのファイルをトレンドに重ねます。
+          {% if shown.view == "raw" %}データ選択で選んだファイル（未選択なら catalog の全ファイル）から選べます。{% endif %}
+        </span>
+      </div>
+    {% endif %}
+  </form>
+</section>
+
+<section>
+  {% if shown.error %}
+    <p class="error" data-explore-error>{{ shown.error }}</p>
+  {% elif not shown.matrices %}
+    <p class="muted">表示するデータがありません。</p>
+  {% else %}
+    <div data-explore data-trend-url="/explore/trend?{{ trend_query }}">
+      {% if shown.intensity_transform %}
+        <p data-intensity-transform="{{ shown.intensity_transform.name }}">
+          強度変換：{{ shown.intensity_transform.name }}{% if shown.intensity_transform.name != "none" %}（scale = {{ shown.intensity_transform.scale|cell }}）{% endif %}
+        </p>
+      {% endif %}
+      {% if shown.skipped %}
+        <p class="warnings" data-skipped>(Step, Sequence) を持たないため除外したファイル：{{ shown.skipped|join("、") }}</p>
+      {% endif %}
+      {% if binned.binned %}
+        <p class="warnings" data-binned>
+          セル数が上限 {{ max_cells }} を超えるため、時間方向の {{ binned.source_rows }} 行を
+          {{ binned.matrix.step_times|length }} 個のビンに平均して表示しています（トレンドはビニング前の値です）。
+        </p>
+      {% endif %}
+      <div id="explore-heatmap" class="plot plot-heatmap" data-heatmap-label="{{ heatmap_label }}"></div>
+      <div class="field-row explore-sliders">
+        <label for="explore-wavelength">波長</label>
+        <input type="range" id="explore-wavelength" min="0" max="{{ n_wavelengths - 1 }}" step="1" value="{{ (n_wavelengths - 1) // 2 }}">
+        <output id="explore-wavelength-value" for="explore-wavelength"></output>
+        <label for="explore-step-time">StepTime</label>
+        <input type="range" id="explore-step-time" min="0" max="{{ n_step_times - 1 }}" step="1" value="{{ (n_step_times - 1) // 2 }}">
+        <output id="explore-step-time-value" for="explore-step-time"></output>
+      </div>
+      <div class="trend-grid">
+        <div id="explore-trend-step-time" class="plot"></div>
+        <div id="explore-trend-wavelength" class="plot"></div>
+      </div>
+      <script type="application/json" id="explore-heatmap-figure">{{ figure_json|safe }}</script>
+      <script type="application/json" id="explore-axes">{{ axes_json|safe }}</script>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

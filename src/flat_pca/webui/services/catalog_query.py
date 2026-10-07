@@ -302,6 +302,28 @@ def existing_stems(database: Database, stems: list[str]) -> list[str]:
     return sorted((str(row["stem"]) for row in rows), key=natural_keys)
 
 
+
+def list_segments(database: Database, stem: str) -> list[tuple[int, int]]:
+    """Return the ``(Step, Sequence)`` pairs of one cataloged file.
+
+    Parameters
+    ----------
+    database : Database
+        Workspace database.
+    stem : str
+        File stem.
+
+    Returns
+    -------
+    list[tuple[int, int]]
+        Pairs in ascending order; empty for an unknown stem.
+    """
+    rows = database.fetch_dicts(
+        "SELECT step, sequence FROM segments WHERE stem = ? ORDER BY step, sequence",
+        [stem],
+    )
+    return [(int(row["step"]), int(row["sequence"])) for row in rows]
+
 @dataclass(frozen=True)
 class SelectionRanges:
     """Steps and coordinate ranges of a set of cataloged files.
