@@ -1,4 +1,4 @@
-"""Browser tests of the score and loading page."""
+"""Browser tests of the score page."""
 
 from __future__ import annotations
 
@@ -14,10 +14,9 @@ SHORT = f"s-{SPECTRA_SHORT_FILE:02d}"
 
 
 def _open(page: Page, url: str) -> None:
-    """Open a score page and wait until every figure is drawn."""
+    """Open a score page and wait until the score scatter plot is drawn."""
     page.goto(url)
-    for target in ("#scores-scatter", "#scores-loadings", "#scores-scree"):
-        expect(page.locator(target)).to_have_attribute("data-plot-ready", "true")
+    expect(page.locator("#scores-scatter")).to_have_attribute("data-plot-ready", "true")
 
 
 def test_clicking_a_score_point_opens_the_exploration(
@@ -50,7 +49,7 @@ def test_choices_redraw_the_trajectories(page: Page, fitted_server_url: str) -> 
     y_input.dispatch_event("change")
 
     expect(page).to_have_url(
-        f"{fitted_server_url}/scores?run=fit-1&x=1&y=3&color=lot&aggregation=rms"
+        f"{fitted_server_url}/scores?run=fit-1&x=1&y=3&color=lot"
         f"&file=s-00&file={SHORT}"
     )
     expect(page.locator("#scores-trajectories")).to_have_attribute("data-plot-ready", "true")

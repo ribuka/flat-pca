@@ -2,29 +2,25 @@
 
 from __future__ import annotations
 
-import json
 from typing import Annotated
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 
-from flat_pca.visualize import create_heatmap, create_trend
-
 from ..services.display_cache import ShownMatrices
 from ..services.explore import (
     VIEW_LABELS,
     ExploreRequest,
     ExploreView,
-    explore_trends,
     resolve_explore,
     shown_request,
 )
-from ..services.heatmap_binning import bin_step_times
 from ..services.runs import list_succeeded_runs
 from ..templating import templates
 from ..workspace import FIT_JOB, Workspace
 from .dependencies import get_workspace
+from .heatmap_trend import heatmap_context, trend_response
 
 router = APIRouter(prefix="/explore")
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
@@ -127,22 +123,6 @@ def _shown_matrices(workspace: Workspace, request: ExploreRequest) -> ShownMatri
     return kept
 
 
-def _script_json(text: str) -> str:
-    """Make JSON text safe to embed in a ``<script>`` element.
-
-    Parameters
-    ----------
-    text : str
-        JSON text.
-
-    Returns
-    -------
-    str
-        ``text`` with ``</`` escaped so it cannot close the element.
-    """
-    return text.replace("</", "<\\/")
-
-
 @router.get("", response_class=HTMLResponse)
 def explore_page(
     request: Request,
@@ -170,8 +150,8 @@ def explore_page(
     segment : str | None, default None
         ``"{Step}:{Sequence}"``; the first available one by default.
     k : int | None, default None
-        1-based component number k of the component and reconstruction
-        views.
+        1-based component number k of the contribution, reconstruction,
+        and residual views.
 
     Returns
     -------
@@ -185,7 +165,6 @@ def explore_page(
     context: dict[str, object] = {
         "shown": shown,
         "view_labels": VIEW_LABELS,
-        "max_cells": workspace.settings.ui.heatmap_max_cells,
         "max_files": workspace.settings.ui.explore_max_files,
     }
     if shown.matrices:
@@ -193,29 +172,12 @@ def explore_page(
             shown_request(shown),
             ShownMatrices(value_name=shown.value_name, matrices=shown.matrices),
         )
-        label, matrix = next(iter(shown.matrices.items()))
-        binned = bin_step_times(matrix, workspace.settings.ui.heatmap_max_cells)
-        figure = create_heatmap(
-            z=binned.matrix.values,
-            x=binned.matrix.wavelengths,
-            y=binned.matrix.step_times,
-            y_name="StepTime",
-            z_name=shown.value_name,
-        ).update_layout(title=label)
-        context["heatmap_label"] = label
-        context["binned"] = binned
-        context["figure_json"] = _script_json(figure.to_json())
-        context["axes_json"] = _script_json(
-            json.dumps(
-                {
-                    "wavelengths": matrix.wavelengths.tolist(),
-                    "step_times": matrix.step_times.tolist(),
-                }
-            )
+        context |= heatmap_context(
+            shown.matrices,
+            shown.value_name,
+            workspace.settings.ui.heatmap_max_cells,
+            f"/explore/trend?{_query_string(shown)}",
         )
-        context["n_wavelengths"] = matrix.wavelengths.size
-        context["n_step_times"] = matrix.step_times.size
-        context["trend_query"] = _query_string(shown)
     return templates.TemplateResponse(request, "pages/explore.html", context)
 
 
@@ -263,25 +225,4 @@ def explore_trend(
             view=view, run=run, files=tuple(file or ()), segment=segment, component=k
         ),
     )
-    by_time, by_wavelength = explore_trends(shown.matrices, wavelength, step_time)
-    first_time = next(iter(by_time.values()))
-    first_wavelength = next(iter(by_wavelength.values()))
-    time_figure = create_trend(
-        {label: (line.x, line.y) for label, line in by_time.items()},
-        x_name="StepTime",
-        y_name=shown.value_name,
-        title=f"wavelength = {first_time.at:g}",
-    )
-    wavelength_figure = create_trend(
-        {label: (line.x, line.y) for label, line in by_wavelength.items()},
-        x_name="wavelength",
-        y_name=shown.value_name,
-        title=f"StepTime = {first_wavelength.at:g}",
-    )
-    body = (
-        f'{{"wavelength": {json.dumps(first_time.at)}, '
-        f'"step_time": {json.dumps(first_wavelength.at)}, '
-        f'"by_step_time": {time_figure.to_json()}, '
-        f'"by_wavelength": {wavelength_figure.to_json()}}}'
-    )
-    return Response(content=body, media_type="application/json")
+    return trend_response(shown.matrices, shown.value_name, wavelength, step_time)

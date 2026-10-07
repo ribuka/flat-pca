@@ -208,6 +208,7 @@ def test_page_has_sidebar_navigation(client: TestClient) -> None:
 
     assert '<a class="nav-item nav-current" href="/" aria-current="page">' in page
     assert '<a class="nav-item" href="/fit">' in page
+    assert '<a class="nav-item" href="/model">' in page
     assert '<a class="nav-item" href="/explore">' in page
     assert '<a class="nav-item" href="/scores">' in page
     assert '<a class="nav-item" href="/monitoring">' in page

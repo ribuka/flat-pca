@@ -202,25 +202,6 @@ def test_preprocessed_view_shows_x_rows_and_the_transform(
     assert names == ["s-00", short]
 
 
-def test_component_view_shows_one_component(client: TestClient, fit_run: str) -> None:
-    """The component view reshapes the chosen component with a diverging scale."""
-    html = client.get("/explore", params={"view": "component", "k": "2"}).text
-
-    assert 'data-heatmap-label="PC2"' in html
-    assert 'name="k" min="1" max="3" value="2"' in html
-    assert 'name="file"' not in html
-    assert "data-intensity-transform" not in html
-    coloraxis = _embedded(html, "explore-heatmap-figure")["layout"]["coloraxis"]  # type: ignore[index]
-    assert coloraxis["colorbar"]["title"]["text"] == "coefficient"
-    assert coloraxis["cmin"] == -coloraxis["cmax"]
-
-    trends = client.get(
-        "/explore/trend",
-        params={"view": "component", "k": "2", "wavelength": 400, "step_time": 0},
-    ).json()
-    assert [trace["name"] for trace in trends["by_step_time"]["data"]] == ["PC2"]
-
-
 def test_run_views_without_a_run_show_a_message(client: TestClient) -> None:
     """Without a succeeded fit run, run-based views explain why nothing is drawn."""
     html = client.get("/explore", params={"view": "preprocessed"}).text
@@ -229,17 +210,24 @@ def test_run_views_without_a_run_show_a_message(client: TestClient) -> None:
     assert "成功した fit run がありません" in html
     assert "data-explore " not in html
     response = client.get(
-        "/explore/trend", params={"view": "component", "wavelength": 0, "step_time": 0}
+        "/explore/trend", params={"view": "preprocessed", "wavelength": 0, "step_time": 0}
     )
     assert response.status_code == 404
 
 
 @pytest.mark.parametrize(
     "params",
-    [{"view": "unknown"}, {"segment": "1"}, {"segment": "a:b"}, {"run": "missing"}],
+    [
+        {"view": "unknown"},
+        {"view": "component"},
+        {"segment": "1"},
+        {"segment": "a:b"},
+        {"run": "missing"},
+    ],
 )
 def test_invalid_parameters_are_rejected(client: TestClient, params: dict[str, str]) -> None:
-    """Unknown views, malformed segments, and unknown runs return 400."""
+    """Unknown views (including the moved component view), malformed segments,
+    and unknown runs return 400."""
     assert client.get("/explore", params=params).status_code == 400
 
 
@@ -258,10 +246,10 @@ def test_succeeded_run_is_found_behind_many_failed_runs(
     """Newer failed runs do not push the succeeded run out of the choices."""
     _add_runs(client, settings, 101, "failed")
 
-    html = client.get("/explore", params={"view": "component"}).text
+    html = client.get("/explore", params={"view": "preprocessed"}).text
 
     assert f'<option value="{fit_run}" selected>' in html
-    assert 'data-heatmap-label="PC1"' in html
+    assert 'data-heatmap-label="s-00"' in html
 
 
 def test_old_succeeded_run_can_be_requested(
@@ -270,10 +258,10 @@ def test_old_succeeded_run_can_be_requested(
     """A succeeded run beyond the listed ones is still shown when requested."""
     _add_runs(client, settings, 101, "succeeded")
 
-    html = client.get("/explore", params={"view": "component", "run": fit_run}).text
+    html = client.get("/explore", params={"view": "preprocessed", "run": fit_run}).text
 
     assert f'<option value="{fit_run}" selected>' in html
-    assert 'data-heatmap-label="PC1"' in html
+    assert 'data-heatmap-label="s-00"' in html
 
 
 def _trend_values(

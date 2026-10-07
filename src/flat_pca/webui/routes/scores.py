@@ -1,4 +1,4 @@
-"""Score and loading screen: score and loading scatter plots and trajectories."""
+"""Score screen: score scatter plot and partial score trajectories."""
 
 from __future__ import annotations
 
@@ -9,20 +9,10 @@ import plotly.graph_objects as go
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
-from flat_pca.visualize import (
-    create_loading_scatter,
-    create_partial_score_trajectories,
-    create_score_scatter,
-    create_scree_plot,
-)
+from flat_pca.visualize import create_partial_score_trajectories, create_score_scatter
 
 from ..services.runs import list_succeeded_runs
-from ..services.scores import (
-    AGGREGATION_LABELS,
-    ScoresRequest,
-    ScoresView,
-    resolve_scores,
-)
+from ..services.scores import ScoresRequest, ScoresView, resolve_scores
 from ..templating import templates
 from ..workspace import FIT_JOB, Workspace
 from .dependencies import get_workspace
@@ -58,12 +48,10 @@ def _figures(shown: ScoresView) -> dict[str, str]:
     Returns
     -------
     dict[str, str]
-        Figure JSON keyed by ``scatter``, ``loadings``, ``scree``, and, when
-        a chosen file has a trajectory, ``trajectories``.
+        Figure JSON keyed by ``scatter`` and, when a chosen file has a
+        trajectory, ``trajectories``.
     """
     assert shown.scores is not None
-    assert shown.loadings is not None
-    assert shown.explained_variance is not None
     figures = {
         "scatter": create_score_scatter(
             shown.scores.x,
@@ -73,12 +61,6 @@ def _figures(shown: ScoresView) -> dict[str, str]:
             y_name=shown.y_name,
             color=None if shown.color is None else shown.scores.samples[shown.color],
         ).update_layout(title="スコア"),
-        "loadings": create_loading_scatter(
-            shown.loadings, x=shown.x_name, y=shown.y_name
-        ).update_layout(title=f"ローディング（{AGGREGATION_LABELS[shown.aggregation]}）"),
-        "scree": create_scree_plot(shown.explained_variance).update_layout(
-            title="スクリープロット"
-        ),
     }
     if shown.trajectories:
         figures["trajectories"] = create_partial_score_trajectories(
@@ -100,10 +82,9 @@ def scores_page(
     x: int | None = None,
     y: int | None = None,
     color: str | None = None,
-    aggregation: str | None = None,
     file: Annotated[list[str] | None, Query()] = None,
 ) -> HTMLResponse:
-    """Render the score and loading page.
+    """Render the score page.
 
     Parameters
     ----------
@@ -120,9 +101,6 @@ def scores_page(
     color : str | None, default None
         Metadata column coloring the score points; ``ui.default_color_by``
         by default and none for ``""``.
-    aggregation : str | None, default None
-        ``"mean"``, ``"rms"``, or ``"abs_mean"`` loading aggregation;
-        ``"rms"`` by default.
     file : list[str] | None, default None
         Stems whose partial score trajectories are drawn; the first file by
         default.
@@ -135,11 +113,9 @@ def scores_page(
     Raises
     ------
     HTTPException
-        With status 400 if the run or the aggregation is invalid.
+        With status 400 if the run is invalid.
     """
-    scores_request = ScoresRequest(
-        run=run, x=x, y=y, color=color, aggregation=aggregation, files=tuple(file or ())
-    )
+    scores_request = ScoresRequest(run=run, x=x, y=y, color=color, files=tuple(file or ()))
     try:
         shown = resolve_scores(
             workspace.cache,
@@ -149,10 +125,7 @@ def scores_page(
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    context: dict[str, object] = {
-        "shown": shown,
-        "aggregation_labels": AGGREGATION_LABELS,
-    }
+    context: dict[str, object] = {"shown": shown}
     if shown.error is None and shown.run_id is not None:
         context["figures"] = _figures(shown)
         context["explore_url"] = "/explore?" + urlencode(
