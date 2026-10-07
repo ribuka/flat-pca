@@ -149,7 +149,8 @@ def test_component_heatmap_reshapes_the_chosen_component(
 @pytest.mark.usefixtures("run_dir")
 def test_trend_without_a_kept_matrix_resolves_the_screen(client: TestClient) -> None:
     """A trend request no page drew falls back to the defaults and is resolved."""
-    _workspace(client).cache = DisplayCache()
+    workspace = _workspace(client)
+    workspace.cache = DisplayCache(workspace.settings.ui.explore_max_files)
 
     trends = client.get("/model/trend", params={"wavelength": 400, "step_time": 0}).json()
 
