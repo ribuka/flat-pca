@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -34,5 +35,30 @@ def format_value(value: object) -> str:
     return str(value)
 
 
+@dataclass(frozen=True)
+class NavItem:
+    """One screen in the sidebar navigation.
+
+    Attributes
+    ----------
+    label : str
+        Text shown in the sidebar.
+    path : str | None
+        URL path of the screen, or ``None`` while it is not implemented.
+    """
+
+    label: str
+    path: str | None
+
+
+NAV_ITEMS = (
+    NavItem("データ選択", "/"),
+    NavItem("前処理・PCA", None),
+    NavItem("スペクトル探索", None),
+    NavItem("スコア・ローディング", None),
+    NavItem("T² / Q", None),
+)
+
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 templates.env.filters["cell"] = format_value
+templates.env.globals["nav_items"] = NAV_ITEMS

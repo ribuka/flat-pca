@@ -28,6 +28,13 @@ def _workspace(client: TestClient) -> Workspace:
     return client.app.state.workspace
 
 
+def _opening_tag(html: str, element_id: str) -> str:
+    """Return the opening tag of the element with ``element_id``."""
+    match = re.search(rf'<[a-z]+ id="{element_id}"[^>]*>', html)
+    assert match is not None, element_id
+    return match.group()
+
+
 @pytest.fixture
 def cataloged_client(client: TestClient, wait_for: Wait) -> TestClient:
     """Return a client after one successful catalog run."""
@@ -67,6 +74,7 @@ def test_refresh_returns_polling_status_until_finished(
     response = client.post("/catalog/refresh")
 
     assert response.status_code == 200
+    assert response.headers["HX-Trigger"] == "catalog-started"
     assert 'id="catalog-status"' in response.text
     assert 'hx-trigger="every 1s"' in response.text
     workspace = _workspace(client)
@@ -103,12 +111,11 @@ def test_category_filters_follow_catalog_and_keep_selection(
 ) -> None:
     """Category choices reload after a catalog update, keeping chosen values."""
     page = client.get("/").text
-    span = re.search(r'<span id="category-filters"[^>]*>', page)
-    assert span is not None
+    span = _opening_tag(page, "category-filters")
     # The span sits inside #file-filter, whose hx-target would otherwise be
     # inherited and swap the choices into the file table.
-    assert 'hx-trigger="catalog-updated from:body"' in span.group()
-    assert 'hx-target="this"' in span.group()
+    assert 'hx-trigger="catalog-updated from:body"' in span
+    assert 'hx-target="this"' in span
     assert '<option value="A"' not in page
     workspace = _workspace(client)
     wait_for(workspace.database, workspace.submit_catalog())
@@ -151,6 +158,7 @@ def test_selection_keeps_cataloged_stems(cataloged_client: TestClient) -> None:
     )
 
     assert response.status_code == 200
+    assert response.headers["HX-Trigger"] == "selection-updated"
     assert 'data-selected-count="2"' in response.text
     assert _workspace(cataloged_client).selection.stems == ["run-2", "run-10"]
     table = cataloged_client.get("/catalog/files").text
@@ -180,3 +188,50 @@ def test_cancel_active_run(client: TestClient, wait_for: Wait) -> None:
 
     assert response.status_code == 204
     assert wait_for(workspace.database, run_id)["status"] == "cancelled"
+
+
+def test_page_has_sidebar_navigation(client: TestClient) -> None:
+    """The sidebar marks the current screen and disables unimplemented ones."""
+    page = client.get("/").text
+
+    assert '<a class="nav-item nav-current" href="/" aria-current="page">' in page
+    assert page.count('aria-disabled="true"') == 4
+    sidebar = _opening_tag(page, "sidebar-status")
+    assert 'hx-get="/sidebar/status"' in sidebar
+    assert 'hx-target="this"' in sidebar
+    for event in ("catalog-started", "catalog-updated", "selection-updated"):
+        assert f"{event} from:body" in sidebar
+
+
+def test_htmx_elements_inside_forms_set_their_own_targets(client: TestClient) -> None:
+    """Elements inside forms do not inherit the form's swap target."""
+    page = client.get("/").text
+
+    file_table = _opening_tag(page, "file-table")
+    assert 'hx-target="this"' in file_table
+    assert 'hx-swap="innerHTML"' in file_table
+    assert 'hx-swap="outerHTML"' in _opening_tag(page, "selection-form")
+
+
+def test_sidebar_status_shows_catalog_and_selection(
+    client: TestClient, wait_for: Wait
+) -> None:
+    """The sidebar reports the catalog state and the selection size."""
+    empty = client.get("/sidebar/status")
+    assert empty.status_code == 200
+    assert "未作成" in empty.text
+    assert "every 2s" not in empty.text
+
+    workspace = _workspace(client)
+    run_id = workspace.submit_catalog()
+    active = client.get("/sidebar/status").text
+    assert 'hx-trigger="every 2s"' in active
+    wait_for(workspace.database, run_id)
+    client.post("/catalog/selection", data={"stems": ["run-1", "run-2"]})
+
+    finished = client.get("/sidebar/status").text
+
+    assert "status-succeeded" in finished
+    assert "3 ファイル" in finished
+    assert "every 2s" not in finished
+    assert re.search(r'data-sidebar="selection">\s*2 ファイル', finished)
