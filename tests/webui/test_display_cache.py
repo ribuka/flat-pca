@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 import pytest
 
+from flat_pca.webui.jobs.fit_run import COMPONENTS_FILE, build_fit_config, run_fit
 from flat_pca.webui.services.display_cache import DisplayCache, LruCache
+from flat_pca.webui.services.fit_artifacts import (
+    RunArtifactError,
+    load_display_artifacts,
+)
+from flat_pca.webui.settings import Settings
 
 
 def test_lru_cache_evicts_the_least_recently_used_entry() -> None:
@@ -68,3 +76,48 @@ def test_raw_spectra_adds_step_time_and_rereads_changed_files(tmp_path: Path) ->
     os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 10**9))
 
     assert cache.raw_spectra(path)["400.0nm"].to_list() == [5.0]
+
+
+def test_fit_artifacts_keep_matrices_memory_mapped(
+    settings: Settings, spectra_paths: list[Path]
+) -> None:
+    """Display artifacts restore no model, so the components stay memory-mapped."""
+    run_dir = _fit_run_dir(settings, spectra_paths)
+
+    artifacts = DisplayCache().fit_artifacts(run_dir)
+
+    assert isinstance(artifacts.x, np.memmap)
+    assert isinstance(artifacts.components, np.memmap)
+    assert artifacts.components.shape == (2, artifacts.features.height)
+
+
+def test_fit_artifacts_reject_inconsistent_components(
+    settings: Settings, spectra_paths: list[Path]
+) -> None:
+    """Components of another feature count are reported as unreadable artifacts."""
+    run_dir = _fit_run_dir(settings, spectra_paths)
+    np.save(run_dir / COMPONENTS_FILE, np.zeros((2, 3), dtype=np.float32))
+
+    with pytest.raises(RunArtifactError, match="components.npy"):
+        load_display_artifacts(run_dir)
+
+
+def _fit_run_dir(settings: Settings, paths: list[Path]) -> Path:
+    """Run a two-component fit of the synthetic spectra and return its directory."""
+    config = build_fit_config(
+        settings,
+        [{"stem": path.stem, "path": str(path)} for path in paths],
+        {"target_steps": [1, 2], "max_null_ratio": 0.1},
+        {
+            "n_component": 2,
+            "impute_strategy": "median",
+            "impute_kmeans_n_clusters": None,
+            "scaling_strategy": "none",
+        },
+        {"cumulative_explained_variance": 1, "alpha": 0.01},
+        {"cumulative_explained_variance": 1, "alpha": 0.01},
+    )
+    run_dir = settings.runs_dir / "fit"
+    run_dir.mkdir(parents=True)
+    run_fit(json.loads(json.dumps(config)), run_dir)
+    return run_dir

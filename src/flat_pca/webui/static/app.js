@@ -62,13 +62,23 @@ function initExplore(root) {
   async function fetchTrends(wavelength, stepTime) {
     const request = ++latest;
     const url = `${root.dataset.trendUrl}&wavelength=${wavelength}&step_time=${stepTime}`;
+    // A newer selection invalidates this request at every await.
     const response = await fetch(url);
     if (!response.ok || request !== latest) {
       return;
     }
     const trends = await response.json();
+    if (request !== latest) {
+      return;
+    }
     await Plotly.react(byStepTime, trends.by_step_time.data, trends.by_step_time.layout);
+    if (request !== latest) {
+      return;
+    }
     await Plotly.react(byWavelength, trends.by_wavelength.data, trends.by_wavelength.layout);
+    if (request !== latest) {
+      return;
+    }
     root.dataset.trendWavelength = trends.wavelength;
     root.dataset.trendStepTime = trends.step_time;
   }
@@ -79,6 +89,7 @@ function initExplore(root) {
     root.querySelector("#explore-wavelength-value").textContent = `${wavelength}`;
     root.querySelector("#explore-step-time-value").textContent = `${stepTime}`;
     Plotly.relayout(heatmap, { shapes: crosshair(wavelength, stepTime) });
+    latest += 1;
     clearTimeout(timer);
     timer = setTimeout(() => fetchTrends(wavelength, stepTime), TREND_DEBOUNCE_MS);
   }

@@ -12,7 +12,7 @@ import polars as pl
 from flat_pca.feature_engineering.flatten_pca.input import read_parquet
 from flat_pca.feature_engineering.preprocess import add_step_time_columns
 
-from .fit_artifacts import FitArtifacts, load_fit_artifacts
+from .fit_artifacts import DisplayArtifacts, load_display_artifacts
 
 RAW_SPECTRA_ENTRIES = 8
 FIT_ARTIFACT_ENTRIES = 4
@@ -100,14 +100,15 @@ class DisplayCache:
 
     Raw files are keyed by path, size, and modification time, so a changed
     file is read again. Run artifacts are keyed by run directory; their
-    matrices stay memory-mapped, so only the rows a view needs are read.
+    matrices (``X.npy`` and ``components.npy``) stay memory-mapped, so only
+    the rows a view needs are read.
     """
 
     def __init__(self) -> None:
         self._raw: LruCache[tuple[str, int, int], pl.DataFrame] = LruCache(
             RAW_SPECTRA_ENTRIES
         )
-        self._runs: LruCache[str, FitArtifacts] = LruCache(FIT_ARTIFACT_ENTRIES)
+        self._runs: LruCache[str, DisplayArtifacts] = LruCache(FIT_ARTIFACT_ENTRIES)
 
     def raw_spectra(self, path: Path) -> pl.DataFrame:
         """Return one file's spectra with ``StepTime`` columns.
@@ -133,7 +134,7 @@ class DisplayCache:
         key = (str(path), stat.st_size, stat.st_mtime_ns)
         return self._raw.get_or_load(key, lambda: read_raw_spectra(path))
 
-    def fit_artifacts(self, run_dir: Path) -> FitArtifacts:
+    def fit_artifacts(self, run_dir: Path) -> DisplayArtifacts:
         """Return the artifacts of one fit run.
 
         Parameters
@@ -143,12 +144,12 @@ class DisplayCache:
 
         Returns
         -------
-        FitArtifacts
-            See ``load_fit_artifacts``.
+        DisplayArtifacts
+            See ``load_display_artifacts``.
 
         Raises
         ------
         RunArtifactError
             If the artifacts cannot be read.
         """
-        return self._runs.get_or_load(str(run_dir), lambda: load_fit_artifacts(run_dir))
+        return self._runs.get_or_load(str(run_dir), lambda: load_display_artifacts(run_dir))

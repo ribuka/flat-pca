@@ -259,3 +259,36 @@ def test_run_views_without_a_run_show_a_message(client: TestClient) -> None:
 def test_invalid_parameters_are_rejected(client: TestClient, params: dict[str, str]) -> None:
     """Unknown views, malformed segments, and unknown runs return 400."""
     assert client.get("/explore", params=params).status_code == 400
+
+
+def _add_runs(client: TestClient, settings: Settings, count: int, status: str) -> None:
+    """Register ``count`` fit runs newer than the existing ones, without artifacts."""
+    database = _workspace(client).database
+    for index in range(count):
+        run_id = f"extra-{index:03d}"
+        insert_run(database, run_id, FIT_JOB, {}, settings.runs_dir / run_id)
+        update_run(database, run_id, status=status)
+
+
+def test_succeeded_run_is_found_behind_many_failed_runs(
+    client: TestClient, settings: Settings, fit_run: str
+) -> None:
+    """Newer failed runs do not push the succeeded run out of the choices."""
+    _add_runs(client, settings, 101, "failed")
+
+    html = client.get("/explore", params={"view": "component"}).text
+
+    assert f'<option value="{fit_run}" selected>' in html
+    assert 'data-heatmap-label="PC1"' in html
+
+
+def test_old_succeeded_run_can_be_requested(
+    client: TestClient, settings: Settings, fit_run: str
+) -> None:
+    """A succeeded run beyond the listed ones is still shown when requested."""
+    _add_runs(client, settings, 101, "succeeded")
+
+    html = client.get("/explore", params={"view": "component", "run": fit_run}).text
+
+    assert f'<option value="{fit_run}" selected>' in html
+    assert 'data-heatmap-label="PC1"' in html

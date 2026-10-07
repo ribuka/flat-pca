@@ -14,7 +14,7 @@ import polars as pl
 from ..database import Database
 from .catalog_query import FileQuery, list_files, list_segments
 from .display_cache import DisplayCache
-from .fit_artifacts import FitArtifacts, RunArtifactError
+from .fit_artifacts import DisplayArtifacts, RunArtifactError
 from .spectral_matrix import (
     SpectralMatrix,
     TrendLine,
@@ -183,12 +183,12 @@ def _choose_segment(
     return options[0] if options else None
 
 
-def _feature_segments(artifacts: FitArtifacts) -> list[tuple[int, int]]:
+def _feature_segments(artifacts: DisplayArtifacts) -> list[tuple[int, int]]:
     """Return the ``(Step, Sequence)`` pairs of a run's features.
 
     Parameters
     ----------
-    artifacts : FitArtifacts
+    artifacts : DisplayArtifacts
         Fit-run artifacts.
 
     Returns
@@ -273,7 +273,7 @@ def _raw_view(
 def _run_view(
     view: ExploreViewKind,
     run: dict[str, object],
-    artifacts: FitArtifacts,
+    artifacts: DisplayArtifacts,
     request: ExploreRequest,
     runs: list[dict[str, object]],
 ) -> ExploreView:
@@ -285,7 +285,7 @@ def _run_view(
         ``"preprocessed"`` or ``"component"``.
     run : dict[str, object]
         The fit run's ``runs`` row.
-    artifacts : FitArtifacts
+    artifacts : DisplayArtifacts
         The run's artifacts.
     request : ExploreRequest
         Requested choices.
@@ -300,7 +300,7 @@ def _run_view(
     segment_options = _feature_segments(artifacts)
     segment = _choose_segment(segment_options, parse_segment(request.segment))
     assert segment is not None  # a fit run always has features
-    component_count = artifacts.model.n_component
+    component_count = artifacts.components.shape[0]
     common = {
         "runs": runs,
         "run_id": str(run["run_id"]),
@@ -312,7 +312,8 @@ def _run_view(
         component = request.component
         if component is None or not 1 <= component <= component_count:
             component = 1
-        values = np.asarray(artifacts.model.pca.components_[component - 1], dtype=np.float64)
+        # Read only this row of the memory-mapped components.
+        values = np.asarray(artifacts.components[component - 1], dtype=np.float64)
         return ExploreView(
             view=view,
             **common,  # type: ignore[arg-type]

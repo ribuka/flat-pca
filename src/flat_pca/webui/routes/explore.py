@@ -19,13 +19,37 @@ from ..services.explore import (
     resolve_explore,
 )
 from ..services.heatmap_binning import bin_step_times
-from ..services.runs import list_runs
+from ..services.runs import get_run, list_runs
 from ..templating import templates
 from ..workspace import FIT_JOB, Workspace
 from .dependencies import get_workspace
 
 router = APIRouter(prefix="/explore")
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
+
+
+def _fit_runs(workspace: Workspace, requested: str | None) -> list[dict[str, object]]:
+    """Return the succeeded fit runs to choose from.
+
+    Parameters
+    ----------
+    workspace : Workspace
+        Application workspace.
+    requested : str | None
+        Explicitly requested run. It is added when it is a succeeded fit
+        run older than the listed ones.
+
+    Returns
+    -------
+    list[dict[str, object]]
+        The newest succeeded fit runs, then the requested run if needed.
+    """
+    runs = list_runs(workspace.database, FIT_JOB, status="succeeded")
+    if requested is not None and all(run["run_id"] != requested for run in runs):
+        run = get_run(workspace.database, requested)
+        if run is not None and run["kind"] == FIT_JOB and run["status"] == "succeeded":
+            runs.append(run)
+    return runs
 
 
 def _resolve(workspace: Workspace, request: ExploreRequest) -> ExploreView:
@@ -53,7 +77,7 @@ def _resolve(workspace: Workspace, request: ExploreRequest) -> ExploreView:
             workspace.database,
             workspace.selection.stems,
             workspace.cache,
-            list_runs(workspace.database, FIT_JOB),
+            _fit_runs(workspace, request.run),
             request,
         )
     except ValueError as error:
