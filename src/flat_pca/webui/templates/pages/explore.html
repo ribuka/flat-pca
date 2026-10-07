@@ -90,6 +90,13 @@
       {% if shown.dropped %}
         <p class="warnings" data-dropped>欠損値を含み、補完方法 drop で除外されるため再構成できないファイル：{{ shown.dropped|join("、") }}</p>
       {% endif %}
+      {% for mismatch in shown.q_mismatches %}
+        <p class="warnings" data-q-mismatch="{{ mismatch.stem }}">
+          {{ mismatch.stem }} の Q 寄与の総和 {{ "%.8g"|format(mismatch.contribution_total) }} が、保存済みの Q {{ "%.8g"|format(mismatch.saved_q) }} と
+          {{ "%.3g"|format(100 * mismatch.relative_difference) }}% ずれています。成果物（X.npy・components.npy）を float32 で保存したときの丸めの影響と考えられます。
+          jobs.artifact_dtype = "float64" で再実行してください。
+        </p>
+      {% endfor %}
       {% if binned.binned %}
         <p class="warnings" data-binned>
           セル数が上限 {{ max_cells }} を超えるため、時間方向の {{ binned.source_rows }} 行を

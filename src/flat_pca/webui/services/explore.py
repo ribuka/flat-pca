@@ -19,6 +19,7 @@ from .catalog_query import FileQuery, list_files, list_segments
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError
 from .monitoring import statistic_configs
+from .q_consistency import QMismatch, q_mismatch, saved_q_by_stem
 from .reconstruction import ReconstructionKind, reconstruction_values
 from .spectral_matrix import (
     SpectralMatrix,
@@ -127,6 +128,9 @@ class ExploreView:
     dropped : list[str]
         Chosen stems whose rows the run's ``impute_strategy="drop"``
         drops, so they cannot be reconstructed.
+    q_mismatches : list[QMismatch]
+        Chosen stems of the Q contribution view whose unbinned
+        contributions do not add up to their saved Q.
     error : str | None
         Message shown instead of the view.
     """
@@ -146,6 +150,7 @@ class ExploreView:
     matrices: dict[str, SpectralMatrix] = field(default_factory=dict)
     skipped: list[str] = field(default_factory=list)
     dropped: list[str] = field(default_factory=list)
+    q_mismatches: list[QMismatch] = field(default_factory=list)
     error: str | None = None
 
 
@@ -334,7 +339,7 @@ def _reconstruction_matrices(
     cache: DisplayCache,
     files: list[str],
     segment: tuple[int, int],
-    values_of: Callable[[PcaModel, PreparedRows], np.ndarray],
+    values_of: Callable[[str, PcaModel, PreparedRows], np.ndarray],
 ) -> tuple[dict[str, SpectralMatrix], list[str]]:
     """Compute the matrices of the views of prepared rows for the chosen files.
 
@@ -353,8 +358,8 @@ def _reconstruction_matrices(
         Chosen stems.
     segment : tuple[int, int]
         Chosen ``(Step, Sequence)``.
-    values_of : Callable[[PcaModel, PreparedRows], np.ndarray]
-        Feature values shown for one kept prepared row.
+    values_of : Callable[[str, PcaModel, PreparedRows], np.ndarray]
+        Feature values shown for one kept prepared row, given its stem.
 
     Returns
     -------
@@ -378,7 +383,7 @@ def _reconstruction_matrices(
         if prepared.kept.size == 0:
             dropped.append(stem)
             continue
-        values = values_of(model, prepared)
+        values = values_of(stem, model, prepared)
         if view != "reconstruction":
             matrices[stem] = feature_segment_matrix(artifacts.features, values, *segment)
             continue
@@ -475,22 +480,34 @@ def _run_view(
     run_dir = Path(str(run["artifact_dir"]))
     shown_component: int | None = component
     q_components: int | None = None
+    q_mismatches: list[QMismatch] = []
     try:
         if view == "q_contribution":
             # Q fixes its own component count; the chosen k is not used.
             shown_component = None
-            selector = statistic_configs(run)[1].cumulative_explained_variance
+            spe = statistic_configs(run)[1]
+            selector = spe.cumulative_explained_variance
             q_components = resolve_mahalanobis_components(
                 cache.pca_model(run_dir).pca, selector
             )
+            saved_q = saved_q_by_stem(artifacts, spe.spe_column)
 
-            def values_of(model: PcaModel, prepared: PreparedRows) -> np.ndarray:
-                """Return the Q contribution of the prepared row."""
-                return q_contribution(prepared, model, selector)[0]
+            def values_of(stem: str, model: PcaModel, prepared: PreparedRows) -> np.ndarray:
+                """Return the Q contribution of the prepared row.
+
+                Its sum over every feature is compared with the saved Q,
+                which float32 artifacts may fail to reproduce.
+                """
+                values = q_contribution(prepared, model, selector)[0]
+                if stem in saved_q:
+                    mismatch = q_mismatch(stem, float(values.sum()), saved_q[stem])
+                    if mismatch is not None:
+                        q_mismatches.append(mismatch)
+                return values
 
         else:
 
-            def values_of(model: PcaModel, prepared: PreparedRows) -> np.ndarray:
+            def values_of(stem: str, model: PcaModel, prepared: PreparedRows) -> np.ndarray:
                 """Return the reconstruction-view values of the prepared row."""
                 return reconstruction_values(
                     cast(ReconstructionKind, view), model, prepared, component
@@ -516,6 +533,7 @@ def _run_view(
         q_components=q_components,
         matrices=matrices,
         dropped=dropped,
+        q_mismatches=q_mismatches,
         error=error,
     )
 

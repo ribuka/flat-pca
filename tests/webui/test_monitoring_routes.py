@@ -218,6 +218,61 @@ def test_q_contribution_page_shows_the_fixed_component_count(client: TestClient)
     assert f'data-heatmap-label="{SHORT}"' in html
     layout = _figure(html, "explore-heatmap-figure")["layout"]
     assert layout["coloraxis"]["colorbar"]["title"]["text"] == "q_contribution"  # type: ignore[index]
+    # The float32 artifacts reproduce the saved Q of these spectra.
+    assert "data-q-mismatch" not in html
+
+
+def _write_offset_spectra(directory: Path) -> list[Path]:
+    """Write spectra with small variations on a large baseline.
+
+    Rounding them to float32 loses the variations between the files.
+
+    Returns
+    -------
+    list[Path]
+        ``s-{index:02d}.parquet`` paths in index order.
+    """
+    directory.mkdir(parents=True)
+    rng = np.random.default_rng(2026)
+    paths = []
+    for index in range(20):
+        values = 1e8 + rng.normal(size=(20, 4))
+        frame = pl.DataFrame(
+            {
+                "Time": np.arange(20, dtype=np.float64),
+                "Step": [1] * 10 + [2] * 10,
+                "Sequence": [1] * 20,
+                **{f"{400.0 + column:.1f}nm": values[:, column] for column in range(4)},
+            }
+        )
+        path = directory / f"s-{index:02d}.parquet"
+        frame.write_parquet(path)
+        paths.append(path)
+    return paths
+
+
+def test_q_contribution_page_warns_when_float32_artifacts_lose_the_saved_q(
+    client: TestClient, settings: Settings, tmp_path: Path
+) -> None:
+    """Contributions from float32 artifacts that miss the saved Q are reported."""
+    register_fit_run(
+        _workspace(client).database,
+        settings,
+        _write_offset_spectra(tmp_path / "offset"),
+        "fit-1",
+        "median",
+    )
+    run_dir = settings.runs_dir / "fit-1"
+
+    html = client.get(
+        "/explore", params={"view": "q_contribution", "run": "fit-1", "file": "s-01"}
+    ).text
+
+    saved = _scores_by_stem(run_dir).filter(pl.col("stem") == "s-01")["spe"][0]
+    match = re.search(r'data-q-mismatch="s-01">(.*?)</p>', html, re.DOTALL)
+    assert match is not None
+    assert f"{saved:.8g}" in match.group(1)
+    assert 'jobs.artifact_dtype = "float64" で再実行してください' in match.group(1)
 
 
 @pytest.mark.parametrize("stem", ["s-00", SHORT])
