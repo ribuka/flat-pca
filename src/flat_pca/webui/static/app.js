@@ -329,19 +329,20 @@ function markers(x, y) {
   ];
 }
 
-// Places the vertical StepTime slider beside the heatmap. The slider spans
-// the StepTimes inside the shown y range (all of them unless zoomed), and its
-// thumb at either end lies on the row of that StepTime. Reads the plot area
-// from Plotly's computed layout. Returns whether the slider value changed
-// because it fell outside the shown range.
-function alignStepTimeSlider(heatmap, slider, stepTimes) {
+// Places a heatmap slider along one axis of the plot area: the vertical
+// StepTime slider beside the heatmap ("y") or the wavelength slider below it
+// ("x"). The slider spans the values inside the shown axis range (all of them
+// unless zoomed), and its thumb at either end lies on the row or column of
+// that value. Reads the plot area from Plotly's computed layout. Returns
+// whether the slider value changed because it fell outside the shown range.
+function alignSlider(heatmap, slider, values, axis) {
   const size = heatmap._fullLayout._size;
-  const range = heatmap._fullLayout.yaxis.range;
-  const bottom = Math.min(...range);
-  const top = Math.max(...range);
-  const shown = stepTimes
+  const range = heatmap._fullLayout[`${axis}axis`].range;
+  const low = Math.min(...range);
+  const high = Math.max(...range);
+  const shown = values
     .map((value, index) => ({ value, index }))
-    .filter(({ value }) => value >= bottom && value <= top);
+    .filter(({ value }) => value >= low && value <= high);
   if (shown.length === 0) {
     slider.hidden = true;
     return false;
@@ -350,13 +351,26 @@ function alignStepTimeSlider(heatmap, slider, stepTimes) {
   const before = slider.value;
   slider.min = shown[0].index;
   slider.max = shown[shown.length - 1].index;
-  const toPixel = (value) => size.t + (size.h * (top - value)) / (top - bottom);
   const thumb = parseFloat(getComputedStyle(slider).getPropertyValue("--thumb-size"));
-  const first = toPixel(shown[0].value);
-  const last = toPixel(shown[shown.length - 1].value);
-  slider.style.top = `${last - thumb / 2}px`;
-  slider.style.height = `${first - last + thumb}px`;
+  const first = shown[0].value;
+  const last = shown[shown.length - 1].value;
+  if (axis === "y") {
+    const toPixel = (value) => size.t + (size.h * (high - value)) / (high - low);
+    slider.style.top = `${toPixel(last) - thumb / 2}px`;
+    slider.style.height = `${toPixel(first) - toPixel(last) + thumb}px`;
+  } else {
+    const toPixel = (value) => size.l + (size.w * (value - low)) / (high - low);
+    slider.style.left = `${toPixel(first) - thumb / 2}px`;
+    slider.style.width = `${toPixel(last) - toPixel(first) + thumb}px`;
+  }
   return slider.value !== before;
+}
+
+// Aligns both heatmap sliders; returns whether either slider value changed.
+function alignSliders(heatmap, wavelengthSlider, stepTimeSlider, axes) {
+  const wavelengthMoved = alignSlider(heatmap, wavelengthSlider, axes.wavelengths, "x");
+  const stepTimeMoved = alignSlider(heatmap, stepTimeSlider, axes.step_times, "y");
+  return wavelengthMoved || stepTimeMoved;
 }
 
 // Spectral exploration and the model screen's component heatmap: the heatmap
@@ -401,7 +415,6 @@ function initExplore(root) {
     const wavelength = axes.wavelengths[Number(wavelengthSlider.value)];
     const stepTime = axes.step_times[Number(stepTimeSlider.value)];
     root.querySelector("#explore-wavelength-value").textContent = `${wavelength}`;
-    root.querySelector("#explore-step-time-value").textContent = `${stepTime}`;
     Plotly.relayout(heatmap, {
       shapes: crosshair(wavelength, stepTime),
       annotations: markers(wavelength, stepTime),
@@ -412,11 +425,12 @@ function initExplore(root) {
   }
 
   Plotly.newPlot(heatmap, figure.data, figure.layout, { responsive: true }).then(() => {
-    // Every redraw, including a resize or a zoom, may move the rows. A zoom
-    // that hides the selected StepTime moves the point into the shown range.
-    alignStepTimeSlider(heatmap, stepTimeSlider, axes.step_times);
+    // Every redraw, including a resize or a zoom, may move the rows and
+    // columns. A zoom that hides the selected point moves it into the shown
+    // range.
+    alignSliders(heatmap, wavelengthSlider, stepTimeSlider, axes);
     heatmap.on("plotly_afterplot", () => {
-      if (alignStepTimeSlider(heatmap, stepTimeSlider, axes.step_times)) {
+      if (alignSliders(heatmap, wavelengthSlider, stepTimeSlider, axes)) {
         update();
       }
     });

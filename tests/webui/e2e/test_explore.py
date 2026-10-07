@@ -52,7 +52,9 @@ def test_sliders_move_the_point_and_reload_the_trends(
     page.locator("#explore-step-time").press("End")
 
     expect(page.locator("#explore-wavelength-value")).to_have_text("405")
-    expect(page.locator("#explore-step-time-value")).to_have_text("3")
+    expect(page.locator("#explore-step-time")).to_have_value("3")
+    # Only the wavelength shows its value; the StepTime value is not shown.
+    expect(page.locator("[data-explore] output")).to_have_count(1)
     root = page.locator("[data-explore]")
     expect(root).to_have_attribute("data-trend-wavelength", "405")
     expect(root).to_have_attribute("data-trend-step-time", "3")
@@ -121,11 +123,74 @@ def test_zoom_fits_the_step_time_slider_to_the_shown_rows(
 
     _assert_slider_ends_on_rows(page, 2, 3)
     page.locator("#explore-step-time").press("Home")
-    expect(page.locator("#explore-step-time-value")).to_have_text("2")
+    expect(page.locator("#explore-step-time")).to_have_value("2")
+    expect(page.locator("[data-explore]")).to_have_attribute("data-trend-step-time", "2")
 
     page.mouse.dblclick(plot["x"] + plot["width"] / 2, plot["y"] + plot["height"] / 2)
 
     _assert_slider_ends_on_rows(page, 0, 3)
+
+
+# Page x of the heatmap column at each wavelength of the fixture segment.
+COLUMN_CENTERS_JS = """heatmap => {
+    const box = heatmap.getBoundingClientRect();
+    const layout = heatmap._fullLayout;
+    return [400, 401, 402.5, 405, 410].map((value) => box.left + layout._size.l + layout.xaxis.l2p(value));
+}"""
+
+
+def _assert_wavelength_slider_ends_on_columns(page: Page, first: int, last: int) -> None:
+    """Assert that the wavelength slider spans indices first..last on their columns."""
+    slider = page.locator("#explore-wavelength")
+    expect(slider).to_have_attribute("min", str(first))
+    expect(slider).to_have_attribute("max", str(last))
+    columns = page.locator("#explore-heatmap").evaluate(COLUMN_CENTERS_JS)
+    box = slider.bounding_box()
+    plot = page.locator("#explore-heatmap .nsewdrag").bounding_box()
+    assert box is not None
+    assert plot is not None
+    thumb = box["height"]
+    assert abs(box["x"] + thumb / 2 - columns[first]) < 1
+    assert abs(box["x"] + box["width"] - thumb / 2 - columns[last]) < 1
+    assert plot["x"] <= box["x"]
+    assert box["x"] + box["width"] <= plot["x"] + plot["width"]
+    assert box["y"] >= plot["y"] + plot["height"]
+
+
+def test_wavelength_slider_meets_the_columns_after_resize_and_zoom(
+    page: Page, fitted_server_url: str
+) -> None:
+    """The wavelength slider below the heatmap keeps its ends on the shown end columns."""
+    _open(page, fitted_server_url)
+    _assert_wavelength_slider_ends_on_columns(page, 0, 4)
+
+    page.set_viewport_size({"width": 900, "height": 900})
+    # The responsive heatmap redraws to the new width after a debounce.
+    page.wait_for_function(
+        """() => {
+            const heatmap = document.querySelector("#explore-heatmap");
+            return Math.abs(heatmap._fullLayout.width - heatmap.clientWidth) < 1;
+        }"""
+    )
+    _assert_wavelength_slider_ends_on_columns(page, 0, 4)
+
+    # Zoom to the columns right of the middle of 402.5 nm and 405 nm.
+    columns = page.locator("#explore-heatmap").evaluate(COLUMN_CENTERS_JS)
+    plot = page.locator("#explore-heatmap .nsewdrag").bounding_box()
+    assert plot is not None
+    page.mouse.move((columns[2] + columns[3]) / 2, plot["y"] + 5)
+    page.mouse.down()
+    page.mouse.move(plot["x"] + plot["width"] - 5, plot["y"] + plot["height"] - 5, steps=5)
+    page.mouse.up()
+
+    _assert_wavelength_slider_ends_on_columns(page, 3, 4)
+    # The selected 402.5 nm is hidden, so the point moves into the shown range.
+    expect(page.locator("#explore-wavelength")).to_have_value("3")
+    expect(page.locator("[data-explore]")).to_have_attribute("data-trend-wavelength", "405")
+
+    page.mouse.dblclick(plot["x"] + plot["width"] / 2, plot["y"] + plot["height"] / 2)
+
+    _assert_wavelength_slider_ends_on_columns(page, 0, 4)
 
 
 def test_markers_point_at_the_selected_point(
@@ -140,7 +205,7 @@ def test_markers_point_at_the_selected_point(
 
     page.locator("#explore-step-time").press("End")
 
-    expect(page.locator("#explore-step-time-value")).to_have_text("3")
+    expect(page.locator("[data-explore]")).to_have_attribute("data-trend-step-time", "3")
     assert heatmap.evaluate(annotations) == [["▼", 402.5, 1], ["▶", 0, 3]]
 
 

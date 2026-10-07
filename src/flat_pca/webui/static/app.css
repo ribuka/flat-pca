@@ -630,11 +630,17 @@ p.error {
   gap: 1rem;
 }
 
-/* The heatmap with the vertical StepTime slider on its left. explore.js
-   places the slider so that its ends meet the first and last rows. */
+/* The heatmap with the vertical StepTime slider on its left and the
+   wavelength slider below it. app.js places each slider so that its ends
+   meet the first and last rows or columns. */
 .heatmap-panel {
   display: grid;
   grid-template-columns: 2rem minmax(0, 1fr);
+}
+
+.wavelength-rail,
+.heatmap-panel .explore-sliders {
+  grid-column: 2;
 }
 
 .plot-heatmap {
@@ -642,8 +648,13 @@ p.error {
   min-height: 0;
 }
 
-.step-time-rail {
+.step-time-rail,
+.wavelength-rail {
   position: relative;
+}
+
+.wavelength-rail {
+  height: 2rem;
 }
 
 .explore-sliders output {
@@ -702,13 +713,15 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
   box-shadow: 0 0 0 1px var(--accent), var(--focus-ring);
 }
 
-.explore-sliders input[type="range"] {
-  width: 16rem;
+/* Horizontal slider below the heatmap: min at the left, max at the right. */
+.wavelength-rail input[type="range"] {
+  position: absolute;
+  top: 50%;
   height: var(--thumb-size);
+  transform: translateY(-50%);
 }
 
 /* Vertical slider: min at the bottom, max at the top. */
-.explore-sliders input[type="range"].range-vertical,
 input[type="range"].range-vertical {
   position: absolute;
   left: 50%;
