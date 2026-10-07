@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import date
 
+import numpy as np
 import polars as pl
+import pytest
 
 from flat_pca.webui.services.monitoring import control_chart_order
 
@@ -49,3 +51,11 @@ def test_category_column_breaks_ties_in_natural_order() -> None:
 def test_empty_samples() -> None:
     """An empty frame has an empty order."""
     assert _stems(_samples().clear(), "date") == []
+
+
+@pytest.mark.parametrize("name", ["row", "stem_rank", "order_value", "index", "__stem_rank"])
+def test_metadata_column_may_share_an_internal_name(name: str) -> None:
+    """A column named like an internal sort column still orders the rows."""
+    samples = pl.DataFrame({"stem": ["s-10", "s-2", "s-1"], name: [30, 10, 10]})
+
+    np.testing.assert_array_equal(control_chart_order(samples, name), [2, 1, 0])

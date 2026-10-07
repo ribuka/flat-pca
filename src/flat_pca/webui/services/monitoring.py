@@ -17,7 +17,9 @@ from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError, artifact_error
 from .scored_samples import choose_metadata_column, metadata_columns, scored_samples
 
-_STEM_RANK = "__stem_rank"
+_ROW = "row"
+_STEM_RANK = "stem_rank"
+_ORDER_VALUE = "order_value"
 
 
 @dataclass(frozen=True)
@@ -125,12 +127,13 @@ def control_chart_order(samples: pl.DataFrame, order_by: str | None) -> np.ndarr
     by_stem = sorted(range(len(stems)), key=lambda row: natural_keys(str(stems[row])))
     ranks = np.empty(len(stems), dtype=np.int64)
     ranks[by_stem] = np.arange(len(stems))
-    frame = pl.DataFrame({_STEM_RANK: ranks}).with_row_index()
+    # Only internal names, so no metadata column name can collide with them.
+    frame = pl.DataFrame({_ROW: np.arange(len(stems)), _STEM_RANK: ranks})
     keys = [_STEM_RANK]
     if order_by is not None:
-        frame = frame.with_columns(samples[order_by].alias(order_by))
-        keys = [order_by, _STEM_RANK]
-    return frame.sort(keys, nulls_last=True)["index"].to_numpy().astype(np.intp)
+        frame = frame.with_columns(samples[order_by].alias(_ORDER_VALUE))
+        keys = [_ORDER_VALUE, _STEM_RANK]
+    return frame.sort(keys, nulls_last=True)[_ROW].to_numpy().astype(np.intp)
 
 
 def statistic_configs(run: dict[str, object]) -> tuple[MahalanobisConfig, SpeConfig]:
