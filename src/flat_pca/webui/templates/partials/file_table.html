@@ -19,10 +19,11 @@
 </div>
 {% endif %}
 <p class="muted">{{ files|length }} 件</p>
-<table class="file-table">
+<div class="table-scroll file-table-scroll">
+<table class="file-table" data-check-table>
   <thead>
     <tr>
-      <th></th>
+      <th class="check-cell"><input type="checkbox" data-check-all aria-label="表示中をすべて選択"></th>
       <th>ファイル名</th>
       {% for name in columns %}<th>{{ name }}</th>{% endfor %}
       <th>Step 数</th>
@@ -33,7 +34,7 @@
   <tbody>
     {% for file in files %}
       <tr data-stem="{{ file.stem }}">
-        <td><input type="checkbox" name="stems" value="{{ file.stem }}" {% if file.stem in selected %}checked{% endif %}></td>
+        <td class="check-cell"><input type="checkbox" name="stems" value="{{ file.stem }}" {% if file.stem in selected %}checked{% endif %}></td>
         <td title="{{ file.path }}">{{ file.stem }}</td>
         {% for name in columns %}<td>{{ file[name]|cell }}</td>{% endfor %}
         <td>{{ file.n_steps }}</td>
@@ -43,3 +44,4 @@
     {% endfor %}
   </tbody>
 </table>
+</div>

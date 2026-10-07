@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from flat_pca.webui.app import create_app
 from flat_pca.webui.services.catalog_query import selection_ranges
 from flat_pca.webui.services.fit_form import default_form_values
-from flat_pca.webui.services.runs import get_run, latest_run
+from flat_pca.webui.services.runs import get_run, latest_run, update_run
 from flat_pca.webui.settings import JobsSettings, Settings
 from flat_pca.webui.workspace import CATALOG_JOB, FIT_JOB, Workspace
 
@@ -172,6 +172,27 @@ def test_submit_queues_a_fit_run(
     assert "hx-trigger" not in polled.text
 
 
+def test_polled_success_shows_icon_next_to_submit(
+    client: TestClient, form: dict[str, object], wait_for: Wait
+) -> None:
+    """A poll that finds the run succeeded swaps a check icon next to the button."""
+    form_html = _post(client, "/fit", form)
+    assert '<span id="fit-result" class="fit-result"></span>' in form_html
+    workspace = _workspace(client)
+    run = latest_run(workspace.database, FIT_JOB)
+    assert run is not None
+    # The fixture files are too few to fit; only the finished status matters.
+    wait_for(workspace.database, str(run["run_id"]))
+    update_run(workspace.database, str(run["run_id"]), status="succeeded")
+
+    polled = client.get(f"/fit/runs/{run['run_id']}/status?polling=true").text
+    reopened = client.get(f"/fit/runs/{run['run_id']}/status").text
+
+    assert '<span id="fit-result" class="fit-result" hx-swap-oob="true">' in polled
+    assert "check_circle" in polled
+    assert "fit-result" not in reopened
+
+
 def test_failed_run_shows_its_error(
     client: TestClient, form: dict[str, object], wait_for: Wait
 ) -> None:
@@ -195,6 +216,8 @@ def test_failed_run_shows_its_error(
 
     assert finished["status"] == "failed"
     assert 'data-run-status="failed"' in html
+    polled = client.get(f"/fit/runs/{run['run_id']}/status?polling=true").text
+    assert "check_circle" not in polled
     assert "ValueError" in html
     assert "wavelength" in html
 

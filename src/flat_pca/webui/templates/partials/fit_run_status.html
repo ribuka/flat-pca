@@ -1,3 +1,4 @@
+{% from "macros/icon.html" import icon %}
 {% set run = status.run %}
 <div class="status-panel" data-fit-status
      {% if status.active %}hx-get="/fit/runs/{{ run.run_id }}/status?polling=true" hx-trigger="every 1s" hx-target="this" hx-swap="outerHTML"{% endif %}>
@@ -28,3 +29,6 @@
     {% endif %}
   {% endif %}
 </div>
+{% if finished_succeeded %}
+<span id="fit-result" class="fit-result" hx-swap-oob="true">{{ icon("check_circle", class="icon-success", label="fit が成功しました") }}</span>
+{% endif %}
