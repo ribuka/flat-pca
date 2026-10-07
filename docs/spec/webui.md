@@ -79,7 +79,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 ```
 
 - 型`category`・`number`・`datetime`のみを受け付ける。`format`は`datetime`のみに指定でき、省略時は形式を推定する。
-- メタデータ列名に、結合キー列名と、ファイル一覧の列名（`stem`・`path`・`n_rows`・`n_steps`・`n_segments`）は使えない。
+- メタデータ列名に、結合キー列名と、ファイル一覧の列名（`stem`・`path`・`n_rows`・`n_steps`・`n_segments`）、run 成果物`samples.parquet`の列名`source`は使えない。
 - `workspace.dir`・`data.root`・`metadata.csv`の相対パスは、settings.tomlのあるディレクトリ基準で解決する。未知のキーはエラーとする。
 - メタデータの結合キーは`Path.stem`とする。`data.root`配下でstemが重複する場合はcatalog構築をエラーとする（UI経由の実行では`stem_uniqueness="error"`を使う）。
 - メタデータCSVの結合キーが空または重複する場合、取り込む列が無い場合、値を型に変換できない場合はcatalog構築をエラーとする。
@@ -240,6 +240,6 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 ## 未決事項
 
-- float32保存の影響の実データでの確認。比較スクリプト`uv run -m flat_pca.webui.compare_artifact_dtypes --run-dir <runディレクトリ>`は、runの設定をfloat32とfloat64で再fitし、復元したモデルで計算したスコア・T²・Q・再構成の差を表示する。合成データでの相対差は$10^{-7}$程度だった。
+- float32保存の影響の実データでの確認。比較スクリプト`uv run -m flat_pca.webui.compare_artifact_dtypes --run-dir <runディレクトリ>`は、runの設定で1回だけ再fitし、その結果をfloat64とfloat32で保存して、それぞれから復元したモデルで計算したスコア・T²・Q・再構成の差を表示する（dtypeごとに再fitすると、randomized PCAの乱数による差が混ざるため）。合成データでの相対差は$10^{-7}$程度だった。
 - メモリ見積もりの係数の実データでの確認（合成データの実測値で暫定的に決めた）。
 - 部分スコア軌跡で`(Step, Sequence)`の並び順を、Step値の順でなく実際の時間順にする必要があるか。

@@ -6,16 +6,18 @@ values computed from them::
 
     uv run -m flat_pca.webui.compare_artifact_dtypes --run-dir <workspace>/runs/<run_id>
 
-The run's ``config.json`` is fitted again twice, with ``artifact_dtype`` set
-to ``float32`` and to ``float64``, into ``--out-dir``. Each result is
-restored from its artifacts and recomputed in ``float64``, and the
-differences between the two are printed.
+The run's ``config.json`` is fitted again once, and the result is saved in
+``--out-dir`` twice: with ``float64`` matrices and with ``float32`` ones.
+Each copy is restored from its artifacts and recomputed in ``float64``, and
+the differences between the two are printed. Fitting once keeps the
+randomized PCA solver from adding differences of its own.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
@@ -28,10 +30,8 @@ from flat_pca.feature_engineering.pca import MahalanobisConfig, SpeConfig, trans
 from flat_pca.spectral.schema import SOURCE_COLUMN
 
 from .jobs.executor import CONFIG_FILE
-from .jobs.fit_run import run_fit
+from .jobs.fit_run import COMPONENTS_FILE, X_FILE, run_fit
 from .services.fit_artifacts import FitArtifacts, load_fit_artifacts
-
-DTYPES = ("float32", "float64")
 
 
 def recompute(
@@ -110,42 +110,59 @@ def compare_values(
     return pl.DataFrame(rows)
 
 
+def copy_as_float32(source_dir: Path, target_dir: Path) -> None:
+    """Copy float64 artifacts, saving ``X.npy`` and ``components.npy`` in float32.
+
+    Both runs then hold the same preprocessing and fit result, so comparing
+    them measures only the precision lost by saving in ``float32``.
+
+    Parameters
+    ----------
+    source_dir : Path
+        Run directory written by ``run_fit`` with ``artifact_dtype="float64"``.
+    target_dir : Path
+        New directory receiving the copy.
+    """
+    shutil.copytree(source_dir, target_dir)
+    for name in (X_FILE, COMPONENTS_FILE):
+        values = np.load(source_dir / name)
+        np.save(target_dir / name, values.astype(np.float32))
+
+
 def compare_run(run_dir: Path, out_dir: Path) -> pl.DataFrame:
-    """Refit a run with each artifact dtype and compare the results.
+    """Refit a run once and compare its artifacts saved in float32 and float64.
+
+    The run's configuration is fitted once with ``artifact_dtype="float64"``
+    into ``{out_dir}/float64``, and ``{out_dir}/float32`` receives the same
+    result with its matrices converted to ``float32``. Refitting per dtype
+    would add differences from the randomized PCA solver.
 
     Parameters
     ----------
     run_dir : Path
         Fit run directory holding ``config.json``.
     out_dir : Path
-        Directory receiving one refitted run per dtype.
+        Directory receiving the two copies of the refitted run.
 
     Returns
     -------
     pl.DataFrame
         Differences summarized by ``compare_values``.
-
-    Raises
-    ------
-    ValueError
-        If the two refits keep different files or component counts.
     """
-    config = json.loads((run_dir / CONFIG_FILE).read_text(encoding="utf-8"))
-    values: dict[str, dict[str, np.ndarray]] = {}
-    for dtype in DTYPES:
-        target = out_dir / dtype
-        target.mkdir(parents=True, exist_ok=False)
-        logger.info(f"fitting with artifact_dtype={dtype} into {target}")
-        dtype_config = {**config, "artifact_dtype": dtype}
-        run_fit(dtype_config, target)
-        values[dtype] = recompute(load_fit_artifacts(target), dtype_config)
-    single, double = (values[dtype] for dtype in DTYPES)
-    if single["scores"].shape != double["scores"].shape:
-        raise ValueError(
-            "float32 and float64 refits differ in shape: "
-            f"{single['scores'].shape} vs {double['scores'].shape}"
-        )
-    return compare_values(single, double)
+    config = {
+        **json.loads((run_dir / CONFIG_FILE).read_text(encoding="utf-8")),
+        "artifact_dtype": "float64",
+    }
+    double_dir = out_dir / "float64"
+    single_dir = out_dir / "float32"
+    double_dir.mkdir(parents=True, exist_ok=False)
+    logger.info(f"fitting {run_dir} into {double_dir}")
+    run_fit(config, double_dir)
+    copy_as_float32(double_dir, single_dir)
+    return compare_values(
+        recompute(load_fit_artifacts(single_dir), config),
+        recompute(load_fit_artifacts(double_dir), config),
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -162,7 +179,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--out-dir",
         type=Path,
         default=None,
-        help="directory for the refitted runs (default: <run-dir>/dtype-comparison)",
+        help="directory for the refitted run (default: <run-dir>/dtype-comparison)",
     )
     args = parser.parse_args(argv)
     out_dir = args.out_dir or args.run_dir / "dtype-comparison"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -13,18 +14,26 @@ SPECTRA_FILE_COUNT = 12
 SPECTRA_SHORT_FILE = 3
 
 
-def write_spectra(directory: Path) -> list[Path]:
+def write_spectra(
+    directory: Path,
+    n_files: int = SPECTRA_FILE_COUNT,
+    wavelengths: Sequence[float] = SPECTRA_WAVELENGTHS,
+) -> list[Path]:
     """Write synthetic spectra files.
 
     Each file holds ``Step`` 1 (four rows) and ``Step`` 2 (three rows) of
-    one ``Sequence`` over ``SPECTRA_WAVELENGTHS``, from two latent factors
-    plus noise. File ``SPECTRA_SHORT_FILE`` lacks the last ``Step`` 2 row,
-    so its flattened features of that time point are missing.
+    one ``Sequence`` over ``wavelengths``, from two latent factors plus
+    noise. File ``SPECTRA_SHORT_FILE`` lacks the last ``Step`` 2 row, so its
+    flattened features of that time point are missing.
 
     Parameters
     ----------
     directory : Path
         Directory to create and write into.
+    n_files : int, default SPECTRA_FILE_COUNT
+        Number of files.
+    wavelengths : Sequence[float], default SPECTRA_WAVELENGTHS
+        Wavelengths of the spectral columns.
 
     Returns
     -------
@@ -33,10 +42,10 @@ def write_spectra(directory: Path) -> list[Path]:
     """
     directory.mkdir(parents=True)
     rng = np.random.default_rng(11)
-    loadings = rng.normal(size=(2, 7 * len(SPECTRA_WAVELENGTHS)))
+    loadings = rng.normal(size=(2, 7 * len(wavelengths)))
     paths = []
-    for index in range(SPECTRA_FILE_COUNT):
-        values = (rng.normal(size=2) @ loadings).reshape(7, len(SPECTRA_WAVELENGTHS))
+    for index in range(n_files):
+        values = (rng.normal(size=2) @ loadings).reshape(7, len(wavelengths))
         values += 5.0 + 0.05 * rng.normal(size=values.shape)
         frame = pl.DataFrame(
             {
@@ -45,7 +54,7 @@ def write_spectra(directory: Path) -> list[Path]:
                 "Sequence": [1] * 7,
                 **{
                     f"{wavelength:.1f}nm": values[:, column]
-                    for column, wavelength in enumerate(SPECTRA_WAVELENGTHS)
+                    for column, wavelength in enumerate(wavelengths)
                 },
             }
         )
