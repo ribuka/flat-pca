@@ -1,18 +1,34 @@
 // Bridges between page controls and htmx. Data processing stays on the server.
-document.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-check-all], [data-uncheck-all]");
-  if (!button) {
+
+// Shows in the header checkbox of a table whether all, some, or none of its
+// row checkboxes are checked.
+function syncCheckAll(table) {
+  const header = table.querySelector("[data-check-all]");
+  const boxes = [...table.querySelectorAll("tbody input[type=checkbox]")];
+  const checked = boxes.filter((box) => box.checked).length;
+  header.checked = boxes.length > 0 && checked === boxes.length;
+  header.indeterminate = checked > 0 && checked < boxes.length;
+  header.disabled = boxes.length === 0;
+}
+
+// The header checkbox checks or unchecks every shown row; a row checkbox
+// updates the header.
+document.addEventListener("change", (event) => {
+  const table = event.target.closest("table[data-check-table]");
+  if (!table) {
     return;
   }
-  const checked = button.hasAttribute("data-check-all");
-  const container = document.querySelector(
-    button.getAttribute(checked ? "data-check-all" : "data-uncheck-all"),
-  );
-  if (!container) {
-    return;
+  if (event.target.matches("[data-check-all]")) {
+    for (const box of table.querySelectorAll("tbody input[type=checkbox]")) {
+      box.checked = event.target.checked;
+    }
   }
-  for (const box of container.querySelectorAll("input[type=checkbox]")) {
-    box.checked = checked;
+  syncCheckAll(table);
+});
+
+document.addEventListener("htmx:afterSettle", (event) => {
+  for (const table of event.detail.elt.querySelectorAll("table[data-check-table]")) {
+    syncCheckAll(table);
   }
 });
 
@@ -119,6 +135,30 @@ function crosshair(x, y) {
   ];
 }
 
+// Returns the heatmap annotations of the triangle markers that point at
+// (x, y) from above and from the left of the plot area.
+function markers(x, y) {
+  const marker = { showarrow: false, font: { size: 14, color: "#1a73e8" } };
+  return [
+    { ...marker, text: "▼", xref: "x", yref: "paper", x, y: 1, yanchor: "bottom" },
+    { ...marker, text: "▶", xref: "paper", yref: "y", x: 0, y, xanchor: "right" },
+  ];
+}
+
+// Places the vertical StepTime slider beside the heatmap so that its thumb
+// at the first and the last index lies on the rows of the first and the last
+// StepTime. Reads the plot area from Plotly's computed layout.
+function alignStepTimeSlider(heatmap, slider, stepTimes) {
+  const size = heatmap._fullLayout._size;
+  const [bottom, top] = heatmap._fullLayout.yaxis.range;
+  const toPixel = (value) => size.t + (size.h * (top - value)) / (top - bottom);
+  const thumb = parseFloat(getComputedStyle(slider).getPropertyValue("--thumb-size"));
+  const first = toPixel(stepTimes[0]);
+  const last = toPixel(stepTimes[stepTimes.length - 1]);
+  slider.style.top = `${last - thumb / 2}px`;
+  slider.style.height = `${first - last + thumb}px`;
+}
+
 // Spectral exploration and the model screen's component heatmap: the heatmap
 // click and the two sliders choose one point; the trends at that point are
 // fetched from the server.
@@ -162,13 +202,21 @@ function initExplore(root) {
     const stepTime = axes.step_times[Number(stepTimeSlider.value)];
     root.querySelector("#explore-wavelength-value").textContent = `${wavelength}`;
     root.querySelector("#explore-step-time-value").textContent = `${stepTime}`;
-    Plotly.relayout(heatmap, { shapes: crosshair(wavelength, stepTime) });
+    Plotly.relayout(heatmap, {
+      shapes: crosshair(wavelength, stepTime),
+      annotations: markers(wavelength, stepTime),
+    });
     latest += 1;
     clearTimeout(timer);
     timer = setTimeout(() => fetchTrends(wavelength, stepTime), TREND_DEBOUNCE_MS);
   }
 
   Plotly.newPlot(heatmap, figure.data, figure.layout, { responsive: true }).then(() => {
+    // Every redraw, including a resize, may move the plot area.
+    alignStepTimeSlider(heatmap, stepTimeSlider, axes.step_times);
+    heatmap.on("plotly_afterplot", () => {
+      alignStepTimeSlider(heatmap, stepTimeSlider, axes.step_times);
+    });
     heatmap.on("plotly_click", (event) => {
       const point = event.points[0];
       wavelengthSlider.value = nearestIndex(axes.wavelengths, point.x);

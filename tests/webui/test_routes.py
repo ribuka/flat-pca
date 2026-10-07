@@ -59,6 +59,16 @@ def test_data_selection_page_renders_controls(client: TestClient) -> None:
     assert "catalog はまだ作成されていません" in response.text
 
 
+def test_data_selection_groups_are_collapsible(client: TestClient) -> None:
+    """Each group of the page is an open accordion, without check-all buttons."""
+    text = client.get("/").text
+
+    for group in ("catalog", "filters", "files"):
+        assert f'<details class="card" data-group="{group}" open>' in text
+    assert '<button type="button" data-check-all' not in text
+    assert "data-uncheck-all" not in text
+
+
 def test_static_scripts_are_served_locally(client: TestClient) -> None:
     """htmx and Plotly.js are served without a CDN."""
     assert client.get("/static/vendor/htmx.min.js").status_code == 200
@@ -114,6 +124,8 @@ def test_file_table_lists_files_and_metadata_warnings(
     assert "2026-01-02 03:04:05" in text
     assert 'data-warning="files-without-metadata"' in text
     assert "<li>ghost</li>" in text
+    assert text.count("data-check-all") == 1
+    assert text.index("data-check-all") < text.index("<tbody>")
 
 
 def test_category_filters_follow_catalog_and_keep_selection(

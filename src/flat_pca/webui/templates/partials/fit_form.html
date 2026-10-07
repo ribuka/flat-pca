@@ -112,6 +112,7 @@
 
   <div class="selection-actions">
     <button type="submit" {% if selected_count == 0 %}disabled{% endif %}>fit を実行</button>
+    <span id="fit-result" class="fit-result"></span>
   </div>
 </form>
 {% if oob_status %}

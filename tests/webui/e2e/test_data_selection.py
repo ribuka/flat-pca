@@ -95,7 +95,7 @@ def test_selecting_files_shows_success_icon_offline(
     icon = page.locator("#selection-summary .material-symbols-outlined")
     expect(icon).to_have_count(0)
 
-    page.get_by_role("button", name="表示中をすべて選択").click()
+    page.get_by_label("表示中をすべて選択").check()
     page.get_by_role("button", name="このファイル集合を選択").click()
 
     expect(icon).to_have_text("check_circle")
@@ -107,3 +107,52 @@ def test_selecting_files_shows_success_icon_offline(
     box = icon.bounding_box()
     assert box is not None
     assert box["width"] < box["height"] * 1.5
+
+
+def test_header_checkbox_toggles_shown_rows(
+    page: Page, cataloged_server_url: str
+) -> None:
+    """The header checkbox checks or unchecks every shown row and shows a mix."""
+    page.goto(cataloged_server_url)
+    expect(_file_stems(page)).to_have_text(["run-1", "run-2", "run-10"])
+    header = page.get_by_label("表示中をすべて選択")
+    rows = page.locator('#file-table tbody input[name="stems"]')
+    expect(header).not_to_be_checked()
+
+    header.check()
+    for index in range(3):
+        expect(rows.nth(index)).to_be_checked()
+
+    rows.nth(1).uncheck()
+    expect(header).not_to_be_checked()
+    assert header.evaluate("box => box.indeterminate")
+
+    header.click()
+    for index in range(3):
+        expect(rows.nth(index)).to_be_checked()
+    assert not header.evaluate("box => box.indeterminate")
+
+    header.uncheck()
+    for index in range(3):
+        expect(rows.nth(index)).not_to_be_checked()
+
+    # A filtered table starts from the state of its own rows.
+    rows.nth(0).check()
+    page.locator('select[name="eq__lot"]').select_option("B")
+    expect(_file_stems(page)).to_have_text(["run-2"])
+    expect(header).not_to_be_checked()
+    assert not header.evaluate("box => box.indeterminate")
+
+
+def test_groups_collapse(page: Page, cataloged_server_url: str) -> None:
+    """Clicking a group's heading folds its body away and back."""
+    page.goto(cataloged_server_url)
+    filters = page.locator('details[data-group="filters"]')
+    name_filter = filters.get_by_placeholder("含む文字列")
+    expect(name_filter).to_be_visible()
+
+    filters.locator("summary").click()
+    expect(name_filter).to_be_hidden()
+
+    filters.locator("summary").click()
+    expect(name_filter).to_be_visible()

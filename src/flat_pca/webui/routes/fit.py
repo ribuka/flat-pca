@@ -288,7 +288,8 @@ def fit_run_status(
     polling : bool, default False
         Whether the request comes from polling an active run. When such a
         poll finds the run finished, the response triggers ``fit-updated``
-        so the run list reloads.
+        so the run list reloads, and, if the run succeeded, a success icon
+        replaces ``#fit-result`` next to the submit button out of band.
 
     Returns
     -------
@@ -303,8 +304,13 @@ def fit_run_status(
     run = get_run(workspace.database, run_id)
     if run is None or run["kind"] != FIT_JOB:
         raise HTTPException(status_code=404, detail=f"fit run not found: {run_id}")
-    context = {"status": run_status(run)}
+    status = run_status(run)
+    finished = polling and not status["active"]
+    context = {
+        "status": status,
+        "finished_succeeded": finished and run["status"] == "succeeded",
+    }
     response = templates.TemplateResponse(request, "partials/fit_run_status.html", context)
-    if polling and not context["status"]["active"]:
+    if finished:
         response.headers["HX-Trigger"] = "fit-updated"
     return response

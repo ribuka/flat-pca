@@ -64,7 +64,8 @@ and get element references for `browser_click`, `browser_select_option`, and `br
 | Category filter `lot` | Options are `(すべて)`, `A`, `B` after the update; choosing `A` leaves only `run-1`. |
 | Numeric / datetime filters | e.g. `yield_pct 下限` = 90 leaves only `run-1`. |
 | Sort / order selects | The table reorders. |
-| "表示中をすべて選択" / "選択を外す" | All visible checkboxes are checked / cleared. |
+| Header checkbox of the file table | Checks / clears every visible row; with only some rows checked it shows the indeterminate state. |
+| Click a group heading (catalog / 絞り込み / ファイル) | The group folds and unfolds. |
 | "このファイル集合を選択" | A green check icon (Material Symbols `check_circle`) and "選択中：N ファイル" appear right of the button; the sidebar's 選択中 count updates. |
 
 ### Preprocessing and PCA (`/fit`)
@@ -77,7 +78,15 @@ Select the three files on the data selection screen first.
 | Uncheck Step 1 | The estimate updates to 特徴量 約 12. |
 | Enable 波長範囲 with 402 〜 401 and click "fit を実行" | The form comes back with the error next to 波長範囲; no run is queued. |
 | Fix the form and click "fit を実行" | The status shows `queued`/`running` with the progress and a キャンセル button, then a final status; the run list reloads. The fixture files differ only by a constant, so the run ends `failed` with "no residual variance remains …"; use your own data (edit the copied `settings.toml`) to see `succeeded`. |
+| A run that ends `succeeded` | A green check icon (`check_circle`) appears right of "fit を実行". |
 | Click the run in the run list | `/fit?run=<run_id>` shows the run's settings in the form and its status. |
+
+### Spectral exploration (`/explore`)
+
+| Operation | Expected result |
+| --- | --- |
+| Open the raw view of a file | The StepTime slider stands vertically left of the heatmap, its thumb on the row of the crosshair; triangles above and left of the plot area point at the selected point. |
+| Move either slider or click the heatmap | The crosshair, the triangles, and the trends follow the point. |
 
 Other screens are added to the sidebar as they are implemented; check them the same way.
 

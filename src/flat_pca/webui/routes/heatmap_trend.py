@@ -12,6 +12,13 @@ from ..services.explore import explore_trends
 from ..services.heatmap_binning import bin_step_times
 from ..services.spectral_matrix import SpectralMatrix
 
+# Fixed top margin of the heatmap, leaving room for the title and the
+# selection marker above the plot area.
+HEATMAP_MARGIN_TOP = 72
+# Gap between the plot area and the StepTime tick labels, where the selection
+# marker on the left is drawn.
+MARKER_GAP = 16
+
 
 def script_json(text: str) -> str:
     """Make JSON text safe to embed in a ``<script>`` element.
@@ -60,7 +67,9 @@ def heatmap_context(
         y=binned.matrix.step_times,
         y_name="StepTime",
         z_name=value_name,
-    ).update_layout(title=label)
+    )
+    figure.update_layout(title=label, margin={"t": HEATMAP_MARGIN_TOP})
+    figure.update_yaxes(ticks="outside", ticklen=MARKER_GAP, tickcolor="rgba(0, 0, 0, 0)")
     return {
         "heatmap_label": label,
         "binned": binned,
