@@ -38,6 +38,7 @@ from .spectral_matrix import (
     trend_at_step_time,
     trend_at_wavelength,
 )
+from .view_selection import NO_TRANSFORM_RUN
 
 ExploreViewKind = Literal[
     "raw",
@@ -73,8 +74,8 @@ class ExploreRequest:
     view : str
         A key of ``VIEW_LABELS``.
     run : str | None
-        Fit run whose artifacts are shown; ``None`` for the latest
-        succeeded fit run.
+        Transform run whose artifacts are shown; ``None`` for the latest
+        succeeded transform run.
     files : tuple[str, ...]
         Stems to show, all of them overlaid in the trends.
     heatmap_file : str | None
@@ -103,9 +104,9 @@ class ExploreView:
     view : ExploreViewKind
         Shown data kind.
     runs : list[dict[str, object]]
-        Succeeded runs to choose from (see ``order_view_runs``).
+        Succeeded transform runs to choose from, newest first.
     run_id : str | None
-        Fit or transform run in use, or ``None`` when no fit run succeeded.
+        Transform run in use, or ``None`` when no transform run succeeded.
     file_options : list[str]
         Transform targets of the run that can be chosen, in natural order.
     files : list[str]
@@ -257,7 +258,7 @@ def _raw_view(
     request : ExploreRequest
         Requested choices.
     runs : list[dict[str, object]]
-        Succeeded runs to choose from (see ``order_view_runs``).
+        Succeeded transform runs to choose from, newest first.
     run_id : str
         Fit or transform run in use.
     artifacts : DisplayArtifacts
@@ -394,7 +395,7 @@ def _run_view(
     runs: list[dict[str, object]],
     max_files: int,
 ) -> ExploreView:
-    """Resolve a view of one fit run's artifacts.
+    """Resolve a view of one transform run's artifacts.
 
     Parameters
     ----------
@@ -409,7 +410,7 @@ def _run_view(
     request : ExploreRequest
         Requested choices.
     runs : list[dict[str, object]]
-        Succeeded runs to choose from (see ``order_view_runs``).
+        Succeeded transform runs to choose from, newest first.
     max_files : int
         Maximum number of shown files.
 
@@ -538,7 +539,7 @@ def resolve_explore(
 
     Unavailable choices fall back to the first available one, so a view is
     shown whenever data exist. Every view, the raw data included, chooses
-    from the transform targets of the fit run (its ``samples.parquet``) in
+    from the transform targets of the transform run (its ``samples.parquet``) in
     natural order.
 
     Parameters
@@ -546,7 +547,7 @@ def resolve_explore(
     cache : DisplayCache
         Display cache of the workspace.
     fit_runs : list[dict[str, object]]
-        Runs ordered by ``order_view_runs``; only succeeded ones are used.
+        Transform runs, newest first; only succeeded ones are used.
     request : ExploreRequest
         Requested choices.
     max_files : int
@@ -570,13 +571,13 @@ def resolve_explore(
     runs = [run for run in fit_runs if run["status"] == "succeeded"]
     by_id = {str(run["run_id"]): run for run in runs}
     if request.run is not None and request.run not in by_id:
-        raise ValueError(f"succeeded fit run not found: {request.run}")
+        raise ValueError(f"succeeded transform run not found: {request.run}")
     run = by_id[request.run] if request.run is not None else (runs[0] if runs else None)
     if run is None:
         return ExploreView(
             view=view,
             runs=runs,
-            error="No succeeded fit run. Run a fit on Preprocess / PCA first.",
+            error=NO_TRANSFORM_RUN,
         )
     run_id = str(run["run_id"])
     try:

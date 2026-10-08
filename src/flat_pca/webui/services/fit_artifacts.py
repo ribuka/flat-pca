@@ -40,9 +40,7 @@ class FitArtifacts:
     features : pl.DataFrame
         One row per feature, in ``x`` column order.
     samples : pl.DataFrame
-        One row per file, in ``x`` row order.
-    scores : pl.DataFrame
-        Scores, T², and Q of the files kept by the imputation stage.
+        One row per fitted file, in ``x`` row order.
     x : np.ndarray
         Preprocessed matrix before imputation, memory-mapped read-only in
         its saved dtype. Convert rows to ``float64`` before computing.
@@ -52,39 +50,51 @@ class FitArtifacts:
 
     features: pl.DataFrame
     samples: pl.DataFrame
-    scores: pl.DataFrame
     x: np.ndarray
     model: PcaModel
 
 
 @dataclass(frozen=True)
-class DisplayArtifacts:
-    """Artifacts of one fit or transform run needed to display its matrices.
+class ModelArtifacts:
+    """Artifacts of one fit run needed to display its model.
 
-    Unlike ``FitArtifacts``, no PCA model is restored, so the components
-    stay memory-mapped and only the rows a view needs are read.
+    No PCA model is restored, so the components stay memory-mapped.
 
     Attributes
     ----------
     features : pl.DataFrame
-        One row per feature, in ``x`` and ``components`` column order.
-    samples : pl.DataFrame
-        One row per file, in ``x`` row order.
-    scores : pl.DataFrame
-        Scores, T², and Q of the files kept by the imputation stage.
-    x : np.ndarray
-        Preprocessed matrix before imputation, memory-mapped read-only in
-        its saved dtype.
+        One row per feature, in ``components`` column order.
     components : np.ndarray
         ``pca.components_`` (``n_comp × n_features``), memory-mapped
         read-only in its saved dtype.
     """
 
     features: pl.DataFrame
+    components: np.ndarray
+
+
+@dataclass(frozen=True)
+class DisplayArtifacts(ModelArtifacts):
+    """Artifacts of one transform run needed to display its matrices.
+
+    Unlike ``FitArtifacts``, no PCA model is restored, so the components
+    stay memory-mapped and only the rows a view needs are read. The
+    features and the components are those of the transform run's fit run.
+
+    Attributes
+    ----------
+    samples : pl.DataFrame
+        One row per file, in ``x`` row order.
+    scores : pl.DataFrame
+        Scores, T², and Q of the files kept by the imputation stage.
+    x : np.ndarray
+        Preprocessed matrix before imputation, memory-mapped read-only in
+        its saved dtype, in ``features`` column order.
+    """
+
     samples: pl.DataFrame
     scores: pl.DataFrame
     x: np.ndarray
-    components: np.ndarray
 
 
 _READ_ERRORS = (OSError, KeyError, ValueError, pl.exceptions.PolarsError)
@@ -131,15 +141,68 @@ def _check_score_sources(scores: pl.DataFrame, samples: pl.DataFrame) -> None:
         raise ValueError(f"{SCORES_FILE} holds unknown sources {sorted(unknown)}")
 
 
+def _read_model_artifacts(run_dir: Path) -> ModelArtifacts:
+    """Read the features and the components of a fit run.
+
+    Parameters
+    ----------
+    run_dir : Path
+        Fit run directory written by ``run_fit``.
+
+    Returns
+    -------
+    ModelArtifacts
+        The artifacts, with ``components.npy`` memory-mapped.
+
+    Raises
+    ------
+    OSError, KeyError, ValueError, pl.exceptions.PolarsError
+        If a file is missing, unreadable, or inconsistent with the other.
+    """
+    features = pl.read_parquet(run_dir / FEATURES_FILE)
+    components = np.load(run_dir / COMPONENTS_FILE, mmap_mode="r")
+    n_features = features.height
+    if components.ndim != 2 or components.shape[0] < 1 or components.shape[1] != n_features:
+        raise ValueError(
+            f"{COMPONENTS_FILE} is shaped {components.shape}, "
+            f"expected (n_components, {n_features})"
+        )
+    return ModelArtifacts(features=features, components=components)
+
+
+def load_model_artifacts(run_dir: Path) -> ModelArtifacts:
+    """Load and validate the artifacts a fit run's model display needs.
+
+    Parameters
+    ----------
+    run_dir : Path
+        Fit run directory written by ``run_fit``.
+
+    Returns
+    -------
+    ModelArtifacts
+        The artifacts, with ``components.npy`` memory-mapped.
+
+    Raises
+    ------
+    RunArtifactError
+        If a file is missing, unreadable, or inconsistent with the other.
+    """
+    try:
+        return _read_model_artifacts(run_dir)
+    except _READ_ERRORS as error:
+        raise artifact_error(error) from error
+
+
 def load_display_artifacts(dirs: RunDirs) -> DisplayArtifacts:
-    """Load and validate the artifacts a fit or transform run's display needs.
+    """Load and validate the artifacts a transform run's display needs.
 
     Parameters
     ----------
     dirs : RunDirs
         Fit run directory written by ``run_fit`` (features and components),
-        and the directory of the shown data (samples, ``X.npy``, and
-        scores) written by ``run_fit`` or ``run_transform``.
+        and the transform run directory written by ``run_transform``
+        (samples, ``X.npy``, and scores).
 
     Returns
     -------
@@ -152,23 +215,17 @@ def load_display_artifacts(dirs: RunDirs) -> DisplayArtifacts:
         If a file is missing, unreadable, or inconsistent with the others.
     """
     try:
+        model = _read_model_artifacts(dirs.model)
         artifacts = DisplayArtifacts(
-            features=pl.read_parquet(dirs.model / FEATURES_FILE),
+            features=model.features,
+            components=model.components,
             samples=pl.read_parquet(dirs.data / SAMPLES_FILE),
             scores=pl.read_parquet(dirs.data / SCORES_FILE),
             x=np.load(dirs.data / X_FILE, mmap_mode="r"),
-            components=np.load(dirs.model / COMPONENTS_FILE, mmap_mode="r"),
         )
-        n_features = artifacts.features.height
-        expected = (artifacts.samples.height, n_features)
+        expected = (artifacts.samples.height, artifacts.features.height)
         if artifacts.x.shape != expected:
             raise ValueError(f"{X_FILE} is shaped {artifacts.x.shape}, expected {expected}")
-        components = artifacts.components
-        if components.ndim != 2 or components.shape[0] < 1 or components.shape[1] != n_features:
-            raise ValueError(
-                f"{COMPONENTS_FILE} is shaped {components.shape}, "
-                f"expected (n_components, {n_features})"
-            )
         _check_score_sources(artifacts.scores, artifacts.samples)
     except _READ_ERRORS as error:
         raise artifact_error(error) from error
@@ -240,21 +297,13 @@ def _check_shapes(artifacts: FitArtifacts) -> None:
     Raises
     ------
     ValueError
-        If the shapes, columns, or sources disagree.
+        If the shapes or columns disagree.
     """
     expected = (artifacts.samples.height, artifacts.features.height)
     if artifacts.x.shape != expected:
         raise ValueError(f"{X_FILE} is shaped {artifacts.x.shape}, expected {expected}")
     if list(artifacts.model.columns) != artifacts.features["feature"].to_list():
         raise ValueError(f"{PCA_STATE_FILE} does not match {FEATURES_FILE}")
-    missing = [
-        column
-        for column in (SOURCE_COLUMN, *artifacts.model.pca_column_names)
-        if column not in artifacts.scores.columns
-    ]
-    if missing:
-        raise ValueError(f"{SCORES_FILE} lacks columns {missing}")
-    _check_score_sources(artifacts.scores, artifacts.samples)
 
 
 def load_fit_artifacts(run_dir: Path) -> FitArtifacts:
@@ -282,7 +331,6 @@ def load_fit_artifacts(run_dir: Path) -> FitArtifacts:
         artifacts = FitArtifacts(
             features=features,
             samples=pl.read_parquet(run_dir / SAMPLES_FILE),
-            scores=pl.read_parquet(run_dir / SCORES_FILE),
             x=np.load(run_dir / X_FILE, mmap_mode="r"),
             model=model,
         )

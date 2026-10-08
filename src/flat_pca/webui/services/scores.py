@@ -16,6 +16,7 @@ from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError, artifact_error
 from .run_dirs import RunDirs, run_dirs
 from .scored_samples import choose_metadata_column, metadata_columns, scored_samples
+from .view_selection import NO_TRANSFORM_RUN
 
 
 @dataclass(frozen=True)
@@ -25,7 +26,7 @@ class ScoresRequest:
     Attributes
     ----------
     run : str | None
-        Fit or transform run shown; ``None`` for the latest succeeded fit run.
+        Transform run shown; ``None`` for the latest succeeded transform run.
     x : int | None
         1-based component number m of the horizontal axis.
     y : int | None
@@ -91,9 +92,9 @@ class ScoresView:
     Attributes
     ----------
     runs : list[dict[str, object]]
-        Succeeded runs to choose from (see ``order_view_runs``).
+        Succeeded transform runs to choose from, newest first.
     run_id : str | None
-        Fit or transform run in use, or ``None`` when no fit run succeeded.
+        Transform run in use, or ``None`` when no transform run succeeded.
     component_count : int
         Number of components of the run.
     x : int
@@ -251,7 +252,7 @@ def _run_view(
     runs: list[dict[str, object]],
     default_color: str | None,
 ) -> ScoresView:
-    """Resolve the score screen of one fit run.
+    """Resolve the score screen of one transform run.
 
     Parameters
     ----------
@@ -264,7 +265,7 @@ def _run_view(
     request : ScoresRequest
         Requested choices.
     runs : list[dict[str, object]]
-        Succeeded runs to choose from (see ``order_view_runs``).
+        Succeeded transform runs to choose from, newest first.
     default_color : str | None
         Default coloring column.
 
@@ -315,14 +316,14 @@ def resolve_scores(
     """Resolve the requested choices and load the data they show.
 
     Unavailable choices fall back to their defaults, so the screen is shown
-    whenever a fit run succeeded.
+    whenever a transform run succeeded.
 
     Parameters
     ----------
     cache : DisplayCache
         Display cache of the workspace.
     fit_runs : list[dict[str, object]]
-        Runs ordered by ``order_view_runs``; only succeeded ones are used.
+        Transform runs, newest first; only succeeded ones are used.
     request : ScoresRequest
         Requested choices.
     default_color : str | None
@@ -341,10 +342,10 @@ def resolve_scores(
     runs = [run for run in fit_runs if run["status"] == "succeeded"]
     by_id = {str(run["run_id"]): run for run in runs}
     if request.run is not None and request.run not in by_id:
-        raise ValueError(f"succeeded fit run not found: {request.run}")
+        raise ValueError(f"succeeded transform run not found: {request.run}")
     run = by_id[request.run] if request.run is not None else (runs[0] if runs else None)
     if run is None:
-        return ScoresView(runs=runs, error="No succeeded fit run.")
+        return ScoresView(runs=runs, error=NO_TRANSFORM_RUN)
     try:
         artifacts = cache.display_artifacts(run_dirs(run))
     except RunArtifactError as error:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from .fit_artifacts import DisplayArtifacts
+from .fit_artifacts import ModelArtifacts
 
 
 def parse_segment(text: str | None) -> tuple[int, int] | None:
@@ -74,12 +74,12 @@ def choose_segment(
     return options[0] if options else None
 
 
-def feature_segments(artifacts: DisplayArtifacts) -> list[tuple[int, int]]:
+def feature_segments(artifacts: ModelArtifacts) -> list[tuple[int, int]]:
     """Return the ``(Step, Sequence)`` pairs of a run's features.
 
     Parameters
     ----------
-    artifacts : DisplayArtifacts
+    artifacts : ModelArtifacts
         Fit-run artifacts.
 
     Returns

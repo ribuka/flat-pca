@@ -12,7 +12,7 @@ import numpy as np
 import polars as pl
 import pytest
 from fastapi.testclient import TestClient
-from fit_runs import register_fit_run
+from fit_runs import register_shown_run
 from spectra import SPECTRA_SHORT_FILE
 from view_choice import choose_view
 
@@ -64,7 +64,7 @@ def _register(
     run_id: str,
     impute_strategy: str,
 ) -> Path:
-    """Register a fit run whose files alternate between lots A and B.
+    """Register a transform run of a fit run whose files alternate between lots A and B.
 
     Returns
     -------
@@ -75,7 +75,7 @@ def _register(
         path.stem: {"lot": "AB"[index % 2], "yield_pct": float(index)}
         for index, path in enumerate(spectra_paths)
     }
-    register_fit_run(
+    register_shown_run(
         _workspace(client).database,
         settings,
         spectra_paths,
@@ -88,7 +88,7 @@ def _register(
 
 @pytest.fixture
 def run_dir(client: TestClient, settings: Settings, spectra_paths: list[Path]) -> Path:
-    """Register a succeeded fit run imputing missing values with the median."""
+    """Register a succeeded transform run of a fit run imputing with the median."""
     return _register(client, settings, spectra_paths, "fit-1", "median")
 
 
@@ -101,11 +101,11 @@ def _scores_by_stem(run_dir: Path) -> pl.DataFrame:
 
 
 def test_navigation_links_to_the_page(client: TestClient) -> None:
-    """The sidebar enables the screen, which reports a missing fit run."""
+    """The sidebar enables the screen, which reports a missing transform run."""
     html = client.get("/scores").text
 
     assert 'href="/scores" aria-current="page"' in html
-    assert "No succeeded fit run" in html
+    assert "No succeeded transform run" in html
 
 
 @pytest.mark.usefixtures("run_dir")

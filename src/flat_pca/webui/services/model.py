@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import cast
 
 import numpy as np
@@ -17,7 +18,7 @@ from flat_pca.feature_engineering.pca import PcaModel
 
 from .component_choice import choose_component
 from .display_cache import DisplayCache
-from .fit_artifacts import DisplayArtifacts, RunArtifactError
+from .fit_artifacts import ModelArtifacts, RunArtifactError
 from .preprocess_parameters import (
     FIXED_PARAMETER_LABELS,
     PARAMETER_VALUE_NAME,
@@ -25,7 +26,6 @@ from .preprocess_parameters import (
     parameter_options,
     parameter_values,
 )
-from .run_dirs import run_dirs
 from .segment_choice import (
     choose_segment,
     feature_segments,
@@ -52,7 +52,7 @@ class ModelRequest:
     Attributes
     ----------
     run : str | None
-        Fit or transform run shown; ``None`` for the latest succeeded fit run.
+        Fit run shown; ``None`` for the latest succeeded fit run.
     x : int | None
         1-based component number m of the loading plot's horizontal axis.
     y : int | None
@@ -109,9 +109,9 @@ class ModelView:
     Attributes
     ----------
     runs : list[dict[str, object]]
-        Succeeded runs to choose from (see ``order_view_runs``).
+        Succeeded fit runs to choose from, newest first.
     run_id : str | None
-        Fit or transform run in use, or ``None`` when no fit run succeeded.
+        Fit run in use, or ``None`` when no fit run succeeded.
     component_count : int
         Number of components of the run.
     x : int
@@ -181,13 +181,13 @@ class ModelView:
 
 
 def wavelength_loadings(
-    artifacts: DisplayArtifacts, x: int, y: int, method: LoadingAggregation
+    artifacts: ModelArtifacts, x: int, y: int, method: LoadingAggregation
 ) -> pl.DataFrame:
     """Return two components' coefficients aggregated by wavelength.
 
     Parameters
     ----------
-    artifacts : DisplayArtifacts
+    artifacts : ModelArtifacts
         The run's artifacts.
     x, y : int
         1-based component numbers m and n.
@@ -229,13 +229,13 @@ def wavelength_loadings(
 
 
 def component_matrices(
-    artifacts: DisplayArtifacts, component: int, segment: tuple[int, int]
+    artifacts: ModelArtifacts, component: int, segment: tuple[int, int]
 ) -> dict[str, SpectralMatrix]:
     """Reshape one component's coefficients into a ``(Step, Sequence)`` matrix.
 
     Parameters
     ----------
-    artifacts : DisplayArtifacts
+    artifacts : ModelArtifacts
         The run's artifacts.
     component : int
         1-based component number k.
@@ -253,7 +253,7 @@ def component_matrices(
 
 
 def parameter_matrices(
-    artifacts: DisplayArtifacts,
+    artifacts: ModelArtifacts,
     model: PcaModel,
     key: str,
     label: str,
@@ -263,7 +263,7 @@ def parameter_matrices(
 
     Parameters
     ----------
-    artifacts : DisplayArtifacts
+    artifacts : ModelArtifacts
         The run's artifacts.
     model : PcaModel
         The run's PCA model, whose columns follow ``artifacts.features``.
@@ -313,7 +313,7 @@ def _choose_view(requested: str | None, options: dict[str, str]) -> tuple[str, s
 
 def _run_view(
     run: dict[str, object],
-    artifacts: DisplayArtifacts,
+    artifacts: ModelArtifacts,
     cache: DisplayCache,
     request: ModelRequest,
     runs: list[dict[str, object]],
@@ -323,15 +323,15 @@ def _run_view(
     Parameters
     ----------
     run : dict[str, object]
-        The fit or transform run's ``runs`` row.
-    artifacts : DisplayArtifacts
+        The fit run's ``runs`` row.
+    artifacts : ModelArtifacts
         The run's artifacts.
     cache : DisplayCache
         Display cache holding the model.
     request : ModelRequest
         Requested choices.
     runs : list[dict[str, object]]
-        Succeeded runs to choose from (see ``order_view_runs``).
+        Succeeded fit runs to choose from, newest first.
 
     Returns
     -------
@@ -363,7 +363,7 @@ def _run_view(
         "segment": segment,
     }
     try:
-        model = cache.pca_model(run_dirs(run).model)
+        model = cache.pca_model(Path(str(run["artifact_dir"])))
     except RunArtifactError as error:
         return ModelView(**common, error=str(error))  # type: ignore[arg-type]
     view_options = {COMPONENT_VIEW: COMPONENT_VIEW_LABEL} | parameter_options(model)
@@ -399,7 +399,7 @@ def resolve_model(
     cache : DisplayCache
         Display cache of the workspace.
     fit_runs : list[dict[str, object]]
-        Runs ordered by ``order_view_runs``; only succeeded ones are used.
+        Fit runs, newest first; only succeeded ones are used.
     request : ModelRequest
         Requested choices.
 
@@ -428,7 +428,7 @@ def resolve_model(
     if run is None:
         return ModelView(runs=runs, error="No succeeded fit run.")
     try:
-        artifacts = cache.display_artifacts(run_dirs(run))
+        artifacts = cache.model_artifacts(Path(str(run["artifact_dir"])))
     except RunArtifactError as error:
         return ModelView(runs=runs, run_id=str(run["run_id"]), error=str(error))
     return _run_view(run, artifacts, cache, request, runs)

@@ -656,6 +656,19 @@ p.error {
   max-height: 33.5rem;
 }
 
+/* The model choice and the "use same data for fit" checkbox of the transform page. */
+.transform-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  align-items: center;
+}
+
+/* The locked fit targets of the transform page: chosen, grayed out, and not editable. */
+#file-table[data-locked] .file-table tbody {
+  color: var(--muted);
+}
+
 .pager {
   display: flex;
   flex-wrap: wrap;

@@ -1,47 +1,51 @@
 {% extends "base.html" %}
 {% block title %}transform - flat-pca{% endblock %}
-{% block view_swap %}run{% endblock %}
+{% block view_swap %}model{% endblock %}
 {% block content %}
 <details class="card" data-group="target" open>
   <summary><h2>transform</h2></summary>
   <div class="card-body">
-    {% if choice.run_id %}
-      <p>
-        Model: fit run <span class="mono" data-transform-model="{{ choice.fit_run_id }}">{{ choice.fit_run_id }}</span>
-        (change it with the run in the sidebar)
-      </p>
-    {% endif %}
-    {#- While the sidebar shows a transform run, checking the box shows its fit
-        run's own data again by choosing the fit run in the sidebar. -#}
-    <form id="use-same-data-form" class="use-same-data"
-          {% if choice.is_transform_run %}hx-post="/sidebar/selection/run" hx-trigger="change[target.checked]" hx-swap="none" data-view-choice{% endif %}>
-      {% if choice.is_transform_run %}<input type="hidden" name="run" value="{{ choice.fit_run_id }}">{% endif %}
-      <label>
-        <input type="checkbox" name="use_same_data_for_fit" data-use-same-data {% if not choice.is_transform_run %}checked{% endif %}>
-        use same data for fit
-      </label>
-    </form>
-    <p class="muted">
-      Checked, the transform targets are the fit targets, and the results of the fit run are shown as they are (nothing to run).
-      Unchecked, choose the transform targets from the catalog and transform them with the model of the fit run.
-      Spectral exploration, scores, T² / Q, and the shown files in the sidebar use the transform targets of the run chosen in the sidebar.
-    </p>
-    {% if choice.run_id %}
-      <p data-transform-shown="{{ choice.file_options|length }}">
-        Transform targets of run <span class="mono">{{ choice.run_id }}</span>{% if choice.is_transform_run %} (transform run){% endif %}: {{ choice.file_options|length }} files
-      </p>
+    {% if model_runs %}
+      {#- A change saves the settings (and, while unchecked, the chosen targets)
+          and replaces the main part. -#}
+      <form id="transform-settings-form" class="transform-settings" autocomplete="off" hx-post="/transform/settings" hx-trigger="change"
+            hx-include="#selected-stems" hx-swap="none" data-view-choice>
+        <label>Model (fit run)
+          <select name="model" data-transform-model>
+            {% for run in model_runs %}
+              <option value="{{ run.run_id }}"{% if run.run_id == model_run_id %} selected{% endif %}>{{ run.run_id }}（{{ run.created_at|cell }}）</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          <input type="checkbox" name="use_same_data" value="true" data-use-same-data {% if use_same_data %}checked{% endif %}>
+          use same data for fit
+        </label>
+      </form>
     {% else %}
-      <p class="muted">No succeeded fit run. Run a fit on <a href="/fit">Preprocess / PCA</a> first.</p>
+      <p class="muted" data-no-model>No succeeded fit run. Run a fit on <a href="/fit">Preprocess / PCA</a> first.</p>
     {% endif %}
+    <p class="muted">
+      Checked, the transform targets are the files the model was fitted on.
+      Unchecked, choose the transform targets from the catalog.
+      "Run transform" transforms them with the model, unless a transform run of the same model and files already succeeded, which is shown instead.
+      Spectral exploration, scores, T² / Q, and the shown files in the sidebar use the transform run shown in the run list.
+    </p>
   </div>
 </details>
 
-<details class="card" data-group="targets" data-transform-targets open {% if not choice.is_transform_run %}hidden{% endif %}>
+<details class="card" data-group="targets" data-transform-targets open>
   <summary><h2>Transform targets</h2></summary>
   <div class="card-body">
+    {% if use_same_data %}
+      <p class="muted" data-fit-targets="{{ fit_targets|length }}">
+        The {{ fit_targets|length }} files the model was fitted on are chosen. Uncheck "use same data for fit" to choose others.
+      </p>
+    {% endif %}
+    {#- Checked, the table shows the fit targets chosen and locked (app.js). -#}
     <div id="file-table" hx-get="/catalog/files" hx-include="this"
          hx-target="this" hx-swap="innerHTML" hx-sync="this:replace"
-         hx-trigger="load, file-query-changed">
+         hx-trigger="load, file-query-changed" {% if use_same_data %}data-locked{% endif %}>
       <p class="muted">Loading…</p>
     </div>
     {#- The chosen targets over all pages and filters as a JSON array, kept
@@ -49,8 +53,8 @@
     <input type="hidden" id="selected-stems" name="stems" value='{{ selected|tojson }}'>
     <div class="selection-actions">
       {% include "partials/transform_submit.html" %}
-      <button id="run-transform" type="button" class="button-primary" hx-post="/transform" hx-include="#selected-stems"
-              hx-target="#transform-submit-message" hx-swap="outerHTML" {% if not choice.run_id %}disabled{% endif %}>Run transform</button>
+      <button id="run-transform" type="button" class="button-primary" hx-post="/transform" hx-include="#selected-stems, #transform-settings-form"
+              hx-target="#transform-submit-message" hx-swap="outerHTML" {% if not model_run_id %}disabled{% endif %}>Run transform</button>
     </div>
   </div>
 </details>
@@ -66,7 +70,7 @@
   <summary><h2>Transform runs</h2></summary>
   <div class="card-body">
     <div id="transform-runs" hx-get="/transform/runs" hx-target="this" hx-swap="innerHTML"
-         hx-trigger="load, transform-started from:body, transform-updated from:body">
+         hx-trigger="load, transform-started from:body, transform-updated from:body, view-selection-changed from:body">
       <p class="muted">Loading…</p>
     </div>
   </div>

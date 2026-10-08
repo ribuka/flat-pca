@@ -13,7 +13,7 @@ import numpy as np
 import polars as pl
 import pytest
 from fastapi.testclient import TestClient
-from fit_runs import register_fit_run
+from fit_runs import register_shown_run
 from spectra import SPECTRA_SHORT_FILE, SPECTRA_WAVELENGTHS
 from view_choice import choose_view
 
@@ -21,7 +21,7 @@ from flat_pca.webui.app import create_app
 from flat_pca.webui.services.display_cache import DisplayCache
 from flat_pca.webui.services.runs import insert_run, update_run
 from flat_pca.webui.settings import Settings, UiSettings
-from flat_pca.webui.workspace import FIT_JOB, Workspace
+from flat_pca.webui.workspace import TRANSFORM_JOB, Workspace
 
 Wait = Callable[..., dict[str, object]]
 FIT_RUN_ID = "fit-1"
@@ -80,14 +80,14 @@ def client(settings: Settings, wait_for: Wait) -> Iterator[TestClient]:
 
 @pytest.fixture
 def fit_run(client: TestClient, settings: Settings, spectra_paths: list[Path]) -> str:
-    """Register a succeeded z-score fit run imputing missing values with the median.
+    """Register a succeeded transform run of a z-score fit run imputing with the median.
 
     Returns
     -------
     str
         The run's identifier.
     """
-    return register_fit_run(
+    return register_shown_run(
         _workspace(client).database, settings, spectra_paths, FIT_RUN_ID, "median"
     )
 
@@ -201,11 +201,11 @@ def test_unchosen_heatmap_file_falls_back_to_the_first(
 
 
 def test_raw_view_without_a_run_asks_for_a_fit(client: TestClient) -> None:
-    """The raw view chooses from the transform targets, so it needs a fit run."""
+    """The raw view chooses from the transform targets, so it needs a transform run."""
     html = client.get("/explore").text
 
     assert "data-explore-error" in html
-    assert "Run a fit on Preprocess / PCA first." in html
+    assert "Run a transform on Transform first." in html
     assert "data-explore " not in html
 
 
@@ -215,7 +215,7 @@ def test_heatmap_is_binned_above_the_cell_limit(
     """Above ``ui.heatmap_max_cells`` the heatmap rows are averaged and marked."""
     limited = settings.model_copy(update={"ui": UiSettings(heatmap_max_cells=10)})
     with TestClient(create_app(limited)) as opened:
-        register_fit_run(
+        register_shown_run(
             _workspace(opened).database, limited, spectra_paths, FIT_RUN_ID, "median"
         )
         html = opened.get("/explore").text
@@ -291,11 +291,11 @@ def test_preprocessed_view_shows_x_rows_and_the_transform(
 
 
 def test_run_views_without_a_run_show_a_message(client: TestClient) -> None:
-    """Without a succeeded fit run, run-based views explain why nothing is drawn."""
+    """Without a succeeded transform run, run-based views explain why nothing is drawn."""
     html = client.get("/explore", params={"view": "preprocessed"}).text
 
     assert "data-explore-error" in html
-    assert "No succeeded fit run" in html
+    assert "No succeeded transform run" in html
     assert "data-explore " not in html
     response = client.get(
         "/explore/trend", params={"view": "preprocessed", "wavelength": 0, "step_time": 0}
@@ -328,11 +328,12 @@ def test_trend_rejects_an_unknown_run(client: TestClient) -> None:
 
 
 def _add_runs(client: TestClient, settings: Settings, count: int, status: str) -> None:
-    """Register ``count`` fit runs newer than the existing ones, without artifacts."""
+    """Register ``count`` transform runs newer than the existing ones, without artifacts."""
     database = _workspace(client).database
     for index in range(count):
         run_id = f"extra-{index:03d}"
-        insert_run(database, run_id, FIT_JOB, {}, settings.runs_dir / run_id)
+        config = {"fit_run_id": "missing", "fit_run_dir": str(settings.runs_dir / "missing")}
+        insert_run(database, run_id, TRANSFORM_JOB, config, settings.runs_dir / run_id)
         update_run(database, run_id, status=status)
 
 
@@ -360,7 +361,7 @@ def test_old_succeeded_run_can_be_chosen(
 
     assert f"run {fit_run} の表示ファイル" in html
     assert 'data-heatmap-label="s-00"' in html
-    assert f'<option value="{fit_run}" data-run-kind="fit" selected>' in sidebar
+    assert 'data-stem="s-00"' in sidebar
 
 
 def _trend_values(
@@ -476,7 +477,7 @@ def test_drop_strategy_excludes_files_with_missing_values(
     client: TestClient, settings: Settings, spectra_paths: list[Path]
 ) -> None:
     """Files dropped by ``impute_strategy="drop"`` are listed, not reconstructed."""
-    register_fit_run(_workspace(client).database, settings, spectra_paths, "fit-drop", "drop")
+    register_shown_run(_workspace(client).database, settings, spectra_paths, "fit-drop", "drop")
 
     choose_view(client, files=["s-00", SHORT])
     html = client.get("/explore", params={"view": "residual"}).text
@@ -558,7 +559,7 @@ def test_trend_beyond_the_limit_overlays_the_leading_files(
     limited_client: TestClient, settings: Settings, spectra_paths: list[Path]
 ) -> None:
     """Above ``ui.explore_max_files`` a trend overlays the leading files only."""
-    register_fit_run(
+    register_shown_run(
         _workspace(limited_client).database, settings, spectra_paths, FIT_RUN_ID, "median"
     )
 
@@ -579,7 +580,7 @@ def test_trend_at_the_file_limit_prepares_no_row_again(
 ) -> None:
     """With the limit of files chosen, resolving a trend again reuses the prepared rows."""
     workspace = _workspace(limited_client)
-    register_fit_run(workspace.database, settings, spectra_paths, FIT_RUN_ID, "median")
+    register_shown_run(workspace.database, settings, spectra_paths, FIT_RUN_ID, "median")
     assert workspace.cache.prepared_row_entries == 2
     choose_view(limited_client, files=["s-00", "s-01"])
     html = limited_client.get("/explore", params={"view": "residual", "k": "1"}).text

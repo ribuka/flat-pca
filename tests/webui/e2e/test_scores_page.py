@@ -118,7 +118,7 @@ def test_choices_redraw_the_trajectories(page: Page, fitted_server_url: str) -> 
     _open(page, f"{fitted_server_url}/scores")
     expect(page.locator("#scores-trajectories .legend .traces")).to_have_count(1)
     expect(page.locator('select[name="file"]')).to_have_count(0)
-    expect(page.locator('select[name="run"]')).to_have_count(1)
+    expect(page.locator('select[name="run"]')).to_have_count(0)
 
     mark_page(page)
     for stem in ("s-00", SHORT):

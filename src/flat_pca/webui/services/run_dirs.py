@@ -21,9 +21,9 @@ class RunDirs:
         Fit run directory holding ``features.parquet``, ``components.npy``,
         and ``pca_state.npz``.
     data : Path
-        Run directory holding ``samples.parquet``, ``X.npy``, and
-        ``scores.parquet``: the fit run's own for a fit run, the transform
-        run's for a transform run.
+        Run directory holding ``samples.parquet`` and ``X.npy``: the fit
+        run's own for a fit run, the transform run's (also holding
+        ``scores.parquet``) for a transform run.
     """
 
     model: Path

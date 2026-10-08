@@ -11,7 +11,7 @@ from pathlib import Path
 import executor_jobs
 import pytest
 import uvicorn
-from fit_runs import register_fit_run
+from fit_runs import register_fit_run, register_transform_run
 from playwright.sync_api import ConsoleMessage, Error, Page
 
 from flat_pca.webui.app import create_app
@@ -123,7 +123,10 @@ def slow_fit_server_url(
     yield from serve(cataloged_settings)
 
 def register_fit_runs(
-    settings: Settings, spectra_paths: list[Path], run_ids: tuple[str, ...]
+    settings: Settings,
+    spectra_paths: list[Path],
+    run_ids: tuple[str, ...],
+    transform: bool = True,
 ) -> None:
     """Register succeeded fit runs, oldest first, that impute with the median.
 
@@ -134,12 +137,23 @@ def register_fit_runs(
     spectra_paths : list[Path]
         Synthetic spectra files.
     run_ids : tuple[str, ...]
-        Identifiers of the runs in creation order.
+        Identifiers of the fit runs (``fit-N``) in creation order.
+    transform : bool, default True
+        Whether each fit run is followed by a succeeded transform run of its
+        own files (``tr-N``), which the display screens show.
     """
     workspace = Workspace(settings)
     try:
         for run_id in run_ids:
             register_fit_run(workspace.database, settings, spectra_paths, run_id, "median")
+            if transform:
+                register_transform_run(
+                    workspace.database,
+                    settings,
+                    run_id,
+                    spectra_paths,
+                    run_id.replace("fit-", "tr-"),
+                )
     finally:
         workspace.close()
 
@@ -148,10 +162,11 @@ def register_fit_runs(
 def fitted_server_url(
     cataloged_settings: Settings, spectra_paths: list[Path]
 ) -> Iterator[str]:
-    """Serve the Web UI on a workspace holding a succeeded fit run.
+    """Serve the Web UI on a workspace holding a succeeded fit run and its transform run.
 
-    The run (``fit-1``) imputes with the median, so the synthetic file
-    lacking a row is reconstructed from imputed values.
+    The fit run (``fit-1``) imputes with the median, so the synthetic file
+    lacking a row is reconstructed from imputed values. The transform run
+    (``tr-1``) of the same files is shown.
 
     Yields
     ------
@@ -178,7 +193,7 @@ def slow_transform_server_url(
     str
         Base URL of the running server.
     """
-    register_fit_runs(cataloged_settings, spectra_paths, ("fit-1",))
+    register_fit_runs(cataloged_settings, spectra_paths, ("fit-1",), transform=False)
     monkeypatch.setattr(
         "flat_pca.webui.workspace.run_transform", executor_jobs.fit_in_slow_stages
     )
@@ -187,7 +202,7 @@ def slow_transform_server_url(
 
 @pytest.fixture
 def two_fits_server_url(settings: Settings, spectra_paths: list[Path]) -> Iterator[str]:
-    """Serve the Web UI on a workspace holding the fit runs ``fit-1`` and ``fit-2``.
+    """Serve the Web UI with the fit runs ``fit-1`` and ``fit-2`` and their ``tr-1`` and ``tr-2``.
 
     Yields
     ------
@@ -200,7 +215,7 @@ def two_fits_server_url(settings: Settings, spectra_paths: list[Path]) -> Iterat
 
 @pytest.fixture
 def one_file_server_url(settings: Settings, spectra_paths: list[Path]) -> Iterator[str]:
-    """Serve the Web UI showing one file at a time, with the fit run ``fit-1``.
+    """Serve the Web UI showing one file at a time, with ``fit-1`` and its ``tr-1``.
 
     Yields
     ------

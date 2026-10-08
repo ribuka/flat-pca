@@ -15,8 +15,8 @@ from flat_pca.webui.settings import Settings
 VIEW_SWAP = {
     "/": "",
     "/fit": "",
-    "/transform": "run",
-    "/model": "run",
+    "/transform": "model",
+    "/model": "model",
     "/explore": "run files",
     "/scores": "run files",
     "/monitoring": "run",

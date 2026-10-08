@@ -16,6 +16,7 @@ from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError, artifact_error
 from .run_dirs import run_dirs
 from .scored_samples import choose_metadata_column, metadata_columns, scored_samples
+from .view_selection import NO_TRANSFORM_RUN
 
 _ROW = "row"
 _STEM_RANK = "stem_rank"
@@ -29,7 +30,7 @@ class MonitoringRequest:
     Attributes
     ----------
     run : str | None
-        Fit or transform run shown; ``None`` for the latest succeeded fit run.
+        Transform run shown; ``None`` for the latest succeeded transform run.
     order : str | None
         Metadata column ordering the control charts; ``None`` for the
         default column and ``""`` for the natural order of the stems.
@@ -86,9 +87,9 @@ class MonitoringView:
     Attributes
     ----------
     runs : list[dict[str, object]]
-        Succeeded runs to choose from (see ``order_view_runs``).
+        Succeeded transform runs to choose from, newest first.
     run_id : str | None
-        Fit or transform run in use, or ``None`` when no fit run succeeded.
+        Transform run in use, or ``None`` when no transform run succeeded.
     order_options : list[str]
         Metadata columns of the run's samples.
     order : str | None
@@ -239,7 +240,7 @@ def resolve_monitoring(
     cache : DisplayCache
         Display cache of the workspace.
     fit_runs : list[dict[str, object]]
-        Runs ordered by ``order_view_runs``; only succeeded ones are used.
+        Transform runs, newest first; only succeeded ones are used.
     request : MonitoringRequest
         Requested choices.
     default_order : str | None
@@ -260,10 +261,10 @@ def resolve_monitoring(
     runs = [run for run in fit_runs if run["status"] == "succeeded"]
     by_id = {str(run["run_id"]): run for run in runs}
     if request.run is not None and request.run not in by_id:
-        raise ValueError(f"succeeded fit run not found: {request.run}")
+        raise ValueError(f"succeeded transform run not found: {request.run}")
     run = by_id[request.run] if request.run is not None else (runs[0] if runs else None)
     if run is None:
-        return MonitoringView(runs=runs, error="No succeeded fit run.")
+        return MonitoringView(runs=runs, error=NO_TRANSFORM_RUN)
     run_id = str(run["run_id"])
     try:
         artifacts = cache.display_artifacts(run_dirs(run))
