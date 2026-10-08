@@ -565,7 +565,10 @@ function initPlot(target) {
     target.dataset.plotReady = "true";
     if (table) {
       target.on("plotly_selected", (event) => table.show(eventStems(event)));
+      // A double click clears the table in every drag mode; only in the box
+      // and lasso modes does Plotly also report a deselection.
       target.on("plotly_deselect", () => table.show([]));
+      target.on("plotly_doubleclick", () => table.show([]));
     }
     target.on("plotly_click", (event) => {
       const stems = eventStems(event).slice(0, 1);

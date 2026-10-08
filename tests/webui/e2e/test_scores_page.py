@@ -48,6 +48,12 @@ def test_clicking_a_score_point_adds_the_file(page: Page, fitted_server_url: str
     expect(legend).to_have_count(1)
     expect(legend.nth(0)).to_contain_text("s-01")
 
+    # A double click after the reload clears the kept row.
+    box = page.locator("#scores-scatter .nsewdrag").first.bounding_box()
+    assert box is not None
+    page.mouse.dblclick(box["x"] + 4, box["y"] + 4)
+    expect(page.locator("#point-table")).to_have_attribute("data-shown-count", "0")
+
 
 def test_clicking_a_point_at_the_limit_warns(page: Page, one_file_server_url: str) -> None:
     """At the limit of shown files, a clicked file is not added and a warning is shown."""
