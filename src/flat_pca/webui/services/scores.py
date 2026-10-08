@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 import polars as pl
@@ -14,6 +14,7 @@ from flat_pca.utils import natural_keys
 from .component_choice import choose_component
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError, artifact_error
+from .run_choice import choose_run
 from .run_dirs import RunDirs, run_dirs
 from .scored_samples import choose_metadata_column, metadata_columns, scored_samples
 from .view_selection import NO_TRANSFORM_RUN
@@ -282,25 +283,25 @@ def _run_view(
     options = sorted(artifacts.samples["stem"].to_list(), key=natural_keys)
     wanted = set(request.files)
     files = [stem for stem in options if stem in wanted] or options[:1]
-    common = {
-        "runs": runs,
-        "run_id": str(run["run_id"]),
-        "component_count": component_count,
-        "x": x,
-        "y": y,
-        "color_options": color_options,
-        "color": choose_metadata_column(request.color, default_color, color_options),
-        "file_options": options,
-        "files": files,
-    }
+    base = ScoresView(
+        runs=runs,
+        run_id=str(run["run_id"]),
+        component_count=component_count,
+        x=x,
+        y=y,
+        color_options=color_options,
+        color=choose_metadata_column(request.color, default_color, color_options),
+        file_options=options,
+        files=files,
+    )
     try:
         model = cache.pca_model(dirs.model)
         scores = score_table(artifacts, model.pca_column_names, x, y)
         trajectories, dropped = score_trajectories(dirs, artifacts, cache, files, x, y)
     except RunArtifactError as error:
-        return ScoresView(**common, error=str(error))  # type: ignore[arg-type]
-    return ScoresView(
-        **common,  # type: ignore[arg-type]
+        return replace(base, error=str(error))
+    return replace(
+        base,
         scores=scores,
         trajectories=trajectories,
         dropped=dropped,
@@ -309,7 +310,7 @@ def _run_view(
 
 def resolve_scores(
     cache: DisplayCache,
-    fit_runs: list[dict[str, object]],
+    runs: list[dict[str, object]],
     request: ScoresRequest,
     default_color: str | None,
 ) -> ScoresView:
@@ -322,8 +323,8 @@ def resolve_scores(
     ----------
     cache : DisplayCache
         Display cache of the workspace.
-    fit_runs : list[dict[str, object]]
-        Transform runs, newest first; only succeeded ones are used.
+    runs : list[dict[str, object]]
+        Succeeded transform runs to choose from, newest first.
     request : ScoresRequest
         Requested choices.
     default_color : str | None
@@ -339,11 +340,7 @@ def resolve_scores(
     ValueError
         If the run is invalid.
     """
-    runs = [run for run in fit_runs if run["status"] == "succeeded"]
-    by_id = {str(run["run_id"]): run for run in runs}
-    if request.run is not None and request.run not in by_id:
-        raise ValueError(f"succeeded transform run not found: {request.run}")
-    run = by_id[request.run] if request.run is not None else (runs[0] if runs else None)
+    run = choose_run(runs, request.run, "transform")
     if run is None:
         return ScoresView(runs=runs, error=NO_TRANSFORM_RUN)
     try:

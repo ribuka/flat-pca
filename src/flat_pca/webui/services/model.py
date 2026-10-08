@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import cast
 
@@ -26,6 +26,7 @@ from .preprocess_parameters import (
     parameter_options,
     parameter_values,
 )
+from .run_choice import choose_run
 from .segment_choice import (
     choose_segment,
     feature_segments,
@@ -351,21 +352,21 @@ def _run_view(
     segment_options = feature_segments(artifacts)
     segment = choose_segment(segment_options, parse_segment(request.segment))
     assert segment is not None  # a fit run always has features
-    common = {
-        "runs": runs,
-        "run_id": str(run["run_id"]),
-        "component_count": component_count,
-        "x": x,
-        "y": y,
-        "aggregation": aggregation,
-        "component": component,
-        "segment_options": segment_options,
-        "segment": segment,
-    }
+    base = ModelView(
+        runs=runs,
+        run_id=str(run["run_id"]),
+        component_count=component_count,
+        x=x,
+        y=y,
+        aggregation=aggregation,
+        component=component,
+        segment_options=segment_options,
+        segment=segment,
+    )
     try:
         model = cache.pca_model(Path(str(run["artifact_dir"])))
     except RunArtifactError as error:
-        return ModelView(**common, error=str(error))  # type: ignore[arg-type]
+        return replace(base, error=str(error))
     view_options = {COMPONENT_VIEW: COMPONENT_VIEW_LABEL} | parameter_options(model)
     view, notice = _choose_view(request.view, view_options)
     matrices = (
@@ -373,8 +374,8 @@ def _run_view(
         if view == COMPONENT_VIEW
         else parameter_matrices(artifacts, model, view, view_options[view], segment)
     )
-    return ModelView(
-        **common,  # type: ignore[arg-type]
+    return replace(
+        base,
         view_options=view_options,
         view=view,
         explained_variance=model.get_explained_variance_table(),
@@ -386,7 +387,7 @@ def _run_view(
 
 def resolve_model(
     cache: DisplayCache,
-    fit_runs: list[dict[str, object]],
+    runs: list[dict[str, object]],
     request: ModelRequest,
 ) -> ModelView:
     """Resolve the requested choices and load the data they show.
@@ -398,8 +399,8 @@ def resolve_model(
     ----------
     cache : DisplayCache
         Display cache of the workspace.
-    fit_runs : list[dict[str, object]]
-        Fit runs, newest first; only succeeded ones are used.
+    runs : list[dict[str, object]]
+        Succeeded fit runs to choose from, newest first.
     request : ModelRequest
         Requested choices.
 
@@ -420,11 +421,7 @@ def resolve_model(
     if view is not None and view != COMPONENT_VIEW and not is_parameter_key(view):
         raise ValueError(f"unknown view: {request.view!r}")
     parse_segment(request.segment)
-    runs = [run for run in fit_runs if run["status"] == "succeeded"]
-    by_id = {str(run["run_id"]): run for run in runs}
-    if request.run is not None and request.run not in by_id:
-        raise ValueError(f"succeeded fit run not found: {request.run}")
-    run = by_id[request.run] if request.run is not None else (runs[0] if runs else None)
+    run = choose_run(runs, request.run, "fit")
     if run is None:
         return ModelView(runs=runs, error="No succeeded fit run.")
     try:

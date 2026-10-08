@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import cast
 
 import numpy as np
@@ -14,6 +14,7 @@ from flat_pca.utils import natural_keys
 
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError, artifact_error
+from .run_choice import choose_run
 from .run_dirs import run_dirs
 from .scored_samples import choose_metadata_column, metadata_columns, scored_samples
 from .view_selection import NO_TRANSFORM_RUN
@@ -228,7 +229,7 @@ def monitoring_points(
 
 def resolve_monitoring(
     cache: DisplayCache,
-    fit_runs: list[dict[str, object]],
+    runs: list[dict[str, object]],
     request: MonitoringRequest,
     default_order: str | None,
     default_color: str | None,
@@ -239,8 +240,8 @@ def resolve_monitoring(
     ----------
     cache : DisplayCache
         Display cache of the workspace.
-    fit_runs : list[dict[str, object]]
-        Transform runs, newest first; only succeeded ones are used.
+    runs : list[dict[str, object]]
+        Succeeded transform runs to choose from, newest first.
     request : MonitoringRequest
         Requested choices.
     default_order : str | None
@@ -258,11 +259,7 @@ def resolve_monitoring(
     ValueError
         If the run is invalid.
     """
-    runs = [run for run in fit_runs if run["status"] == "succeeded"]
-    by_id = {str(run["run_id"]): run for run in runs}
-    if request.run is not None and request.run not in by_id:
-        raise ValueError(f"succeeded transform run not found: {request.run}")
-    run = by_id[request.run] if request.run is not None else (runs[0] if runs else None)
+    run = choose_run(runs, request.run, "transform")
     if run is None:
         return MonitoringView(runs=runs, error=NO_TRANSFORM_RUN)
     run_id = str(run["run_id"])
@@ -272,21 +269,21 @@ def resolve_monitoring(
         return MonitoringView(runs=runs, run_id=run_id, error=str(error))
     order_options = metadata_columns(artifacts.samples)
     order = choose_metadata_column(request.order, default_order, order_options)
-    common = {
-        "runs": runs,
-        "run_id": run_id,
-        "order_options": order_options,
-        "order": order,
-        "color_options": order_options,
-        "color": choose_metadata_column(request.color, default_color, order_options),
-    }
+    base = MonitoringView(
+        runs=runs,
+        run_id=run_id,
+        order_options=order_options,
+        order=order,
+        color_options=order_options,
+        color=choose_metadata_column(request.color, default_color, order_options),
+    )
     try:
         points = monitoring_points(artifacts, *statistic_configs(run), order)
     except RunArtifactError as error:
-        return MonitoringView(**common, error=str(error))  # type: ignore[arg-type]
+        return replace(base, error=str(error))
     scored = set(points.samples["stem"].to_list())
-    return MonitoringView(
-        **common,  # type: ignore[arg-type]
+    return replace(
+        base,
         points=points,
         unscored=[stem for stem in artifacts.samples["stem"].to_list() if stem not in scored],
     )
