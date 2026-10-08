@@ -18,6 +18,7 @@ from sklearn.decomposition import PCA
 
 from ..outlier import OutlierBounds, OutlierModel, OutlierStrategy
 from ..scaling import ScalingModel, ScalingStrategy
+from .feature_arrays import ordered_values
 from .impute import ImputeModel, ImputeStrategy
 
 if TYPE_CHECKING:
@@ -116,11 +117,20 @@ def parse_transform_payload(payload: dict[str, object]) -> dict[str, object]:
     -------
     dict[str, object]
         Keyword arguments accepted by ``PcaModel``.
+
+    Raises
+    ------
+    ValueError
+        If the PCA attributes are not shaped for the component and feature
+        counts.
     """
     n_component = int(payload["n_component"])
+    columns = tuple(cast(list[str], payload["columns"]))
+    pca = _restore_pca(cast(dict[str, object], payload["pca"]), n_component)
+    _validate_pca_shapes(pca, len(columns))
 
     return {
-        "columns": tuple(cast(list[str], payload["columns"])),
+        "columns": columns,
         "n_component": n_component,
         "impute_model": ImputeModel.from_payload(
             cast(dict[str, object], payload["impute_model"])
@@ -131,7 +141,7 @@ def parse_transform_payload(payload: dict[str, object]) -> dict[str, object]:
         "scaling_model": ScalingModel.from_payload(
             cast(dict[str, object], payload["scaling_model"])
         ),
-        "pca": _restore_pca(cast(dict[str, object], payload["pca"]), n_component),
+        "pca": pca,
         "pca_column_names": tuple(cast(list[str], payload["pca_column_names"])),
     }
 
@@ -142,7 +152,9 @@ _NO_OUTLIER_STRATEGY = ""
 _NO_KMEANS_N_CLUSTERS = 0
 
 
-def _feature_array(values: Mapping[str, float], columns: Sequence[str]) -> np.ndarray:
+def _feature_array(
+    values: Mapping[str, float], columns: Sequence[str], name: str
+) -> np.ndarray:
     """Order per-feature values by the model's columns.
 
     Parameters
@@ -151,6 +163,8 @@ def _feature_array(values: Mapping[str, float], columns: Sequence[str]) -> np.nd
         Values keyed by feature column; empty when the stage holds none.
     columns : Sequence[str]
         Feature columns of the model.
+    name : str
+        Description of ``values`` used in the error message.
 
     Returns
     -------
@@ -161,13 +175,11 @@ def _feature_array(values: Mapping[str, float], columns: Sequence[str]) -> np.nd
     Raises
     ------
     ValueError
-        If ``values`` is neither empty nor keyed by exactly ``columns``.
+        If ``values`` is neither empty nor has a value for every column.
     """
     if not values:
         return np.empty(0, dtype=np.float64)
-    if len(values) != len(columns):
-        raise ValueError("per-feature values must cover every model column")
-    return np.array([values[column] for column in columns], dtype=np.float64)
+    return ordered_values(values, columns, name)
 
 
 def _feature_map(
@@ -247,7 +259,7 @@ def build_pca_state(model: PcaModel) -> dict[str, np.ndarray]:
         "pca_noise_variance": np.array(float(pca.noise_variance_)),
         "pca_whiten": np.array(bool(pca.whiten)),
         "impute_strategy": np.array(impute.strategy),
-        "impute_values": _feature_array(impute.values, columns),
+        "impute_values": _feature_array(impute.values, columns, "imputation values"),
         "impute_kmeans_n_clusters": np.array(
             _NO_KMEANS_N_CLUSTERS
             if impute.kmeans_n_clusters is None
@@ -258,16 +270,20 @@ def build_pca_state(model: PcaModel) -> dict[str, np.ndarray]:
             _NO_OUTLIER_STRATEGY if outlier.strategy is None else outlier.strategy
         ),
         "outlier_iqr_multiplier": np.array(float(outlier.iqr_multiplier)),
-        "outlier_outlier_lower": _feature_array(outlier.bounds.outlier_lower, columns),
-        "outlier_outlier_upper": _feature_array(outlier.bounds.outlier_upper, columns),
-        "outlier_winsor_lower": _feature_array(outlier.bounds.winsor_lower, columns),
-        "outlier_winsor_upper": _feature_array(outlier.bounds.winsor_upper, columns),
+        "outlier_outlier_lower": _feature_array(outlier.bounds.outlier_lower, columns, "outlier lower bounds"),
+        "outlier_outlier_upper": _feature_array(outlier.bounds.outlier_upper, columns, "outlier upper bounds"),
+        "outlier_winsor_lower": _feature_array(outlier.bounds.winsor_lower, columns, "winsor lower bounds"),
+        "outlier_winsor_upper": _feature_array(outlier.bounds.winsor_upper, columns, "winsor upper bounds"),
         "scaling_strategy": np.array(scaling.strategy),
         "scaling_centers": _feature_array(
-            {} if scaling.strategy == "none" else scaling.centers, columns
+            {} if scaling.strategy == "none" else scaling.centers,
+            columns,
+            "scaling model centers",
         ),
         "scaling_scales": _feature_array(
-            {} if scaling.strategy == "none" else scaling.scales, columns
+            {} if scaling.strategy == "none" else scaling.scales,
+            columns,
+            "scaling model scales",
         ),
     }
 
@@ -294,14 +310,14 @@ def _validate_pca_shapes(pca: PCA, n_features: int) -> None:
             f"got {pca.components_.shape}"
         )
     if pca.mean_.shape != (n_features,):
-        raise ValueError("pca state 'pca_mean' must hold one value per feature")
+        raise ValueError("pca mean must hold one value per feature")
     for name in (
         "explained_variance_",
         "explained_variance_ratio_",
         "singular_values_",
     ):
         if getattr(pca, name).shape != (n_component,):
-            raise ValueError(f"pca state 'pca_{name[:-1]}' must hold one value per component")
+            raise ValueError(f"pca {name[:-1]} must hold one value per component")
 
 
 def parse_pca_state(
