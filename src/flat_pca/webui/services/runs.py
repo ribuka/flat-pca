@@ -212,6 +212,34 @@ def latest_run_status(database: Database, kind: str) -> dict[str, object]:
     return run_status(latest_run(database, kind))
 
 
+def run_elapsed_s(run: Mapping[str, object], now: datetime | None = None) -> float:
+    """Return the seconds since a run was created.
+
+    Parameters
+    ----------
+    run : Mapping[str, object]
+        The run's columns; ``created_at`` is a naive local time, as written
+        by ``insert_run``.
+    now : datetime | None, default None
+        Current naive local time; ``None`` for the clock's time.
+
+    Returns
+    -------
+    float
+        Elapsed seconds, never negative.
+
+    Raises
+    ------
+    TypeError
+        If ``created_at`` is not a ``datetime``.
+    """
+    current = datetime.now().astimezone().replace(tzinfo=None) if now is None else now
+    created_at = run["created_at"]
+    if not isinstance(created_at, datetime):
+        raise TypeError(f"created_at is not a datetime: {created_at!r}")
+    return max((current - created_at).total_seconds(), 0.0)
+
+
 def run_status(run: dict[str, object] | None) -> dict[str, object]:
     """Return a run with its progress.
 
@@ -224,9 +252,27 @@ def run_status(run: dict[str, object] | None) -> dict[str, object]:
     -------
     dict[str, object]
         ``run`` (the given run), ``active`` (whether it is queued or
-        running), and ``progress`` (its ``progress.json`` while active,
-        otherwise ``None``).
+        running), ``progress`` (its ``progress.json`` while active,
+        otherwise ``None``), ``elapsed_s`` (seconds since the run was
+        created while active, otherwise ``None``), and ``remaining_s`` (the
+        estimated seconds left from ``progress``, or ``None`` while active
+        without done units or when inactive).
     """
     active = run is not None and run["status"] in ACTIVE_STATUSES
-    progress = read_progress(Path(str(run["artifact_dir"]))) if active else None
-    return {"run": run, "active": active, "progress": progress}
+    if not active or run is None:
+        return {
+            "run": run,
+            "active": False,
+            "progress": None,
+            "elapsed_s": None,
+            "remaining_s": None,
+        }
+    progress = read_progress(Path(str(run["artifact_dir"])))
+    elapsed_s = run_elapsed_s(run)
+    return {
+        "run": run,
+        "active": True,
+        "progress": progress,
+        "elapsed_s": elapsed_s,
+        "remaining_s": None if progress is None else progress.remaining_s(elapsed_s),
+    }

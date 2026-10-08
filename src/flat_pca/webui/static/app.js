@@ -119,53 +119,128 @@ document.addEventListener("htmx:afterSettle", (event) => {
 const BUSY_SHOW_DELAY_MS = 300;
 const BUSY_TICK_MS = 250;
 
-// The page-wide overlay shown while a request is pending: it greys out the
-// page, blocks input, and shows a spinner, the elapsed seconds, and a cancel
-// button. `start` takes the action of the cancel button.
+// The page-wide overlay shown while a request or a job is pending: it greys
+// out the page, blocks input, and shows a spinner, a message, the elapsed
+// seconds, optional details, and a cancel button. `start` takes the action of
+// the cancel button and these options:
+// - `owner`: a key telling who started the overlay (see `owner()`).
+// - `message`: the text above the elapsed seconds.
+// - `elapsedS`: the seconds already elapsed when the overlay starts.
+// - `keepOnCancel`: whether cancelling keeps the overlay until its owner
+//   stops it, as for a job that ends some time after the cancel request.
 const busyOverlay = (() => {
   const overlay = document.getElementById("busy-overlay");
+  const message = document.getElementById("busy-message");
   const elapsed = document.getElementById("busy-elapsed");
+  const detail = document.getElementById("busy-detail");
+  const cancel = document.getElementById("busy-cancel");
   const layout = document.querySelector(".layout");
+  const defaultMessage = message.textContent;
   let showTimer = null;
   let tickTimer = null;
   let cancelAction = null;
+  let currentOwner = null;
+  let keepOpen = false;
+  let startedAt = 0;
+
+  function showElapsed() {
+    elapsed.textContent = `${Math.max(0, Math.floor((performance.now() - startedAt) / 1000))}`;
+  }
 
   function stop() {
     clearTimeout(showTimer);
     clearInterval(tickTimer);
     cancelAction = null;
+    currentOwner = null;
+    keepOpen = false;
     overlay.hidden = true;
     overlay.classList.remove("busy-visible");
     layout.inert = false;
+    message.textContent = defaultMessage;
+    detail.replaceChildren();
+    detail.hidden = true;
+    cancel.disabled = false;
   }
 
-  function start(onCancel) {
+  // Counts the elapsed seconds from `elapsedS` now, and shows `source`'s
+  // children (copied) below them, or nothing without a source.
+  function update(elapsedS, source = null) {
+    startedAt = performance.now() - elapsedS * 1000;
+    showElapsed();
+    detail.replaceChildren(...(source ? source.cloneNode(true).childNodes : []));
+    detail.hidden = !source;
+  }
+
+  function start(onCancel, options = {}) {
     stop();
     cancelAction = onCancel;
-    const startedAt = performance.now();
-    elapsed.textContent = "0";
+    currentOwner = options.owner ?? null;
+    keepOpen = options.keepOnCancel ?? false;
+    message.textContent = options.message ?? defaultMessage;
+    update(options.elapsedS ?? 0);
     // Input is blocked at once; the overlay is drawn only after the delay.
     layout.inert = true;
     overlay.hidden = false;
     showTimer = setTimeout(() => {
       overlay.classList.add("busy-visible");
-      document.getElementById("busy-cancel").focus();
+      cancel.focus();
     }, BUSY_SHOW_DELAY_MS);
-    tickTimer = setInterval(() => {
-      elapsed.textContent = `${Math.floor((performance.now() - startedAt) / 1000)}`;
-    }, BUSY_TICK_MS);
+    tickTimer = setInterval(showElapsed, BUSY_TICK_MS);
   }
 
-  document.getElementById("busy-cancel").addEventListener("click", () => {
+  cancel.addEventListener("click", () => {
     const action = cancelAction;
-    stop();
+    if (keepOpen) {
+      cancel.disabled = true;
+      message.textContent = "キャンセルしています…";
+    } else {
+      stop();
+    }
     if (action) {
       action();
     }
   });
 
-  return { start, stop };
+  // Returns the `owner` of the shown overlay, or null.
+  function owner() {
+    return currentOwner;
+  }
+
+  return { start, update, stop, owner };
 })();
+
+// The fit status panel: while its run is queued or running, the overlay
+// covers the page with the run's elapsed time and its progress and remaining
+// time, and its cancel button cancels the run. A poll of the panel that finds
+// the run finished closes the overlay and opens the panel's group to show the
+// result.
+function syncFitOverlay() {
+  const panel = document.querySelector("[data-fit-status]");
+  const owner = busyOverlay.owner();
+  const fitOwned = owner !== null && owner.startsWith("fit:");
+  if (!panel || panel.dataset.fitActive === undefined) {
+    if (fitOwned) {
+      busyOverlay.stop();
+      const group = panel?.closest("details");
+      if (group) {
+        group.open = true;
+      }
+    }
+    return;
+  }
+  const key = `fit:${panel.dataset.runId}`;
+  if (owner !== key) {
+    const cancelUrl = panel.dataset.cancelUrl;
+    busyOverlay.start(() => fetch(cancelUrl, { method: "POST" }), {
+      owner: key,
+      message: "fit を実行しています…",
+      keepOnCancel: true,
+    });
+  }
+  busyOverlay.update(Number(panel.dataset.elapsedS), panel.querySelector("[data-fit-progress]"));
+}
+
+document.addEventListener("htmx:afterSettle", syncFitOverlay);
 
 // Submits a GET form whenever one of its controls changes.
 document.addEventListener("change", (event) => {
@@ -191,11 +266,13 @@ document.addEventListener("submit", (event) => {
 // A page restored by "back" (from the bfcache or with restored form state)
 // keeps neither the overlay nor the conditions that were never shown.
 // A page from the bfcache also shows the sidebar choices the server holds now.
+// A page showing an active fit run, loaded or restored, covers itself again.
 window.addEventListener("pageshow", (event) => {
   busyOverlay.stop();
   for (const form of document.querySelectorAll("form[data-auto-submit]")) {
     form.reset();
   }
+  syncFitOverlay();
   if (event.persisted && document.getElementById("view-selection")) {
     htmx.ajax("GET", "/sidebar/selection", { target: "#view-selection", swap: "innerHTML" });
   }

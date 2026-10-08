@@ -1,7 +1,12 @@
 {% from "macros/icon.html" import icon %}
 {% set run = status.run %}
+{#- While the run is active, app.js covers the page with the busy overlay and
+    copies [data-fit-progress] into it; the overlay's elapsed time starts at
+    data-elapsed-s and its cancel button posts to data-cancel-url. -#}
 <div class="status-panel" data-fit-status
-     {% if status.active %}hx-get="/fit/runs/{{ run.run_id }}/status?polling=true" hx-trigger="every 1s" hx-target="this" hx-swap="outerHTML"{% endif %}>
+     {% if status.active %}data-fit-active data-run-id="{{ run.run_id }}"
+     data-elapsed-s="{{ '%.1f'|format(status.elapsed_s) }}" data-cancel-url="/runs/{{ run.run_id }}/cancel"
+     hx-get="/fit/runs/{{ run.run_id }}/status?polling=true" hx-trigger="every 1s" hx-target="this" hx-swap="outerHTML"{% endif %}>
   {% if run is none %}
     <p>fit はまだ実行されていません。</p>
   {% else %}
@@ -10,12 +15,19 @@
       <span class="status status-{{ run.status }}" data-run-status="{{ run.status }}">{{ run.status }}</span>
     </p>
     {% if status.active %}
-      {% if status.progress %}
-        <p>
-          {{ status.progress.stage }}: {{ status.progress.done }} / {{ status.progress.total }}
-          <progress max="100" value="{{ status.progress.percent }}"></progress>
-        </p>
-      {% endif %}
+      <div class="fit-progress" data-fit-progress>
+        {% if status.progress %}
+          <p data-fit-stage>
+            段階 {{ status.progress.stage }}：{{ status.progress.done }} / {{ status.progress.total }}
+            <progress max="100" value="{{ status.progress.percent }}"></progress>
+          </p>
+          <p data-fit-eta>
+            残り（全段階）：{% if status.remaining_s is none %}計算中{% else %}約 {{ status.remaining_s|round|int }} 秒{% endif %}
+          </p>
+        {% else %}
+          <p data-fit-stage>開始を待っています。</p>
+        {% endif %}
+      </div>
       <button type="button" hx-post="/runs/{{ run.run_id }}/cancel" hx-swap="none">キャンセル</button>
     {% elif run.status == "failed" %}
       <p class="error" data-run-error>{{ run.error }}</p>

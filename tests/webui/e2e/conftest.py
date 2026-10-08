@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
+import executor_jobs
 import pytest
 import uvicorn
 from fit_runs import register_fit_run
@@ -101,6 +102,25 @@ def cataloged_server_url(cataloged_settings: Settings) -> Iterator[str]:
     """
     yield from serve(cataloged_settings)
 
+
+@pytest.fixture
+def slow_fit_server_url(
+    cataloged_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[str]:
+    """Serve the Web UI with a fit job that goes slowly through its stages and fails.
+
+    The job is ``executor_jobs.fit_in_slow_stages``, so the browser can watch
+    an active fit run.
+
+    Yields
+    ------
+    str
+        Base URL of the running server.
+    """
+    monkeypatch.setattr(
+        "flat_pca.webui.workspace.run_fit", executor_jobs.fit_in_slow_stages
+    )
+    yield from serve(cataloged_settings)
 
 def register_fit_runs(
     settings: Settings, spectra_paths: list[Path], run_ids: tuple[str, ...]

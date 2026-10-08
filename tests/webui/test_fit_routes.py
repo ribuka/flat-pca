@@ -5,14 +5,16 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from flat_pca.webui.app import create_app
+from flat_pca.webui.jobs.progress import write_progress
 from flat_pca.webui.services.catalog_query import selection_ranges
 from flat_pca.webui.services.fit_form import default_form_values
-from flat_pca.webui.services.runs import get_run, latest_run, update_run
+from flat_pca.webui.services.runs import get_run, insert_run, latest_run, update_run
 from flat_pca.webui.settings import JobsSettings, Settings
 from flat_pca.webui.workspace import CATALOG_JOB, FIT_JOB, Workspace
 
@@ -77,6 +79,72 @@ def test_page_renders_the_form_from_the_catalog(client: TestClient) -> None:
     assert 'name="outlier_strategy"' not in html
     assert "fit はまだ実行されていません" in html
     assert 'hx-get="/fit/runs"' in html
+
+
+def test_fit_groups_are_collapsible(client: TestClient) -> None:
+    """Each settings group, the run status, and the run list are open accordions."""
+    html = client.get("/fit").text
+
+    for group in ("target-steps", "preprocess", "pca", "t2-q", "status", "runs"):
+        assert f'<details class="card" data-group="{group}" open>' in html
+    assert "<fieldset" not in html
+
+
+def _active_run(client: TestClient, tmp_path: Path, progress: tuple[int, int] | None) -> str:
+    """Register a running fit run, with ``(done, total)`` progress if given."""
+    database = _workspace(client).database
+    run_dir = tmp_path / "fit-active"
+    run_dir.mkdir()
+    insert_run(database, "fit-active", FIT_JOB, {}, run_dir)
+    update_run(database, "fit-active", status="running")
+    if progress is not None:
+        write_progress(run_dir, "fit", *progress)
+    return "fit-active"
+
+
+def test_active_run_shows_progress_for_the_overlay(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """An active run's panel carries the overlay's elapsed time, cancel URL, and ETA."""
+    run_id = _active_run(client, tmp_path, (1, 4))
+
+    html = client.get("/fit").text
+
+    panel = re.search(r"<div class=\"status-panel\" data-fit-status[^>]*>", html)
+    assert panel is not None
+    assert "data-fit-active" in panel.group()
+    assert f'data-run-id="{run_id}"' in panel.group()
+    assert re.search(r'data-elapsed-s="\d+\.\d"', panel.group())
+    assert f'data-cancel-url="/runs/{run_id}/cancel"' in panel.group()
+    assert "段階 fit：1 / 4" in html
+    assert re.search(r"残り（全段階）：約 \d+ 秒", html)
+
+
+def test_active_run_without_done_stages_is_still_estimating(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """Until a stage is done the remaining time reads as being calculated."""
+    run_id = _active_run(client, tmp_path, (0, 4))
+
+    html = client.get(f"/fit/runs/{run_id}/status?polling=true").text
+
+    assert "残り（全段階）：計算中" in html
+    assert "hx-trigger=\"every 1s\"" in html
+
+
+def test_finished_run_leaves_no_overlay_data(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """A finished run's panel no longer asks for the overlay."""
+    run_id = _active_run(client, tmp_path, None)
+    update_run(_workspace(client).database, run_id, status="cancelled")
+
+    response = client.get(f"/fit/runs/{run_id}/status?polling=true")
+
+    assert response.headers["HX-Trigger"] == "fit-updated"
+    assert "data-fit-active" not in response.text
+    assert "data-fit-progress" not in response.text
+    assert "キャンセルされました" in response.text
 
 
 def test_estimate_inside_the_form_sets_its_own_target(client: TestClient) -> None:
