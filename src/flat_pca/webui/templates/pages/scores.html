@@ -38,10 +38,12 @@
   </section>
 {% elif figures %}
   <section>
-    <p class="muted">run {{ shown.run_id }} のスコアです。点をクリックすると、そのファイルをサイドバーの表示ファイルに追加します。</p>
+    <p class="muted">run {{ shown.run_id }} のスコアです。点をクリックすると、そのファイルをサイドバーの表示ファイルに追加し、図の下の表に表示します。範囲を選ぶと、そのファイルを表に表示します。</p>
     <p class="warnings" id="plot-select-warning" hidden></p>
-    <div id="scores-scatter" class="plot" data-plot="scores-scatter-figure" data-select-url="/sidebar/selection/files/add" data-run-id="{{ shown.run_id }}"></div>
+    <div id="scores-scatter" class="plot" data-plot="scores-scatter-figure" data-select-url="/sidebar/selection/files/add" data-run-id="{{ shown.run_id }}" data-point-table="point-table"></div>
   </section>
+
+  {% include "partials/point_table.html" %}
 
   <section>
     <h3>部分スコア軌跡</h3>

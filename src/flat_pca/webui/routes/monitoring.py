@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse
 from flat_pca.visualize import create_control_chart, create_t2_q_scatter
 
 from ..services.monitoring import MonitoringRequest, MonitoringView, resolve_monitoring
+from ..services.point_table import SELECT_TOOLS, PointTable, point_table
 from ..templating import format_value, templates
 from ..workspace import Workspace
 from .dependencies import get_workspace
@@ -82,7 +83,37 @@ def _figures(shown: MonitoringView) -> dict[str, str]:
             labels=labels,
         ).update_layout(title="T² × Q"),
     }
-    return {name: _figure_json(figure) for name, figure in figures.items()}
+    return {
+        name: _figure_json(figure.update_layout(modebar_add=SELECT_TOOLS))
+        for name, figure in figures.items()
+    }
+
+
+def _point_table(shown: MonitoringView) -> PointTable:
+    """Build the table of the files drawn on a resolved T² and Q screen.
+
+    Parameters
+    ----------
+    shown : MonitoringView
+        Resolved screen without an error.
+
+    Returns
+    -------
+    PointTable
+        One row per scored file, in control-chart order, with T², Q, and
+        whether each exceeds its UCL.
+    """
+    points = shown.points
+    assert points is not None
+    return point_table(
+        points.samples,
+        {
+            "T²": points.t2.tolist(),
+            "Q": points.q.tolist(),
+            "T² UCL 超過": ["超過" if value else "" for value in points.t2 > points.t2_ucl],
+            "Q UCL 超過": ["超過" if value else "" for value in points.q > points.q_ucl],
+        },
+    )
 
 
 @router.get("", response_class=HTMLResponse)
@@ -126,4 +157,5 @@ def monitoring_page(
     context: dict[str, object] = {"shown": shown}
     if shown.error is None and shown.run_id is not None:
         context["figures"] = _figures(shown)
+        context["point_table"] = _point_table(shown)
     return templates.TemplateResponse(request, "pages/monitoring.html", context)

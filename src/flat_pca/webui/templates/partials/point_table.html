@@ -1,0 +1,19 @@
+{#- The table of the points chosen in the figures carrying
+    data-point-table="point-table". app.js fills the body from the embedded
+    rows; every choice replaces the shown rows. -#}
+<section id="point-table" class="point-table" data-shown-count="0">
+  <h3>選んだ点</h3>
+  <p class="muted" data-point-table-empty>
+    図の点をクリックするか、モードバーの Box Select / Lasso Select で範囲を選ぶと、その点のファイルを表示します。ダブルクリックで選択を解除します。
+  </p>
+  {#- .table-scroll caps the height, so many rows scroll inside it. #}
+  <div class="table-scroll" hidden>
+    <table class="file-table">
+      <thead>
+        <tr>{% for column in point_table.columns %}<th>{{ column }}</th>{% endfor %}</tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <script type="application/json" data-point-rows>{{ point_table.rows|tojson }}</script>
+</section>

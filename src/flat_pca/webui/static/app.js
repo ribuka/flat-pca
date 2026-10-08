@@ -263,11 +263,11 @@ document.addEventListener("htmx:afterSettle", (event) => {
   filterViewFiles(input);
 });
 
-// Adds a clicked file to the sidebar's shown files, then reloads the page or
-// opens `openUrl`. The request names the run of the figure, so a figure
+// Adds a clicked file to the sidebar's shown files, then calls `onAdded` and
+// reloads the page. The request names the run of the figure, so a figure
 // drawn before the sidebar's run changed adds nothing. At the limit of shown
 // files, or for such a stale figure, a warning is shown instead.
-async function selectClickedFile(target, stem) {
+async function selectClickedFile(target, stem, onAdded) {
   const warning = document.getElementById("plot-select-warning");
   // The overlay blocks further clicks until the page is replaced.
   busyOverlay.start(() => window.stop());
@@ -282,11 +282,8 @@ async function selectClickedFile(target, stem) {
     // A failed request or response is reported below like a refusal.
   }
   if (result.added) {
-    if (target.dataset.openUrl) {
-      window.location.href = target.dataset.openUrl;
-    } else {
-      window.location.reload();
-    }
+    onAdded();
+    window.location.reload();
     return;
   }
   busyOverlay.stop();
@@ -492,21 +489,96 @@ for (const root of document.querySelectorAll("[data-explore]")) {
   initExplore(root);
 }
 
-// Model, score, and T²/Q screens: draws each embedded figure; clicking a point
-// that names a file adds the file to the sidebar's shown files.
+const POINT_TABLE_KEY = "flat-pca:point-table:";
+
+// The score and T²/Q screens' table of the files of the chosen points. The
+// page embeds the rows of every file, first cell the stem; `show` replaces
+// the shown rows with those of the given stems, in the embedded order.
+// `keep` holds the stems over the next load of this page in this tab, such
+// as the reload after a clicked file is added to the shown files.
+function initPointTable(root) {
+  const rows = JSON.parse(root.querySelector("[data-point-rows]").textContent);
+  const positions = new Map(rows.map((row, position) => [row[0], position]));
+  const body = root.querySelector("tbody");
+  const key = POINT_TABLE_KEY + window.location.pathname;
+
+  function show(stems) {
+    const shown = [...new Set(stems)]
+      .filter((stem) => positions.has(stem))
+      .map((stem) => positions.get(stem))
+      .sort((a, b) => a - b);
+    body.replaceChildren(
+      ...shown.map((position) => {
+        const row = document.createElement("tr");
+        for (const value of rows[position]) {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.append(cell);
+        }
+        return row;
+      }),
+    );
+    root.querySelector(".table-scroll").hidden = shown.length === 0;
+    root.querySelector("[data-point-table-empty]").hidden = shown.length > 0;
+    root.dataset.shownCount = `${shown.length}`;
+  }
+
+  function keep(stems) {
+    try {
+      sessionStorage.setItem(key, JSON.stringify(stems));
+    } catch {
+      // Without storage the table starts empty after the reload.
+    }
+  }
+
+  let kept = [];
+  try {
+    kept = JSON.parse(sessionStorage.getItem(key) ?? "[]");
+    sessionStorage.removeItem(key);
+  } catch {
+    // Without storage, or with a broken value, the table starts empty.
+  }
+  show(kept);
+  return { show, keep };
+}
+
+const pointTables = new Map();
+for (const root of document.querySelectorAll(".point-table")) {
+  pointTables.set(root.id, initPointTable(root));
+}
+
+// Returns the stems named by the points of a Plotly event.
+function eventStems(event) {
+  return (event?.points ?? [])
+    .map((point) => point.customdata)
+    .filter((stem) => stem !== undefined);
+}
+
+// Model, score, and T²/Q screens: draws each embedded figure. Clicking a
+// point that names a file, or choosing points by a box or a lasso, shows the
+// files in the figure's point table; double-clicking clears it. On the score
+// screen a click also adds the file to the sidebar's shown files.
 function initPlot(target) {
   const figure = JSON.parse(document.getElementById(target.dataset.plot).textContent);
+  const table = pointTables.get(target.dataset.pointTable);
   Plotly.newPlot(target, figure.data, figure.layout, { responsive: true }).then(() => {
     target.dataset.plotReady = "true";
-    if (!target.dataset.selectUrl) {
-      return;
+    if (table) {
+      target.on("plotly_selected", (event) => table.show(eventStems(event)));
+      // A double click clears the table in every drag mode; only in the box
+      // and lasso modes does Plotly also report a deselection.
+      target.on("plotly_deselect", () => table.show([]));
+      target.on("plotly_doubleclick", () => table.show([]));
     }
     target.on("plotly_click", (event) => {
-      const stem = event.points[0].customdata;
-      if (stem === undefined) {
+      const stems = eventStems(event).slice(0, 1);
+      if (stems.length === 0) {
         return;
       }
-      selectClickedFile(target, stem);
+      table?.show(stems);
+      if (target.dataset.selectUrl) {
+        selectClickedFile(target, stems[0], () => table?.keep(stems));
+      }
     });
   });
 }

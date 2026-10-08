@@ -130,10 +130,9 @@ def test_default_order_follows_the_default_column(client: TestClient) -> None:
     assert response.status_code == 200
     html = response.text
     assert '<option value="date" selected>' in html
-    assert (
-        'data-select-url="/sidebar/selection/files/add" data-run-id="fit-1" '
-        'data-open-url="/explore?view=q_contribution"'
-    ) in html
+    assert 'data-plot="monitoring-q-figure" data-point-table="point-table"' in html
+    assert "data-select-url" not in html
+    assert "data-open-url" not in html
     assert "run fit-1 の T² と Q です。" in html
     assert 'name="run"' not in html
     # The last file has the earliest date and the undated file comes last.
@@ -178,6 +177,40 @@ def test_figures_show_the_saved_statistics(client: TestClient, run_dir: Path) ->
     assert f"Q {len(exceeding)} 件" in html
     q_traces = _figure(html, "monitoring-q-figure")["data"]  # type: ignore[index]
     assert sorted(_decode(q_traces[1]["customdata"])) == sorted(exceeding)  # type: ignore[index]
+
+
+def _point_rows(html: str) -> list[list[str]]:
+    """Return the rows embedded for the page's point table."""
+    match = re.search(r"<script type=\"application/json\" data-point-rows>(.*?)</script>", html)
+    assert match is not None
+    return json.loads(match.group(1))
+
+
+def test_point_table_holds_the_statistics_of_every_file(
+    client: TestClient, run_dir: Path
+) -> None:
+    """The table rows hold each file's metadata, T², Q, and UCL excess, in chart order."""
+    html = client.get("/monitoring").text
+
+    headers = re.findall(r"<th>(.*?)</th>", html)
+    assert headers == [
+        "ファイル名", "lot", "date", "yield_pct", "T²", "Q", "T² UCL 超過", "Q UCL 超過"
+    ]
+    for name in ("t2", "scatter"):
+        assert f'data-plot="monitoring-{name}-figure" data-point-table="point-table"' in html
+    rows = _point_rows(html)
+    positions = _points(html, "q")
+    assert [row[0] for row in rows] == sorted(positions, key=lambda stem: positions[stem][0])
+    saved = _scores_by_stem(run_dir)
+    for row in rows:
+        record = saved.row(by_predicate=pl.col("stem") == row[0], named=True)
+        assert float(row[4]) == pytest.approx(record["mahalanobis_sq"], rel=1e-5)
+        assert float(row[5]) == pytest.approx(record["spe"], rel=1e-5)
+        assert row[7] == ("超過" if record["spe_exceeds_ucl"] else "")
+    undated = next(row for row in rows if row[0] == UNDATED)
+    assert undated[2] == ""
+    layout = _figure(html, "monitoring-t2-figure")["layout"]
+    assert layout["modebar"]["add"] == ["select2d", "lasso2d"]  # type: ignore[index]
 
 
 def test_drop_run_reports_files_without_statistics(
