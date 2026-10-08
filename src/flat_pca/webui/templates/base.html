@@ -55,7 +55,7 @@
         </nav>
         <div id="view-selection" class="view-selection"
              hx-get="/sidebar/selection" hx-target="this" hx-swap="innerHTML"
-             hx-trigger="load, fit-updated from:body">
+             hx-trigger="load, fit-updated from:body, transform-updated from:body">
         </div>
         <div id="sidebar-status" class="sidebar-status"
              hx-get="/sidebar/status" hx-target="this" hx-swap="innerHTML"

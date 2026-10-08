@@ -88,6 +88,35 @@ def build_fit_config(
         Configuration passed to ``run_fit`` and saved as ``config.json``.
         Datetime metadata values are stored as ISO 8601 text.
     """
+    return {
+        **file_entries(settings, files),
+        "preprocess": dict(preprocess),
+        "pca": dict(pca),
+        "mahalanobis": dict(mahalanobis),
+        "spe": dict(spe),
+        "artifact_dtype": settings.jobs.artifact_dtype,
+    }
+
+
+def file_entries(
+    settings: Settings, files: Sequence[Mapping[str, object]]
+) -> dict[str, object]:
+    """Build the target-file entries of a job configuration.
+
+    Parameters
+    ----------
+    settings : Settings
+        Application settings, giving the metadata columns.
+    files : Sequence[Mapping[str, object]]
+        Target files with ``stem``, ``path``, and every metadata column.
+
+    Returns
+    -------
+    dict[str, object]
+        ``files`` (each file's ``stem``, ``path``, and ``metadata``, with
+        datetime values as ISO 8601 text) and ``metadata_columns`` (each
+        column's type), as read by ``sample_frame``.
+    """
     columns = settings.metadata_columns
     return {
         "files": [
@@ -101,11 +130,6 @@ def build_fit_config(
             for file in files
         ],
         "metadata_columns": {name: column.type for name, column in columns.items()},
-        "preprocess": dict(preprocess),
-        "pca": dict(pca),
-        "mahalanobis": dict(mahalanobis),
-        "spe": dict(spe),
-        "artifact_dtype": settings.jobs.artifact_dtype,
     }
 
 
@@ -218,7 +242,7 @@ def sample_frame(sources: Sequence[str], config: Mapping[str, object]) -> pl.Dat
     sources : Sequence[str]
         ``source`` values in ``X.npy`` row order.
     config : Mapping[str, object]
-        Job configuration built by ``build_fit_config``.
+        Job configuration holding the entries of ``file_entries``.
 
     Returns
     -------

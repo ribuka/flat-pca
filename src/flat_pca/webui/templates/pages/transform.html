@@ -1,22 +1,73 @@
 {% extends "base.html" %}
 {% block title %}transform - flat-pca{% endblock %}
 {% block content %}
-<section>
-  <h2>transform</h2>
-  <label>
-    <input type="checkbox" name="use_same_data_for_fit" checked disabled data-use-same-data>
-    use same data for fit
-  </label>
-  <p class="muted">
-    transform の対象は、fit の対象と同じファイルです（変更できません）。
-    スペクトル探索・スコア、サイドバーの表示ファイルの選択肢は、この transform 対象のファイルです。
-  </p>
-  {% if choice.run_id %}
-    <p data-transform-targets="{{ choice.file_options|length }}">
-      Transform targets of run {{ choice.run_id }}: {{ choice.file_options|length }} files
+<details class="card" data-group="target" open>
+  <summary><h2>transform</h2></summary>
+  <div class="card-body">
+    {% if choice.run_id %}
+      <p>
+        Model: fit run <span class="mono" data-transform-model="{{ choice.fit_run_id }}">{{ choice.fit_run_id }}</span>
+        (change it with the run in the sidebar)
+      </p>
+    {% endif %}
+    {#- While the sidebar shows a transform run, checking the box shows its fit
+        run's own data again by choosing the fit run in the sidebar. -#}
+    <form id="use-same-data-form" class="use-same-data"
+          {% if choice.is_transform_run %}hx-post="/sidebar/selection/run" hx-trigger="change[target.checked]" hx-swap="none" data-busy-reload{% endif %}>
+      {% if choice.is_transform_run %}<input type="hidden" name="run" value="{{ choice.fit_run_id }}">{% endif %}
+      <label>
+        <input type="checkbox" name="use_same_data_for_fit" data-use-same-data {% if not choice.is_transform_run %}checked{% endif %}>
+        use same data for fit
+      </label>
+    </form>
+    <p class="muted">
+      Checked, the transform targets are the fit targets, and the results of the fit run are shown as they are (nothing to run).
+      Unchecked, choose the transform targets from the catalog and transform them with the model of the fit run.
+      Spectral exploration, scores, T² / Q, and the shown files in the sidebar use the transform targets of the run chosen in the sidebar.
     </p>
-  {% else %}
-    <p class="muted">No succeeded fit run. Run a fit on <a href="/fit">Preprocess / PCA</a> first.</p>
-  {% endif %}
-</section>
+    {% if choice.run_id %}
+      <p data-transform-shown="{{ choice.file_options|length }}">
+        Transform targets of run <span class="mono">{{ choice.run_id }}</span>{% if choice.is_transform_run %} (transform run){% endif %}: {{ choice.file_options|length }} files
+      </p>
+    {% else %}
+      <p class="muted">No succeeded fit run. Run a fit on <a href="/fit">Preprocess / PCA</a> first.</p>
+    {% endif %}
+  </div>
+</details>
+
+<details class="card" data-group="targets" data-transform-targets open {% if not choice.is_transform_run %}hidden{% endif %}>
+  <summary><h2>Transform targets</h2></summary>
+  <div class="card-body">
+    <div id="file-table" hx-get="/catalog/files" hx-include="this"
+         hx-target="this" hx-swap="innerHTML" hx-sync="this:replace"
+         hx-trigger="load, file-query-changed">
+      <p class="muted">Loading…</p>
+    </div>
+    {#- The chosen targets over all pages and filters as a JSON array, kept
+        outside the reloaded table, as on the data selection screen. -#}
+    <input type="hidden" id="selected-stems" name="stems" value='{{ selected|tojson }}'>
+    <div class="selection-actions">
+      {% include "partials/transform_submit.html" %}
+      <button id="run-transform" type="button" class="button-primary" hx-post="/transform" hx-include="#selected-stems"
+              hx-target="#transform-submit-message" hx-swap="outerHTML" {% if not choice.run_id %}disabled{% endif %}>Run transform</button>
+    </div>
+  </div>
+</details>
+
+<details class="card" data-group="status" open>
+  <summary><h2>Run status</h2></summary>
+  <div class="card-body">
+    <div id="transform-run-status">{% include "partials/transform_run_status.html" %}</div>
+  </div>
+</details>
+
+<details class="card" data-group="runs" open>
+  <summary><h2>Transform runs</h2></summary>
+  <div class="card-body">
+    <div id="transform-runs" hx-get="/transform/runs" hx-target="this" hx-swap="innerHTML"
+         hx-trigger="load, transform-started from:body, transform-updated from:body">
+      <p class="muted">Loading…</p>
+    </div>
+  </div>
+</details>
 {% endblock %}

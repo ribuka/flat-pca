@@ -1,4 +1,4 @@
-"""Tests for the sidebar's run and file choices and the transform screen."""
+"""Tests for the sidebar's run and file choices."""
 
 from __future__ import annotations
 
@@ -60,13 +60,13 @@ def limited_client(settings: Settings) -> Iterator[TestClient]:
 
 
 def test_every_page_loads_the_sidebar_choices(client: TestClient) -> None:
-    """The sidebar loads the choices and reloads them when a fit finishes."""
+    """The sidebar loads the choices and reloads them when a fit or transform finishes."""
     html = client.get("/").text
 
     match = re.search(r'<div id="view-selection"[^>]*>', html, re.DOTALL)
     assert match is not None
     assert 'hx-get="/sidebar/selection"' in match.group(0)
-    assert 'hx-trigger="load, fit-updated from:body"' in match.group(0)
+    assert 'hx-trigger="load, fit-updated from:body, transform-updated from:body"' in match.group(0)
 
 
 def test_sidebar_without_a_run_offers_nothing(client: TestClient) -> None:
@@ -89,7 +89,7 @@ def test_sidebar_lists_runs_and_transform_targets(
     sidebar = client.get("/sidebar/selection").text
 
     assert re.findall(r'<option value="([^"]+)"', sidebar) == ["fit-2", "fit-1"]
-    assert '<option value="fit-2" selected>fit-2（' in sidebar
+    assert '<option value="fit-2" data-run-kind="fit" selected>fit-2（' in sidebar
     assert _options(sidebar) == STEMS[:6]
     assert _checked(sidebar) == []
     assert "0 / 20" in sidebar
@@ -150,7 +150,7 @@ def test_choosing_another_run_clears_the_files(
     assert response.headers["HX-Refresh"] == "true"
     assert _workspace(client).view_selection.run_id == "fit-1"
     assert _workspace(client).view_selection.stems == []
-    assert '<option value="fit-1" selected>' in client.get("/sidebar/selection").text
+    assert '<option value="fit-1" data-run-kind="fit" selected>' in client.get("/sidebar/selection").text
 
 
 def test_unknown_run_is_rejected(
@@ -174,12 +174,12 @@ def test_choice_survives_new_runs_and_falls_back_when_gone(
     _register(client, settings, spectra_paths[:6], "fit-2")
 
     sidebar = client.get("/sidebar/selection").text
-    assert '<option value="fit-1" selected>' in sidebar
+    assert '<option value="fit-1" data-run-kind="fit" selected>' in sidebar
     assert _checked(sidebar) == ["s-03"]
 
     _workspace(client).view_selection.choose_run("gone")
     sidebar = client.get("/sidebar/selection").text
-    assert '<option value="fit-2" selected>' in sidebar
+    assert '<option value="fit-2" data-run-kind="fit" selected>' in sidebar
     assert _options(sidebar) == STEMS[:6]
 
 
@@ -341,29 +341,6 @@ def test_view_selection_clears_files_only_for_another_run() -> None:
     selection.choose_run("fit-2")
     assert selection.stems == []
     assert selection.run_id == "fit-2"
-
-
-def test_transform_page_follows_the_fit_data(
-    client: TestClient, settings: Settings, spectra_paths: list[Path]
-) -> None:
-    """The transform page comes after the preprocessing page and fixes its checkbox."""
-    html = client.get("/transform").text
-
-    assert 'href="/transform" aria-current="page"' in html
-    assert html.index('href="/fit"') < html.index('href="/transform"') < html.index(
-        'href="/model"'
-    )
-    assert re.search(
-        r'<input type="checkbox" name="use_same_data_for_fit" checked disabled', html
-    )
-    assert "use same data for fit" in html
-    assert "No succeeded fit run" in html
-
-    _register(client, settings, spectra_paths, "fit-1")
-
-    html = client.get("/transform").text
-    assert f'data-transform-targets="{SPECTRA_FILE_COUNT}"' in html
-    assert f"Transform targets of run fit-1: {SPECTRA_FILE_COUNT} files" in html
 
 
 def test_fit_and_shown_files_have_distinct_labels(client: TestClient) -> None:

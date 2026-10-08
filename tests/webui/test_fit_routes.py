@@ -119,9 +119,9 @@ def test_active_run_shows_progress_for_the_overlay(
 
     html = client.get("/fit").text
 
-    panel = re.search(r"<div class=\"status-panel\" data-fit-status[^>]*>", html)
+    panel = re.search(r"<div class=\"status-panel\" data-job-status[^>]*>", html)
     assert panel is not None
-    assert "data-fit-active" in panel.group()
+    assert "data-job-active" in panel.group()
     assert f'data-run-id="{run_id}"' in panel.group()
     assert re.search(r'data-elapsed-s="\d+\.\d"', panel.group())
     assert f'data-cancel-url="/runs/{run_id}/cancel"' in panel.group()
@@ -151,8 +151,8 @@ def test_finished_run_leaves_no_overlay_data(
     response = client.get(f"/fit/runs/{run_id}/status?polling=true")
 
     assert response.headers["HX-Trigger"] == "fit-updated"
-    assert "data-fit-active" not in response.text
-    assert "data-fit-progress" not in response.text
+    assert "data-job-active" not in response.text
+    assert "data-job-progress" not in response.text
     assert "Cancelled." in response.text
 
 

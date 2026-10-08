@@ -17,6 +17,7 @@ from flat_pca.webui.services.fit_artifacts import (
     RunArtifactError,
     load_display_artifacts,
 )
+from flat_pca.webui.services.run_dirs import RunDirs
 from flat_pca.webui.services.spectral_matrix import SpectralMatrix
 from flat_pca.webui.settings import Settings
 
@@ -123,20 +124,22 @@ def test_raw_spectra_adds_step_time_and_rereads_changed_files(tmp_path: Path) ->
     assert cache.raw_spectra(path)["400.0nm"].to_list() == [5.0]
 
 
-def test_fit_artifacts_keep_matrices_memory_mapped(
+def test_display_artifacts_keep_matrices_memory_mapped(
     settings: Settings, spectra_paths: list[Path]
 ) -> None:
     """Display artifacts restore no model, so the components stay memory-mapped."""
     run_dir = _fit_run_dir(settings, spectra_paths)
 
-    artifacts = DisplayCache(PREPARED_ROW_ENTRIES).fit_artifacts(run_dir)
+    artifacts = DisplayCache(PREPARED_ROW_ENTRIES).display_artifacts(
+        RunDirs(model=run_dir, data=run_dir)
+    )
 
     assert isinstance(artifacts.x, np.memmap)
     assert isinstance(artifacts.components, np.memmap)
     assert artifacts.components.shape == (2, artifacts.features.height)
 
 
-def test_fit_artifacts_reject_inconsistent_components(
+def test_display_artifacts_reject_inconsistent_components(
     settings: Settings, spectra_paths: list[Path]
 ) -> None:
     """Components of another feature count are reported as unreadable artifacts."""
@@ -144,7 +147,7 @@ def test_fit_artifacts_reject_inconsistent_components(
     np.save(run_dir / COMPONENTS_FILE, np.zeros((2, 3), dtype=np.float32))
 
     with pytest.raises(RunArtifactError, match="components.npy"):
-        load_display_artifacts(run_dir)
+        load_display_artifacts(RunDirs(model=run_dir, data=run_dir))
 
 
 def _fit_run_dir(settings: Settings, paths: list[Path]) -> Path:

@@ -19,6 +19,7 @@ from ..jobs.fit_run import (
     SCORES_FILE,
     X_FILE,
 )
+from .run_dirs import RunDirs
 
 
 class RunArtifactError(ValueError):
@@ -58,7 +59,7 @@ class FitArtifacts:
 
 @dataclass(frozen=True)
 class DisplayArtifacts:
-    """Artifacts of one fit run needed to display its matrices.
+    """Artifacts of one fit or transform run needed to display its matrices.
 
     Unlike ``FitArtifacts``, no PCA model is restored, so the components
     stay memory-mapped and only the rows a view needs are read.
@@ -130,13 +131,15 @@ def _check_score_sources(scores: pl.DataFrame, samples: pl.DataFrame) -> None:
         raise ValueError(f"{SCORES_FILE} holds unknown sources {sorted(unknown)}")
 
 
-def load_display_artifacts(run_dir: Path) -> DisplayArtifacts:
-    """Load and validate the artifacts a fit run's display needs.
+def load_display_artifacts(dirs: RunDirs) -> DisplayArtifacts:
+    """Load and validate the artifacts a fit or transform run's display needs.
 
     Parameters
     ----------
-    run_dir : Path
-        Run directory written by ``run_fit``.
+    dirs : RunDirs
+        Fit run directory written by ``run_fit`` (features and components),
+        and the directory of the shown data (samples, ``X.npy``, and
+        scores) written by ``run_fit`` or ``run_transform``.
 
     Returns
     -------
@@ -150,11 +153,11 @@ def load_display_artifacts(run_dir: Path) -> DisplayArtifacts:
     """
     try:
         artifacts = DisplayArtifacts(
-            features=pl.read_parquet(run_dir / FEATURES_FILE),
-            samples=pl.read_parquet(run_dir / SAMPLES_FILE),
-            scores=pl.read_parquet(run_dir / SCORES_FILE),
-            x=np.load(run_dir / X_FILE, mmap_mode="r"),
-            components=np.load(run_dir / COMPONENTS_FILE, mmap_mode="r"),
+            features=pl.read_parquet(dirs.model / FEATURES_FILE),
+            samples=pl.read_parquet(dirs.data / SAMPLES_FILE),
+            scores=pl.read_parquet(dirs.data / SCORES_FILE),
+            x=np.load(dirs.data / X_FILE, mmap_mode="r"),
+            components=np.load(dirs.model / COMPONENTS_FILE, mmap_mode="r"),
         )
         n_features = artifacts.features.height
         expected = (artifacts.samples.height, n_features)

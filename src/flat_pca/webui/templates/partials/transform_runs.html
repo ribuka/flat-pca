@@ -1,0 +1,39 @@
+{% if not rows %}
+  <p class="muted">No transform run yet.</p>
+{% else %}
+<table class="file-table" data-transform-runs>
+  <thead>
+    <tr>
+      <th>run</th>
+      <th>fit run</th>
+      <th>created</th>
+      <th>status</th>
+      <th>files</th>
+      <th>duration</th>
+      <th>show</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for run, fit_run_id in rows %}
+      <tr data-run-id="{{ run.run_id }}">
+        <td class="mono">{{ run.run_id }}</td>
+        <td class="mono">{{ fit_run_id|cell }}</td>
+        <td>{{ run.created_at|cell }}</td>
+        <td><span class="status status-{{ run.status }}">{{ run.status }}</span></td>
+        <td>{{ run.n_files|cell }}</td>
+        <td>{% if run.duration_s is not none %}{{ "%.1f"|format(run.duration_s) }} s{% endif %}</td>
+        <td>
+          {% if run.run_id == shown_run_id %}
+            <span class="muted" data-shown-run>Shown</span>
+          {% elif run.status == "succeeded" %}
+            <form hx-post="/sidebar/selection/run" hx-swap="none" data-busy-reload>
+              <input type="hidden" name="run" value="{{ run.run_id }}">
+              <button type="submit" data-show-run>Show</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}

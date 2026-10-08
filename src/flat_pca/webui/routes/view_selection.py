@@ -1,4 +1,4 @@
-"""The sidebar's choice of the fit run and the files shown by the display screens."""
+"""The sidebar's choice of the run and the files shown by the display screens."""
 
 from __future__ import annotations
 
@@ -7,18 +7,53 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from ..services.runs import list_succeeded_runs
-from ..services.view_selection import ViewChoice, resolve_view_choice
+from ..services.run_dirs import fit_run_reference
+from ..services.runs import get_run, list_succeeded_runs
+from ..services.view_selection import ViewChoice, order_view_runs, resolve_view_choice
 from ..templating import templates
-from ..workspace import FIT_JOB, Workspace
+from ..workspace import FIT_JOB, TRANSFORM_JOB, Workspace
 from .dependencies import get_workspace
 
 router = APIRouter(prefix="/sidebar/selection")
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
 
 
+def view_runs(workspace: Workspace, requested: str | None) -> list[dict[str, object]]:
+    """Return the succeeded runs the display screens choose from.
+
+    Parameters
+    ----------
+    workspace : Workspace
+        Application workspace.
+    requested : str | None
+        Explicitly requested run, listed even when it is older than the
+        listed runs of its kind (see ``list_succeeded_runs``).
+
+    Returns
+    -------
+    list[dict[str, object]]
+        Fit runs, each followed by its transform runs (see
+        ``order_view_runs``). The fit run of every listed transform run is
+        listed too, even when it is older than the listed fit runs.
+    """
+    database = workspace.database
+    fit_runs = list_succeeded_runs(database, FIT_JOB, requested)
+    transform_runs = list_succeeded_runs(database, TRANSFORM_JOB, requested)
+    listed = {str(run["run_id"]) for run in fit_runs}
+    for run in transform_runs:
+        reference = fit_run_reference(run)
+        if reference is None or reference[0] in listed:
+            continue
+        parent = get_run(database, reference[0])
+        if parent is not None and parent["kind"] == FIT_JOB and parent["status"] == "succeeded":
+            fit_runs.append(parent)
+            listed.add(reference[0])
+    fit_runs.sort(key=lambda run: (run["created_at"], run["run_id"]), reverse=True)
+    return order_view_runs(fit_runs, transform_runs)
+
+
 def current_view_choice(workspace: Workspace) -> ViewChoice:
-    """Resolve the fit run and the files chosen in the sidebar.
+    """Resolve the run and the files chosen in the sidebar.
 
     Parameters
     ----------
@@ -34,7 +69,7 @@ def current_view_choice(workspace: Workspace) -> ViewChoice:
     run_id = selection.run_id
     return resolve_view_choice(
         workspace.cache,
-        list_succeeded_runs(workspace.database, FIT_JOB, run_id),
+        view_runs(workspace, run_id),
         run_id,
         selection.stems,
     )
@@ -79,14 +114,14 @@ def view_selection(request: Request, workspace: WorkspaceDependency) -> HTMLResp
 
 @router.post("/run")
 def choose_run(workspace: WorkspaceDependency, run: Annotated[str, Form()]) -> Response:
-    """Choose the fit run; the chosen files are cleared if the run changes.
+    """Choose the run; the chosen files are cleared if the run changes.
 
     Parameters
     ----------
     workspace : Workspace
         Application workspace.
     run : str
-        Succeeded fit run.
+        Succeeded fit run, or succeeded transform run of a listed fit run.
 
     Returns
     -------
@@ -96,11 +131,10 @@ def choose_run(workspace: WorkspaceDependency, run: Annotated[str, Form()]) -> R
     Raises
     ------
     HTTPException
-        With status 400 if ``run`` is not a succeeded fit run.
+        With status 400 if ``run`` is not a run to choose from.
     """
-    runs = list_succeeded_runs(workspace.database, FIT_JOB, run)
-    if all(candidate["run_id"] != run for candidate in runs):
-        raise HTTPException(status_code=400, detail=f"succeeded fit run not found: {run}")
+    if all(candidate["run_id"] != run for candidate in view_runs(workspace, run)):
+        raise HTTPException(status_code=400, detail=f"succeeded run not found: {run}")
     workspace.view_selection.choose_run(run)
     return _reload()
 

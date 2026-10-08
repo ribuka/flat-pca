@@ -16,12 +16,11 @@ from ..services.explore import (
     resolve_explore,
     shown_request,
 )
-from ..services.runs import list_succeeded_runs
 from ..templating import templates
-from ..workspace import FIT_JOB, Workspace
+from ..workspace import Workspace
 from .dependencies import get_workspace
 from .heatmap_trend import heatmap_context, trend_response
-from .view_selection import current_view_choice
+from .view_selection import current_view_choice, view_runs
 
 router = APIRouter(prefix="/explore")
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
@@ -50,7 +49,7 @@ def _resolve(workspace: Workspace, request: ExploreRequest) -> ExploreView:
     try:
         return resolve_explore(
             workspace.cache,
-            list_succeeded_runs(workspace.database, FIT_JOB, request.run),
+            view_runs(workspace, request.run),
             request,
             workspace.settings.ui.explore_max_files,
         )
