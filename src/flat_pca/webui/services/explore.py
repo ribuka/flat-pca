@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -16,10 +15,10 @@ from flat_pca.feature_engineering.pca.mahalanobis import resolve_mahalanobis_com
 from flat_pca.spectral.schema import SOURCE_COLUMN
 from flat_pca.utils import natural_keys
 
+from ..run_config import run_config, statistic_configs
 from .component_choice import choose_component
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError
-from .monitoring import statistic_configs
 from .q_consistency import QMismatch, q_mismatch, saved_q_by_stem
 from .reconstruction import ReconstructionKind, reconstruction_values
 from .run_choice import choose_run
@@ -431,7 +430,8 @@ def _run_view(
     options = sorted(stems, key=natural_keys)
     files, omitted = _choose_files(options, request.files, max_files)
     order = _heatmap_first(files, request.heatmap_file)
-    preprocess = cast(dict[str, object], json.loads(str(run["config_json"]))["preprocess"])
+    config = run_config(run)
+    preprocess = config["preprocess"]
     base = ExploreView(
         view=view,
         runs=runs,
@@ -443,8 +443,8 @@ def _run_view(
         component_count=component_count,
         value_name=VALUE_NAMES.get(view, "intensity"),
         intensity_transform={
-            "name": preprocess.get("intensity_transform", "none"),
-            "scale": preprocess.get("intensity_transform_scale", 1.0),
+            "name": preprocess["intensity_transform"],
+            "scale": preprocess["intensity_transform_scale"],
         },
         omitted=omitted,
     )
@@ -472,7 +472,7 @@ def _run_view(
         if view == "q_contribution":
             # Q fixes its own component count; the chosen k is not used.
             shown_component = None
-            spe = statistic_configs(run)[1]
+            spe = statistic_configs(config)[1]
             selector = spe.cumulative_explained_variance
             q_components = resolve_mahalanobis_components(
                 cache.pca_model(dirs.model).pca, selector

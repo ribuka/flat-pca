@@ -20,17 +20,18 @@ import json
 import shutil
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import cast
 
 import numpy as np
 import polars as pl
 from loguru import logger
 
-from flat_pca.feature_engineering.pca import MahalanobisConfig, SpeConfig, transform_pca
+from flat_pca.feature_engineering.pca import transform_pca
 from flat_pca.spectral.schema import SOURCE_COLUMN
 
 from .jobs.executor import CONFIG_FILE
-from .jobs.fit_run import COMPONENTS_FILE, X_FILE, run_fit
+from .jobs.fit_run import run_fit
+from .run_config import statistic_configs
+from .run_layout import COMPONENTS_FILE, X_FILE
 from .services.fit_artifacts import FitArtifacts, load_fit_artifacts
 
 
@@ -56,8 +57,7 @@ def recompute(
     frame = pl.DataFrame(
         np.asarray(artifacts.x, dtype=np.float64), schema=features
     ).insert_column(0, artifacts.samples[SOURCE_COLUMN])
-    mahalanobis = MahalanobisConfig(**cast(dict[str, object], config["mahalanobis"]))  # type: ignore[arg-type]
-    spe = SpeConfig(**cast(dict[str, object], config["spe"]))  # type: ignore[arg-type]
+    mahalanobis, spe = statistic_configs(config)
     model = artifacts.model
     scored = transform_pca(
         frame.lazy(), model, mahalanobis=mahalanobis, spe=spe

@@ -9,25 +9,21 @@ import numpy as np
 import polars as pl
 import pytest
 from fit_runs import register_fit_run, register_transform_run
+from preprocess_settings import preprocess_settings
 from spectra import SPECTRA_SHORT_FILE, write_spectra
 
 from flat_pca.spectral.schema import SOURCE_COLUMN
 from flat_pca.webui.database import Database
-from flat_pca.webui.jobs.fit_run import (
-    SAMPLES_FILE,
-    SCORES_FILE,
-    X_FILE,
-    build_fit_config,
-    run_fit,
-    score_frame,
-)
+from flat_pca.webui.jobs.fit_run import build_fit_config, run_fit
 from flat_pca.webui.jobs.progress import read_progress
 from flat_pca.webui.jobs.transform_run import (
     align_features,
     build_transform_config,
     run_transform,
+    score_frame,
     transform_target_intensity,
 )
+from flat_pca.webui.run_layout import SAMPLES_FILE, SCORES_FILE, X_FILE
 from flat_pca.webui.services.fit_artifacts import (
     load_display_artifacts,
     load_fit_artifacts,
@@ -271,7 +267,7 @@ def test_downsampled_fit_keeps_shared_grid_points_of_another_grid(
     config = build_fit_config(
         settings,
         [{"stem": path.stem, "path": str(path)} for path in spectra_paths],
-        {"target_steps": [1, 2], "max_null_ratio": 0.1, "w_downsampling_stride": 2},
+        preprocess_settings(w_downsampling_stride=2),
         {
             "n_component": 2,
             "impute_strategy": "median",
@@ -312,12 +308,7 @@ def test_values_dropped_by_the_fit_downsampling_skip_the_log1p_check(
     config = build_fit_config(
         settings,
         [{"stem": path.stem, "path": str(path)} for path in paths],
-        {
-            "target_steps": [1, 2],
-            "max_null_ratio": 0.1,
-            "w_downsampling_stride": 2,
-            "intensity_transform": "log1p",
-        },
+        preprocess_settings(w_downsampling_stride=2, intensity_transform="log1p"),
         {
             "n_component": 2,
             "impute_strategy": "median",
@@ -353,7 +344,7 @@ def test_intensity_transform_keeps_rows_of_a_square_matrix() -> None:
     transformed = transform_target_intensity(
         aligned,
         ["400.0nm_1_1_0.00", "401.0nm_1_1_0.00"],
-        {"intensity_transform": "sqrt"},
+        {"intensity_transform": "sqrt", "intensity_transform_scale": 1.0},
     )
 
     assert transformed.columns == aligned.columns

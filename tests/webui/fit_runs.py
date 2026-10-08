@@ -6,6 +6,8 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
+from preprocess_settings import preprocess_settings
+
 from flat_pca.webui.database import Database
 from flat_pca.webui.jobs.fit_run import build_fit_config, run_fit
 from flat_pca.webui.jobs.transform_run import build_transform_config, run_transform
@@ -61,12 +63,7 @@ def register_fit_run(
             {"stem": path.stem, "path": str(path), **(metadata or {}).get(path.stem, {})}
             for path in spectra_paths
         ],
-        {
-            "target_steps": [1, 2],
-            "max_null_ratio": 0.1,
-            "intensity_transform": "sqrt",
-            "intensity_transform_scale": 2.0,
-        },
+        preprocess_settings(intensity_transform="sqrt", intensity_transform_scale=2.0),
         {
             "n_component": 3,
             "impute_strategy": impute_strategy,

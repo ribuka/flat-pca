@@ -11,7 +11,7 @@ import polars as pl
 from flat_pca.feature_engineering.pca import PcaModel
 from flat_pca.spectral.schema import SOURCE_COLUMN
 
-from ..jobs.fit_run import (
+from ..run_layout import (
     COMPONENTS_FILE,
     FEATURES_FILE,
     PCA_STATE_FILE,

@@ -11,33 +11,32 @@ fit run directory; the app process validates the results with
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import polars as pl
 from loguru import logger
 
 from flat_pca.feature_engineering.flatten_pca import preprocess_and_flatten
+from flat_pca.feature_engineering.pca import PcaModel, transform_pca
 from flat_pca.feature_engineering.preprocess.intensity_transform import (
-    IntensityTransform,
     transform_intensity_values,
 )
 from flat_pca.spectral.schema import SOURCE_COLUMN, flattened_feature_columns
 
-from ..services.fit_artifacts import load_pca_model
-from ..services.run_dirs import FIT_RUN_DIR_KEY, FIT_RUN_ID_KEY
-from ..settings import Settings
-from .fit_run import (
+from ..run_config import run_config, statistic_configs
+from ..run_layout import (
+    FIT_RUN_DIR_KEY,
+    FIT_RUN_ID_KEY,
     SAMPLES_FILE,
     SCORES_FILE,
     X_FILE,
-    file_entries,
-    sample_frame,
-    score_frame,
 )
+from ..services.fit_artifacts import load_pca_model
+from ..settings import Settings
+from .fit_run import file_entries, sample_frame
 from .progress import write_progress
 
 STAGES = ("preprocess", "transform", "save")
@@ -103,7 +102,7 @@ def build_transform_config(
         is built), and the fit run's ``preprocess``, ``mahalanobis``, and
         ``spe`` settings.
     """
-    fit_config = cast(dict[str, object], json.loads(str(fit_run["config_json"])))
+    fit_config = run_config(fit_run)
     entries = file_entries(settings, files)
     for entry in cast(list[dict[str, object]], entries["files"]):
         entry |= file_state(Path(str(entry["path"])))
@@ -162,7 +161,7 @@ def align_features(flattened: pl.DataFrame, features: Sequence[str]) -> pl.DataF
 
 
 def transform_target_intensity(
-    aligned: pl.DataFrame, features: Sequence[str], preprocess: Mapping[str, object]
+    aligned: pl.DataFrame, features: Sequence[str], preprocess: Mapping[str, Any]
 ) -> pl.DataFrame:
     """Apply the fit run's intensity transform to the aligned fit features.
 
@@ -177,9 +176,9 @@ def transform_target_intensity(
         without the intensity transform.
     features : Sequence[str]
         Feature columns of the fit run.
-    preprocess : Mapping[str, object]
+    preprocess : Mapping[str, Any]
         The fit run's ``preprocess`` settings, with ``intensity_transform``
-        and ``intensity_transform_scale`` (defaults ``"none"`` and 1.0).
+        and ``intensity_transform_scale``.
 
     Returns
     -------
@@ -192,16 +191,47 @@ def transform_target_intensity(
     ValueError
         If ``log1p`` meets a value of the fit features outside its domain.
     """
-    name = cast(IntensityTransform, preprocess.get("intensity_transform", "none"))
+    name = preprocess["intensity_transform"]
     if name == "none":
         return aligned
     values = transform_intensity_values(
-        aligned.select(features).to_numpy(),
-        name,
-        float(cast(float, preprocess.get("intensity_transform_scale", 1.0))),
+        aligned.select(features).to_numpy(), name, preprocess["intensity_transform_scale"]
     )
     return pl.from_numpy(values, schema=list(features), orient="row").insert_column(
         0, aligned[SOURCE_COLUMN]
+    )
+
+
+def score_frame(
+    flattened: pl.LazyFrame, model: PcaModel, config: Mapping[str, object]
+) -> pl.DataFrame:
+    """Score the flattened rows with T² and Q statistics.
+
+    Parameters
+    ----------
+    flattened : pl.LazyFrame
+        Flattened features with a ``source`` column.
+    model : PcaModel
+        Fitted PCA pipeline.
+    config : Mapping[str, object]
+        Job configuration with ``mahalanobis`` and ``spe`` settings.
+
+    Returns
+    -------
+    pl.DataFrame
+        ``source``, the score columns, and the Mahalanobis (T²) and SPE (Q)
+        columns. Rows dropped by ``impute_strategy="drop"`` are absent.
+    """
+    mahalanobis, spe = statistic_configs(config)
+    return (
+        transform_pca(flattened, model, mahalanobis=mahalanobis, spe=spe)
+        .select(
+            SOURCE_COLUMN,
+            *model.pca_column_names,
+            *mahalanobis.column_names,
+            *spe.column_names,
+        )
+        .collect()
     )
 
 

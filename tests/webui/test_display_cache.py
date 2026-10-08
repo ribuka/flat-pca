@@ -10,15 +10,12 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import pytest
+from preprocess_settings import preprocess_settings
 
 from flat_pca.webui.jobs.executor import CONFIG_FILE
-from flat_pca.webui.jobs.fit_run import (
-    COMPONENTS_FILE,
-    SCORES_FILE,
-    build_fit_config,
-    run_fit,
-)
+from flat_pca.webui.jobs.fit_run import build_fit_config, run_fit
 from flat_pca.webui.jobs.transform_run import build_transform_config, run_transform
+from flat_pca.webui.run_layout import COMPONENTS_FILE, SCORES_FILE
 from flat_pca.webui.services.display_cache import DisplayCache, LruCache, ShownMatrices
 from flat_pca.webui.services.fit_artifacts import (
     RunArtifactError,
@@ -190,7 +187,7 @@ def _fit_run_dir(settings: Settings, paths: list[Path]) -> Path:
     config = build_fit_config(
         settings,
         [{"stem": path.stem, "path": str(path)} for path in paths],
-        {"target_steps": [1, 2], "max_null_ratio": 0.1},
+        preprocess_settings(),
         {
             "n_component": 2,
             "impute_strategy": "median",

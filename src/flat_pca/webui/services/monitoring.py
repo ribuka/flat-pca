@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field, replace
-from typing import cast
 
 import numpy as np
 import polars as pl
@@ -12,6 +10,7 @@ import polars as pl
 from flat_pca.feature_engineering.pca import MahalanobisConfig, SpeConfig
 from flat_pca.utils import natural_keys
 
+from ..run_config import run_config, statistic_configs
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError, artifact_error
 from .run_choice import choose_run
@@ -148,34 +147,6 @@ def control_chart_order(samples: pl.DataFrame, order_by: str | None) -> np.ndarr
     return frame.sort(keys, nulls_last=True)[_ROW].to_numpy().astype(np.intp)
 
 
-def statistic_configs(run: dict[str, object]) -> tuple[MahalanobisConfig, SpeConfig]:
-    """Return the T² and Q settings of a fit run.
-
-    Parameters
-    ----------
-    run : dict[str, object]
-        The fit or transform run's ``runs`` row.
-
-    Returns
-    -------
-    tuple[MahalanobisConfig, SpeConfig]
-        Settings saved in the run's configuration.
-
-    Raises
-    ------
-    RunArtifactError
-        If the configuration lacks or holds invalid settings.
-    """
-    try:
-        config = cast(dict[str, object], json.loads(str(run["config_json"])))
-        return (
-            MahalanobisConfig(**cast(dict[str, object], config["mahalanobis"])),  # type: ignore[arg-type]
-            SpeConfig(**cast(dict[str, object], config["spe"])),  # type: ignore[arg-type]
-        )
-    except (KeyError, TypeError, ValueError) as error:
-        raise artifact_error(error) from error
-
-
 def monitoring_points(
     artifacts: DisplayArtifacts,
     mahalanobis: MahalanobisConfig,
@@ -278,7 +249,7 @@ def resolve_monitoring(
         color=choose_metadata_column(request.color, default_color, order_options),
     )
     try:
-        points = monitoring_points(artifacts, *statistic_configs(run), order)
+        points = monitoring_points(artifacts, *statistic_configs(run_config(run)), order)
     except RunArtifactError as error:
         return replace(base, error=str(error))
     scored = set(points.samples["stem"].to_list())

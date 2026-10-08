@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..jobs.fit_run import SAMPLES_FILE
+from ..run_layout import FIT_RUN_DIR_KEY, SAMPLES_FILE
 from .fit_artifacts import load_display_artifacts
-from .run_dirs import FIT_RUN_DIR_KEY, RunDirs
+from .run_dirs import RunDirs
 
 
 def register_transform_result(config: dict[str, object], run_dir: Path) -> dict[str, object]:

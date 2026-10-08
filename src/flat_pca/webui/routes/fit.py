@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -14,6 +13,7 @@ from ..jobs.fit_run import (
     AUTO_COMPONENT_CUMULATIVE,
     build_fit_config,
 )
+from ..run_config import run_config
 from ..services.catalog_query import FileQuery, list_files, selection_ranges
 from ..services.fit_estimate import estimate_fit
 from ..services.fit_form import (
@@ -117,7 +117,7 @@ def _initial_form(workspace: Workspace, run: dict[str, object] | None) -> FitFor
     values = (
         default_form_values(ranges)
         if run is None
-        else form_values_from_config(json.loads(str(run["config_json"])), ranges)
+        else form_values_from_config(run_config(run), ranges)
     )
     parsed = parse_fit_form(values, len(stems))
     return FitForm(
