@@ -26,7 +26,7 @@
           {% if run.run_id == shown_run_id %}
             <span class="muted" data-shown-run>Shown</span>
           {% elif run.status == "succeeded" %}
-            <form hx-post="/sidebar/selection/run" hx-swap="none" data-busy-reload>
+            <form hx-post="/sidebar/selection/run" hx-swap="none" data-view-choice>
               <input type="hidden" name="run" value="{{ run.run_id }}">
               <button type="submit" data-show-run>Show</button>
             </form>

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from playwright.sync_api import Page, expect
-from sidebar_choice import wait_for_sidebar
+from playwright.sync_api import Page, Request, expect
+from sidebar_choice import mark_page, wait_for_sidebar, wait_for_view_refresh
 
 pytestmark = pytest.mark.e2e
 
@@ -12,7 +12,7 @@ pytestmark = pytest.mark.e2e
 def test_chosen_files_follow_every_screen_and_reload(
     page: Page, fitted_server_url: str
 ) -> None:
-    """Shown files chosen on one screen are kept on the others and after a reload."""
+    """Shown files chosen on one screen replace its main part and are kept elsewhere."""
     page.goto(f"{fitted_server_url}/explore")
     wait_for_sidebar(page)
     items = page.locator("#view-selection li[data-stem]")
@@ -22,10 +22,10 @@ def test_chosen_files_follow_every_screen_and_reload(
     page.locator("[data-view-file-search]").fill("s-1")
 
     expect(page.locator("#view-selection li[data-stem]:visible")).to_have_count(2)
-    with page.expect_navigation():
-        page.locator('#view-selection input[value="s-10"]').check()
+    mark_page(page)
+    page.locator('#view-selection input[value="s-10"]').check()
 
-    wait_for_sidebar(page)
+    wait_for_view_refresh(page)
     expect(page.locator("[data-view-file-search]")).to_have_value("s-1")
     expect(page.locator("#view-selection li[data-stem]:visible")).to_have_count(2)
     expect(page.locator("#explore-heatmap")).to_have_attribute("data-heatmap-label", "s-10")
@@ -49,15 +49,14 @@ def test_changing_the_run_clears_the_files(page: Page, two_fits_server_url: str)
     run = page.locator("#view-selection select[name=run]")
     expect(run).to_have_value("fit-2")
     expect(page.locator("main")).to_contain_text("run: fit-2")
-    with page.expect_navigation():
-        page.locator('#view-selection input[value="s-00"]').check()
-    wait_for_sidebar(page)
+    mark_page(page)
+    page.locator('#view-selection input[value="s-00"]').check()
+    wait_for_view_refresh(page)
     expect(page.locator('#view-selection input[value="s-00"]')).to_be_checked()
 
-    with page.expect_navigation():
-        run.select_option("fit-1")
+    run.select_option("fit-1")
 
-    wait_for_sidebar(page)
+    wait_for_view_refresh(page)
     expect(run).to_have_value("fit-1")
     expect(page.locator("main")).to_contain_text("run: fit-1")
     expect(page.locator("#view-selection input[name=file]")).to_have_count(12)
@@ -77,3 +76,94 @@ def test_transform_page_uses_the_fit_data_by_default(
     expect(checkbox).to_be_enabled()
     expect(page.locator("[data-transform-targets]")).to_be_hidden()
     expect(page.locator("[data-transform-shown]")).to_contain_text("12 files")
+
+
+def test_choosing_a_file_keeps_the_list_scroll(page: Page, fitted_server_url: str) -> None:
+    """The shown-file list keeps its scroll position over the refresh."""
+    page.goto(f"{fitted_server_url}/explore")
+    wait_for_sidebar(page)
+    # A short list scrolls with the 12 files of the fixture.
+    page.add_style_tag(content=".view-file-list { max-height: 5rem; }")
+    file_list = page.locator("#view-selection .view-file-list")
+    scrolled = file_list.evaluate(
+        "(list) => { list.scrollTop = list.scrollHeight; return list.scrollTop; }"
+    )
+    assert scrolled > 0
+    mark_page(page)
+
+    page.locator('#view-selection input[value="s-11"]').check()
+
+    wait_for_view_refresh(page)
+    expect(page.locator("#explore-heatmap")).to_have_attribute("data-heatmap-label", "s-11")
+    assert file_list.evaluate("(list) => list.scrollTop") == scrolled
+
+
+def test_repeated_refreshes_do_not_repeat_the_trend_requests(
+    page: Page, fitted_server_url: str
+) -> None:
+    """After several replacements, one slider move fetches the trends once."""
+    page.goto(f"{fitted_server_url}/explore?view=raw&segment=1:1")
+    wait_for_sidebar(page)
+    mark_page(page)
+    for stem in ("s-00", "s-01", "s-02"):
+        page.locator(f'#view-selection input[value="{stem}"]').check()
+        wait_for_view_refresh(page)
+    root = page.locator("[data-explore]")
+    expect(root).to_have_attribute("data-trend-wavelength", "402.5")
+    expect(page.locator("#explore-trend-step-time .scatterlayer .trace")).to_have_count(3)
+    expect(page.locator("main .js-plotly-plot")).to_have_count(3)
+    trend_requests: list[str] = []
+
+    def record(request: Request) -> None:
+        """Record a request of the trends."""
+        if "/explore/trend" in request.url:
+            trend_requests.append(request.url)
+
+    page.on("request", record)
+
+    page.locator("#explore-wavelength").press("ArrowRight")
+
+    expect(root).to_have_attribute("data-trend-wavelength", "405")
+    # Requests of figures drawn before a replacement would follow the debounce.
+    page.wait_for_timeout(500)
+    assert len(trend_requests) == 1
+
+
+def test_screens_without_the_choice_keep_their_main_part(
+    page: Page, fitted_server_url: str
+) -> None:
+    """Data selection keeps its main part for any choice; transform for the files."""
+    for path in ("/", "/transform"):
+        page.goto(f"{fitted_server_url}{path}")
+        wait_for_sidebar(page)
+        mark_page(page)
+        page.locator("main .card").first.evaluate("(card) => { card.dataset.kept = 'true'; }")
+
+        page.locator('#view-selection input[value="s-03"]').check()
+
+        wait_for_view_refresh(page)
+        expect(page.locator('#view-selection input[value="s-03"]')).to_be_checked()
+        expect(page.locator("main .card").first).to_have_attribute("data-kept", "true")
+        page.locator('#view-selection input[value="s-03"]').uncheck()
+        wait_for_view_refresh(page)
+
+
+def test_a_stale_sidebar_shows_the_run_in_use(page: Page, two_fits_server_url: str) -> None:
+    """A file chosen in a sidebar drawn before the run changed elsewhere shows the new run."""
+    page.goto(f"{two_fits_server_url}/model")
+    wait_for_sidebar(page)
+    expect(page.locator("main")).to_contain_text("run: fit-2")
+    # Another tab chooses the other run.
+    response = page.request.post(
+        f"{two_fits_server_url}/sidebar/selection/run",
+        form={"run": "fit-1"},
+    )
+    assert response.ok
+    mark_page(page)
+
+    page.locator('#view-selection input[value="s-00"]').check()
+
+    wait_for_view_refresh(page)
+    expect(page.locator("#view-selection select[name=run]")).to_have_value("fit-1")
+    expect(page.locator("main")).to_contain_text("run: fit-1")
+    expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(0)

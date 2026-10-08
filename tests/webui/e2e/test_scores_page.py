@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 from playwright.sync_api import Page, expect
-from sidebar_choice import choose_files, wait_for_sidebar
+from sidebar_choice import (
+    choose_files,
+    mark_page,
+    wait_for_sidebar,
+    wait_for_view_refresh,
+)
 from spectra import SPECTRA_SHORT_FILE
 
 pytestmark = pytest.mark.e2e
@@ -28,16 +33,17 @@ def _click_point(page: Page, index: int) -> None:
 
 
 def test_clicking_a_score_point_adds_the_file(page: Page, fitted_server_url: str) -> None:
-    """A click on a score point adds the file to the sidebar and stays on the page."""
+    """A click on a score point adds the file to the sidebar without a reload."""
     url = f"{fitted_server_url}/scores?color="
     _open(page, url)
     expect(page.locator("#view-selection input[name=file]")).to_have_count(12)
 
-    with page.expect_navigation():
-        _click_point(page, 1)
+    mark_page(page)
+    _click_point(page, 1)
 
+    wait_for_view_refresh(page)
     expect(page).to_have_url(url)
-    # The row of the clicked file is kept over the reload.
+    # The replaced point table shows the row of the clicked file.
     rows = page.locator("#point-table tbody tr")
     expect(rows).to_have_count(1)
     expect(rows.first.locator("td").first).to_have_text("s-01")
@@ -48,7 +54,8 @@ def test_clicking_a_score_point_adds_the_file(page: Page, fitted_server_url: str
     expect(legend).to_have_count(1)
     expect(legend.nth(0)).to_contain_text("s-01")
 
-    # A double click after the reload clears the kept row.
+    # The replaced figure is drawn, and its double click clears the row.
+    expect(page.locator("#scores-scatter")).to_have_attribute("data-plot-ready", "true")
     box = page.locator("#scores-scatter .nsewdrag").first.bounding_box()
     assert box is not None
     page.mouse.dblclick(box["x"] + 4, box["y"] + 4)
@@ -113,10 +120,11 @@ def test_choices_redraw_the_trajectories(page: Page, fitted_server_url: str) -> 
     expect(page.locator('select[name="file"]')).to_have_count(0)
     expect(page.locator('select[name="run"]')).to_have_count(1)
 
+    mark_page(page)
     for stem in ("s-00", SHORT):
-        with page.expect_navigation():
-            page.locator(f'#view-selection input[value="{stem}"]').check()
-        _open(page, page.url)
+        page.locator(f'#view-selection input[value="{stem}"]').check()
+        wait_for_view_refresh(page)
+    expect(page.locator("#scores-scatter")).to_have_attribute("data-plot-ready", "true")
     y_input = page.locator('input[name="y"]')
     y_input.fill("3")
     y_input.dispatch_event("change")

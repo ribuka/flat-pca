@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from playwright.sync_api import Page, expect
-from sidebar_choice import wait_for_sidebar
+from sidebar_choice import mark_page, wait_for_sidebar, wait_for_view_refresh
 
 pytestmark = pytest.mark.e2e
 
@@ -45,9 +45,10 @@ def test_transform_runs_and_its_targets_are_shown(
     # The finished run is offered in the sidebar right away.
     expect(page.locator('#view-run option[data-run-kind="transform"]')).to_have_count(1)
 
+    mark_page(page)
     rows.first.get_by_role("button", name="Show").click()
 
-    wait_for_sidebar(page)
+    wait_for_view_refresh(page)
     expect(page.locator("#view-run option:checked")).to_have_attribute(
         "data-run-kind", "transform"
     )
@@ -61,7 +62,7 @@ def test_transform_runs_and_its_targets_are_shown(
     # Checking the box shows the fit run's own data again.
     page.get_by_label("use same data for fit").check()
 
-    wait_for_sidebar(page)
+    wait_for_view_refresh(page)
     expect(page.locator("#view-run option:checked")).to_have_attribute("value", "fit-1")
     expect(page.get_by_label("use same data for fit")).to_be_checked()
     expect(page.locator("[data-transform-targets]")).to_be_hidden()

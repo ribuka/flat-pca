@@ -19,10 +19,10 @@ from ..services.model import (
     heatmap_request,
     resolve_model,
 )
-from ..templating import templates
 from ..workspace import Workspace
 from .dependencies import get_workspace
 from .heatmap_trend import heatmap_context, script_json, trend_response
+from .view_page import render_view_page
 from .view_selection import current_view_choice, view_runs
 
 router = APIRouter(prefix="/model")
@@ -143,7 +143,8 @@ def model_page(
     Returns
     -------
     HTMLResponse
-        Full page with the figures.
+        Full page with the figures, or its main part for an htmx request
+        (see ``render_view_page``).
     """
     shown = _resolve(
         workspace,
@@ -173,7 +174,7 @@ def model_page(
             workspace.settings.ui.heatmap_max_cells,
             _trend_url(key),
         )
-    return templates.TemplateResponse(request, "pages/model.html", context)
+    return render_view_page(request, "pages/model.html", context)
 
 
 @router.get("/trend")

@@ -12,9 +12,10 @@ from flat_pca.visualize import create_control_chart, create_t2_q_scatter
 
 from ..services.monitoring import MonitoringRequest, MonitoringView, resolve_monitoring
 from ..services.point_table import SELECT_TOOLS, PointTable, point_table
-from ..templating import format_value, templates
+from ..templating import format_value
 from ..workspace import Workspace
 from .dependencies import get_workspace
+from .view_page import render_view_page
 from .view_selection import current_view_choice
 
 router = APIRouter(prefix="/monitoring")
@@ -145,7 +146,8 @@ def monitoring_page(
     Returns
     -------
     HTMLResponse
-        Full page with the figures.
+        Full page with the figures, or its main part for an htmx request
+        (see ``render_view_page``).
 
     Raises
     ------
@@ -167,4 +169,4 @@ def monitoring_page(
     if shown.error is None and shown.run_id is not None:
         context["figures"] = _figures(shown)
         context["point_table"] = _point_table(shown)
-    return templates.TemplateResponse(request, "pages/monitoring.html", context)
+    return render_view_page(request, "pages/monitoring.html", context)

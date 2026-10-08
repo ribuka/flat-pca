@@ -42,3 +42,30 @@ def wait_for_sidebar(page: Page) -> None:
         Browser page showing a screen.
     """
     expect(page.locator("#view-selection")).to_have_attribute("data-ready", "true")
+
+
+def mark_page(page: Page) -> None:
+    """Mark the loaded page, so that a later reload can be detected.
+
+    Parameters
+    ----------
+    page : Page
+        Browser page showing a screen.
+    """
+    page.evaluate("() => { window.flatPcaMarked = true; }")
+
+
+def wait_for_view_refresh(page: Page) -> None:
+    """Wait until the refresh after a choice of the run or files ends.
+
+    The overlay blocks the page from the choice until the sidebar and the
+    main part are replaced. The page must not have been reloaded since
+    ``mark_page``.
+
+    Parameters
+    ----------
+    page : Page
+        Browser page marked by ``mark_page``.
+    """
+    expect(page.locator(".layout")).not_to_have_attribute("inert", "")
+    assert page.evaluate("() => window.flatPcaMarked === true")

@@ -12,9 +12,9 @@ from flat_pca.visualize import create_partial_score_trajectories, create_score_s
 
 from ..services.point_table import SELECT_TOOLS, PointTable, point_table
 from ..services.scores import ScoresRequest, ScoresView, resolve_scores
-from ..templating import templates
 from ..workspace import Workspace
 from .dependencies import get_workspace
+from .view_page import render_view_page
 from .view_selection import current_view_choice
 
 router = APIRouter(prefix="/scores")
@@ -125,7 +125,8 @@ def scores_page(
     Returns
     -------
     HTMLResponse
-        Full page with the figures.
+        Full page with the figures, or its main part for an htmx request
+        (see ``render_view_page``).
 
     Raises
     ------
@@ -149,4 +150,4 @@ def scores_page(
     if shown.error is None and shown.run_id is not None:
         context["figures"] = _figures(shown)
         context["point_table"] = _point_table(shown)
-    return templates.TemplateResponse(request, "pages/scores.html", context)
+    return render_view_page(request, "pages/scores.html", context)
