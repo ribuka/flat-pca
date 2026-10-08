@@ -60,7 +60,7 @@ def _figures(shown: ScoresView) -> dict[str, str]:
             x_name=shown.x_name,
             y_name=shown.y_name,
             color=None if shown.color is None else shown.scores.samples[shown.color],
-        ).update_layout(title="スコア", modebar_add=SELECT_TOOLS),
+        ).update_layout(title="Scores", modebar_add=SELECT_TOOLS),
     }
     if shown.trajectories:
         figures["trajectories"] = create_partial_score_trajectories(
@@ -70,7 +70,7 @@ def _figures(shown: ScoresView) -> dict[str, str]:
             },
             x_name=shown.x_name,
             y_name=shown.y_name,
-        ).update_layout(title="部分スコア軌跡")
+        ).update_layout(title="Partial score trajectories")
     return {name: _figure_json(figure) for name, figure in figures.items()}
 
 

@@ -35,14 +35,14 @@ from .segment_choice import (
 from .spectral_matrix import SpectralMatrix, feature_segment_matrix
 
 AGGREGATION_LABELS: dict[LoadingAggregation, str] = {
-    "mean": "平均",
+    "mean": "mean",
     "rms": "RMS",
-    "abs_mean": "絶対値平均",
+    "abs_mean": "mean absolute",
 }
 DEFAULT_AGGREGATION: LoadingAggregation = "rms"
 COMPONENT_VALUE_NAME = "coefficient"
 COMPONENT_VIEW = "component"
-COMPONENT_VIEW_LABEL = "PCA 成分 k"
+COMPONENT_VIEW_LABEL = "PCA component k"
 
 
 @dataclass(frozen=True)
@@ -305,8 +305,8 @@ def _choose_view(requested: str | None, options: dict[str, str]) -> tuple[str, s
     return (
         COMPONENT_VIEW,
         (
-            f"この run には「{label}」がありません（前処理の設定で持たない値です）。"
-            f"{COMPONENT_VIEW_LABEL}を表示します。"
+            f"This run has no \"{label}\" (its preprocessing settings do not keep it). "
+            f"Showing {COMPONENT_VIEW_LABEL} instead."
         ),
     )
 
@@ -426,7 +426,7 @@ def resolve_model(
         raise ValueError(f"succeeded fit run not found: {request.run}")
     run = by_id[request.run] if request.run is not None else (runs[0] if runs else None)
     if run is None:
-        return ModelView(runs=runs, error="成功した fit run がありません")
+        return ModelView(runs=runs, error="No succeeded fit run.")
     try:
         artifacts = cache.fit_artifacts(Path(str(run["artifact_dir"])))
     except RunArtifactError as error:

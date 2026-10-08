@@ -76,7 +76,7 @@ def test_sidebar_without_a_run_offers_nothing(client: TestClient) -> None:
     assert "data-no-run" in sidebar
     assert 'name="run"' not in sidebar
     assert 'name="file"' not in sidebar
-    assert "選べるファイルがありません" in sidebar
+    assert "No files to choose" in sidebar
 
 
 def test_sidebar_lists_runs_and_transform_targets(
@@ -196,7 +196,7 @@ def test_files_beyond_the_limit_are_not_kept(
     assert _checked(sidebar) == ["s-00", "s-01"]
     assert 'name="file" value="s-02" disabled' in sidebar
     assert "data-view-file-limit" in sidebar
-    assert "上限の 2 件" in sidebar
+    assert "The limit of 2 files" in sidebar
 
 
 def test_adding_a_file_stops_at_the_limit(
@@ -217,7 +217,7 @@ def test_adding_a_file_stops_at_the_limit(
 
     assert refused.status_code == 200
     assert refused.json()["added"] is False
-    assert "2 件まで" in refused.json()["message"]
+    assert "Up to 2 shown files" in refused.json()["message"]
     assert _workspace(limited_client).view_selection.stems == ["s-05", "s-01"]
 
 
@@ -357,13 +357,13 @@ def test_transform_page_follows_the_fit_data(
         r'<input type="checkbox" name="use_same_data_for_fit" checked disabled', html
     )
     assert "use same data for fit" in html
-    assert "成功した fit run がありません" in html
+    assert "No succeeded fit run" in html
 
     _register(client, settings, spectra_paths, "fit-1")
 
     html = client.get("/transform").text
     assert f'data-transform-targets="{SPECTRA_FILE_COUNT}"' in html
-    assert f"run fit-1 の transform 対象：{SPECTRA_FILE_COUNT} ファイル" in html
+    assert f"Transform targets of run fit-1: {SPECTRA_FILE_COUNT} files" in html
 
 
 def test_fit_and_shown_files_have_distinct_labels(client: TestClient) -> None:
@@ -371,7 +371,7 @@ def test_fit_and_shown_files_have_distinct_labels(client: TestClient) -> None:
     status = client.get("/sidebar/status").text
     page = client.get("/").text
 
-    assert "<dt>fit 対象</dt>" in status
+    assert "<dt>Fit target</dt>" in status
     assert ">Select</button>" in page
-    assert "fit 対象：0 ファイル" in page
-    assert "表示ファイル" in client.get("/sidebar/selection").text
+    assert "Fit target: 0 files" in page
+    assert "Shown files" in client.get("/sidebar/selection").text

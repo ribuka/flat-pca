@@ -161,7 +161,7 @@ def test_raw_view_shows_the_chosen_files_in_natural_order(
         ("raw", "s-10"),
         ("preprocessed", "s-10"),
         ("contribution", "s-10"),
-        ("reconstruction", "s-10（累積再構成）"),
+        ("reconstruction", "s-10 (reconstruction)"),
         ("residual", "s-10"),
         ("q_contribution", "s-10"),
     ],
@@ -175,7 +175,7 @@ def test_heatmap_draws_the_chosen_file(
     html = client.get("/explore", params={"view": view, "heatmap_file": "s-10"}).text
 
     assert f'data-heatmap-label="{label}"' in html
-    assert '<select name="heatmap_file">' in html
+    assert '<select name="heatmap_file" form="explore-form">' in html
     assert '<option value="s-02" >s-02</option>' in html
     assert '<option value="s-10" selected>s-10</option>' in html
     assert "title" not in _embedded(html, "explore-heatmap-figure")["layout"]
@@ -205,7 +205,7 @@ def test_raw_view_without_a_run_asks_for_a_fit(client: TestClient) -> None:
     html = client.get("/explore").text
 
     assert "data-explore-error" in html
-    assert "先に前処理・PCA で fit を実行してください" in html
+    assert "Run a fit on Preprocess / PCA first." in html
     assert "data-explore " not in html
 
 
@@ -221,7 +221,7 @@ def test_heatmap_is_binned_above_the_cell_limit(
         html = opened.get("/explore").text
 
     assert "data-binned" in html
-    assert "4 行を" in html
+    assert "the 4 rows along time" in html
     # Two bins over StepTime 0..3: [0, 1.5) holds 0 and 1; [1.5, 3] holds 2 and 3.
     assert _decode(_heatmap(html)["y"]) == [0.5, 2.5]
     assert _embedded(html, "explore-axes")["step_times"] == [0.0, 1.0, 2.0, 3.0]
@@ -295,7 +295,7 @@ def test_run_views_without_a_run_show_a_message(client: TestClient) -> None:
     html = client.get("/explore", params={"view": "preprocessed"}).text
 
     assert "data-explore-error" in html
-    assert "成功した fit run がありません" in html
+    assert "No succeeded fit run" in html
     assert "data-explore " not in html
     response = client.get(
         "/explore/trend", params={"view": "preprocessed", "wavelength": 0, "step_time": 0}
@@ -399,7 +399,7 @@ def test_reconstruction_view_has_no_missing_cells_and_overlays_x(
 
     html = client.get("/explore", params=params).text
 
-    assert f'data-heatmap-label="{SHORT}（累積再構成）"' in html
+    assert f'data-heatmap-label="{SHORT} (reconstruction)"' in html
     assert 'name="k" min="1" max="3" value="2"' in html
     assert 'data-intensity-transform="sqrt"' in html
     assert "先頭 1..2 成分の累積再構成" in html
@@ -410,10 +410,10 @@ def test_reconstruction_view_has_no_missing_cells_and_overlays_x(
     assert coloraxis["colorbar"]["title"]["text"] == "intensity"
 
     lines = _trend_values(client, {**params, "file": [SHORT]})
-    assert list(lines) == [f"{SHORT}（累積再構成）", f"{SHORT}（前処理済み）"]
-    assert np.isfinite(lines[f"{SHORT}（累積再構成）"]).all()
+    assert list(lines) == [f"{SHORT} (reconstruction)", f"{SHORT} (preprocessed)"]
+    assert np.isfinite(lines[f"{SHORT} (reconstruction)"]).all()
     # X.npy lacks the short file's last Step 2 row.
-    assert np.isnan(lines[f"{SHORT}（前処理済み）"]).all()
+    assert np.isnan(lines[f"{SHORT} (preprocessed)"]).all()
 
 
 def test_residual_view_has_no_nan_for_an_imputed_file(
@@ -444,8 +444,8 @@ def test_residual_plus_reconstruction_is_the_preprocessed_row(
     residual = _trend_values(client, {**common, "view": "residual"})["s-00"]
 
     np.testing.assert_allclose(
-        reconstruction["s-00（累積再構成）"] + residual,
-        reconstruction["s-00（前処理済み）"],
+        reconstruction["s-00 (reconstruction)"] + residual,
+        reconstruction["s-00 (preprocessed)"],
     )
 
 
@@ -468,7 +468,7 @@ def test_contribution_view_is_the_reconstruction_increment(
     assert "第 2 成分のみの寄与" in html
     np.testing.assert_allclose(
         contribution["s-00"],
-        second["s-00（累積再構成）"] - first["s-00（累積再構成）"],
+        second["s-00 (reconstruction)"] - first["s-00 (reconstruction)"],
     )
 
 
@@ -494,7 +494,7 @@ def test_drop_strategy_excludes_files_with_missing_values(
     assert 'data-heatmap-label="s-00"' in fallback
     assert "heatmap_file=s-00" in fallback
     assert "data-explore-error" in alone
-    assert "補完方法 drop で除外される" in alone
+    assert "dropped by the imputation strategy drop" in alone
 
 
 def _trend_url(html: str, wavelength: float, step_time: float) -> str:

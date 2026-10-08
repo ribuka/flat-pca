@@ -7,15 +7,15 @@
       {% endfor %}
     </select>
   {% else %}
-    <p class="muted" data-no-run>成功した fit run がありません</p>
+    <p class="muted" data-no-run>No succeeded fit run</p>
   {% endif %}
 </form>
 <div class="view-selection-field">
-  <span class="view-selection-label">表示ファイル
+  <span class="view-selection-label">Shown files
     <span class="muted" data-view-file-count>{{ choice.files|length }} / {{ max_files }}</span>
   </span>
   {% if choice.file_options %}
-    <input type="search" class="view-file-search" placeholder="ファイル名で絞り込み" aria-label="表示ファイルの絞り込み" data-view-file-search>
+    <input type="search" class="view-file-search" placeholder="Filter by file name" aria-label="Filter the shown files" data-view-file-search>
     <form id="view-files-form" hx-post="/sidebar/selection/files" hx-trigger="change" hx-swap="none" data-busy-reload>
       <input type="hidden" name="run" value="{{ choice.run_id }}">
       <ul class="view-file-list">
@@ -29,9 +29,9 @@
       </ul>
     </form>
     {% if full %}
-      <p class="muted" data-view-file-limit>上限の {{ max_files }} 件に達したため、ほかのファイルは選べません。</p>
+      <p class="muted" data-view-file-limit>The limit of {{ max_files }} files is reached; clear one to choose another.</p>
     {% endif %}
   {% else %}
-    <p class="muted">選べるファイルがありません</p>
+    <p class="muted">No files to choose</p>
   {% endif %}
 </div>

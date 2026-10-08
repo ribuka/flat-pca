@@ -103,8 +103,8 @@ def artifact_error(error: Exception) -> RunArtifactError:
         Error asking to execute the run again.
     """
     return RunArtifactError(
-        f"run の成果物を読み込めません。形式が古いか壊れているため、再実行してください"
-        f"（{type(error).__name__}: {error}）"
+        f"Cannot read the run's artifacts; they are outdated or broken, so run the fit again "
+        f"({type(error).__name__}: {error})."
     )
 
 

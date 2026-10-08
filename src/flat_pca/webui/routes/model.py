@@ -77,11 +77,11 @@ def _figures(shown: ModelView) -> dict[str, str]:
     assert shown.loadings is not None
     figures = {
         "scree": create_scree_plot(shown.explained_variance).update_layout(
-            title="スクリープロット"
+            title="Scree plot"
         ),
         "loadings": create_loading_scatter(
             shown.loadings, x=shown.x_name, y=shown.y_name
-        ).update_layout(title=f"ローディング（{AGGREGATION_LABELS[shown.aggregation]}）"),
+        ).update_layout(title=f"Loadings ({AGGREGATION_LABELS[shown.aggregation]})"),
     }
     return {name: script_json(figure.to_json()) for name, figure in figures.items()}
 

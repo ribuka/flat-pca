@@ -64,7 +64,7 @@ def test_navigation_links_to_the_page(client: TestClient) -> None:
 
     assert 'href="/model" aria-current="page"' in html
     assert "data-model-error" in html
-    assert "成功した fit run がありません" in html
+    assert "No succeeded fit run" in html
     response = client.get("/model/trend", params={"wavelength": 0, "step_time": 0})
     assert response.status_code == 404
 
@@ -77,11 +77,11 @@ def test_default_page_draws_every_figure_from_the_run(client: TestClient) -> Non
     assert response.status_code == 200
     html = response.text
     assert 'name="run"' not in html
-    assert "run：fit-1" in html
-    assert 'name="x" min="1" max="3" value="1"' in html
-    assert 'name="y" min="1" max="3" value="2"' in html
+    assert "run: fit-1" in html
+    assert 'name="x" form="model-form" min="1" max="3" value="1"' in html
+    assert 'name="y" form="model-form" min="1" max="3" value="2"' in html
     assert '<option value="rms" selected>' in html
-    assert 'name="k" min="1" max="3" value="1"' in html
+    assert 'name="k" form="model-form" min="1" max="3" value="1"' in html
     assert '<option value="1:1" selected>' in html
     assert 'name="file"' not in html
     assert html.count("<td>PC") == 3
@@ -92,7 +92,7 @@ def test_default_page_draws_every_figure_from_the_run(client: TestClient) -> Non
         'data-trend-url="/model/trend?run=fit-1&amp;view=component&amp;k=1&amp;segment=1%3A1"'
         in html
     )
-    assert '<option value="component" selected>PCA 成分 k</option>' in html
+    assert '<option value="component" selected>PCA component k</option>' in html
     for key in ("mean", "scaling_center", "scaling_scale", "impute_median"):
         assert f'<option value="{key}" >' in html
     assert 'value="outlier_lower"' not in html
@@ -181,7 +181,7 @@ def test_parameters_absent_from_the_run_fall_back_to_the_component(
     assert '<option value="component" selected>' in html
     assert '<option value="mean" >' in html
     assert "data-model-notice" in html
-    assert "がありません" in html
+    assert "This run has no" in html
     assert 'data-heatmap-label="PC1"' in html
 
 
@@ -219,7 +219,7 @@ def test_component_heatmap_reshapes_the_chosen_component(
     """The heatmap shows component k on a diverging scale, and its trends match it."""
     html = client.get("/model", params={"k": "2", "segment": "2:1"}).text
 
-    assert 'name="k" min="1" max="3" value="2"' in html
+    assert 'name="k" form="model-form" min="1" max="3" value="2"' in html
     assert '<option value="2:1" selected>' in html
     assert 'data-heatmap-label="PC2"' in html
     figure = _embedded(html, "explore-heatmap-figure")
@@ -259,9 +259,9 @@ def test_out_of_range_choices_fall_back_to_the_defaults(client: TestClient) -> N
     """Unavailable component numbers and segments are replaced by the defaults."""
     html = client.get("/model", params={"x": 9, "y": 0, "k": 4, "segment": "9:9"}).text
 
-    assert 'name="x" min="1" max="3" value="1"' in html
-    assert 'name="y" min="1" max="3" value="2"' in html
-    assert 'name="k" min="1" max="3" value="1"' in html
+    assert 'name="x" form="model-form" min="1" max="3" value="1"' in html
+    assert 'name="y" form="model-form" min="1" max="3" value="2"' in html
+    assert 'name="k" form="model-form" min="1" max="3" value="1"' in html
     assert '<option value="1:1" selected>' in html
 
 

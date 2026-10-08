@@ -12,12 +12,12 @@
 {% macro range_field(name, label, lower, upper) -%}
   <div class="field-row">
     <label><input type="checkbox" name="{{ name }}_enabled" value="1" {% if values.get(name ~ '_enabled') %}checked{% endif %}> {{ label }}</label>
-    <input type="number" name="{{ name }}_lower" value="{{ values.get(name ~ '_lower', '') }}" step="any" aria-label="{{ label }} 下限"
+    <input type="number" name="{{ name }}_lower" value="{{ values.get(name ~ '_lower', '') }}" step="any" aria-label="{{ label }} lower"
            {% if lower is not none %}min="{{ lower }}"{% endif %}{% if upper is not none %}max="{{ upper }}"{% endif %}>
-    〜
-    <input type="number" name="{{ name }}_upper" value="{{ values.get(name ~ '_upper', '') }}" step="any" aria-label="{{ label }} 上限"
+    –
+    <input type="number" name="{{ name }}_upper" value="{{ values.get(name ~ '_upper', '') }}" step="any" aria-label="{{ label }} upper"
            {% if lower is not none %}min="{{ lower }}"{% endif %}{% if upper is not none %}max="{{ upper }}"{% endif %}>
-    {% if lower is not none %}<span class="muted">（catalog：{{ lower|cell }} 〜 {{ upper|cell }}）</span>{% endif %}
+    {% if lower is not none %}<span class="muted">(catalog: {{ lower|cell }} – {{ upper|cell }})</span>{% endif %}
     {{ error(name) }}
   </div>
 {%- endmacro %}
@@ -33,13 +33,13 @@
 {%- endmacro %}
 <form id="fit-form" class="fit-form" hx-post="/fit" hx-target="this" hx-swap="outerHTML">
   <details class="card" data-group="target-steps" open>
-    <summary><h2>対象 Step</h2></summary>
+    <summary><h2>Target Steps</h2></summary>
     <div class="card-body">
       <div class="field-row" data-field="target_steps">
         {% for step in ranges.steps %}
           <label><input type="checkbox" name="target_steps" value="{{ step }}" {% if step|string in values.get("target_steps", []) %}checked{% endif %}> {{ step }}</label>
         {% else %}
-          <span class="muted">catalog に Step がありません。</span>
+          <span class="muted">The catalog has no Step.</span>
         {% endfor %}
         {{ error("target_steps") }}
       </div>
@@ -47,30 +47,30 @@
   </details>
 
   <details class="card" data-group="preprocess" open>
-    <summary><h2>前処理</h2></summary>
+    <summary><h2>Preprocessing</h2></summary>
     <div class="card-body">
-      {{ range_field("wavelength_range", "波長範囲", ranges.wavelength_min, ranges.wavelength_max) }}
+      {{ range_field("wavelength_range", "Wavelength range", ranges.wavelength_min, ranges.wavelength_max) }}
       <div class="field-row">
-        <span>端のトリム（StepTime）</span>
-        <input type="number" name="edge_trim_start" value="{{ values.get('edge_trim_start', '') }}" step="any" placeholder="先頭" aria-label="先頭のトリム">
-        <input type="number" name="edge_trim_end" value="{{ values.get('edge_trim_end', '') }}" step="any" placeholder="末尾" aria-label="末尾のトリム">
-        {% if ranges.step_time_max is not none %}<span class="muted">（StepTime 最大：{{ ranges.step_time_max|cell }}。空欄で無効）</span>{% endif %}
+        <span>Edge trim (StepTime)</span>
+        <input type="number" name="edge_trim_start" value="{{ values.get('edge_trim_start', '') }}" step="any" placeholder="start" aria-label="Start trim">
+        <input type="number" name="edge_trim_end" value="{{ values.get('edge_trim_end', '') }}" step="any" placeholder="end" aria-label="End trim">
+        {% if ranges.step_time_max is not none %}<span class="muted">(StepTime max: {{ ranges.step_time_max|cell }}; blank disables)</span>{% endif %}
         {{ error("edge_trim") }}
       </div>
       <div class="field-row">
-        {{ number("t_smoothing_window", "時間方向の平滑化（半幅、Time）", placeholder="空欄で無効", min=0) }}
-        {{ number("w_smoothing_window", "波長方向の平滑化（半幅、nm）", placeholder="空欄で無効", min=0) }}
+        {{ number("t_smoothing_window", "Time smoothing (half width, Time)", placeholder="off", min=0) }}
+        {{ number("w_smoothing_window", "Wavelength smoothing (half width, nm)", placeholder="off", min=0) }}
       </div>
-      {{ range_field("t_normalization_range", "時間方向の正規化範囲（Time）", ranges.time_min, ranges.time_max) }}
-      {{ range_field("w_normalization_range", "波長方向の正規化範囲（nm）", ranges.wavelength_min, ranges.wavelength_max) }}
+      {{ range_field("t_normalization_range", "Time normalization range (Time)", ranges.time_min, ranges.time_max) }}
+      {{ range_field("w_normalization_range", "Wavelength normalization range (nm)", ranges.wavelength_min, ranges.wavelength_max) }}
       <div class="field-row">
-        {{ select("intensity_transform", "強度変換", intensity_transforms) }}
-        {{ number("intensity_transform_scale", "変換スケール", min=0) }}
+        {{ select("intensity_transform", "Intensity transform", intensity_transforms) }}
+        {{ number("intensity_transform_scale", "Transform scale", min=0) }}
         <span class="muted">log1p は x / スケール ≤ −1 の値があると、実行時にエラーになります。</span>
       </div>
       <div class="field-row">
-        {{ number("t_downsampling_stride", "時間方向の間引き", step=1, min=1) }}
-        {{ number("w_downsampling_stride", "波長方向の間引き", step=1, min=1) }}
+        {{ number("t_downsampling_stride", "Time downsampling stride", step=1, min=1) }}
+        {{ number("w_downsampling_stride", "Wavelength downsampling stride", step=1, min=1) }}
         {{ number("max_null_ratio", "max_null_ratio", min=0, max=1) }}
       </div>
     </div>
@@ -80,18 +80,18 @@
     <summary><h2>PCA</h2></summary>
     <div class="card-body">
       <div class="field-row">
-        {{ number("n_component", "成分数", placeholder="自動", step=1, min=1) }}
+        {{ number("n_component", "Components", placeholder="auto", step=1, min=1) }}
         <span class="muted">
           空欄では累積寄与率 {{ auto_cumulative }} に達する成分数（上限 {{ auto_cap }}）にします。
           成分数を打ち切ると、捨てた成分の分散を平均値で近似するため、Q の UCL（θ₂・θ₃）の精度が下がります。
         </span>
       </div>
       <div class="field-row">
-        {{ select("impute_strategy", "欠損の補完", impute_strategies) }}
-        {{ number("impute_kmeans_n_clusters", "kmeans のクラスター数", placeholder="既定", step=1, min=1) }}
+        {{ select("impute_strategy", "Imputation", impute_strategies) }}
+        {{ number("impute_kmeans_n_clusters", "kmeans clusters", placeholder="default", step=1, min=1) }}
       </div>
       <div class="field-row">
-        {{ select("scaling_strategy", "スケーリング", scaling_strategies) }}
+        {{ select("scaling_strategy", "Scaling", scaling_strategies) }}
         <span class="muted">none 以外では NumPy の高速経路を使わないため、fit が遅くなり、必要メモリも増えます。</span>
       </div>
     </div>
@@ -101,29 +101,29 @@
     <summary><h2>T² / Q</h2></summary>
     <div class="card-body">
       <div class="field-row">
-        {{ number("mahalanobis_cumulative_explained_variance", "T² の累積寄与率", min=0, max=1) }}
-        {{ number("mahalanobis_alpha", "T² の α", min=0, max=1) }}
+        {{ number("mahalanobis_cumulative_explained_variance", "T² cumulative explained variance", min=0, max=1) }}
+        {{ number("mahalanobis_alpha", "T² α", min=0, max=1) }}
       </div>
       <div class="field-row">
-        {{ number("spe_cumulative_explained_variance", "Q の累積寄与率", min=0, max=1) }}
-        {{ number("spe_alpha", "Q の α", min=0, max=1) }}
+        {{ number("spe_cumulative_explained_variance", "Q cumulative explained variance", min=0, max=1) }}
+        {{ number("spe_alpha", "Q α", min=0, max=1) }}
       </div>
     </div>
   </details>
 
-  <div class="card fit-actions">
-    {{ error("files") }}
-    <div id="fit-estimate" class="status-panel" hx-post="/fit/estimate" hx-target="this" hx-swap="innerHTML"
-         hx-trigger="change from:#fit-form, input from:#fit-form delay:500ms">
-      {% include "partials/fit_estimate.html" %}
+  <details class="card" data-group="estimate" open>
+    <summary><h2>Memory estimate</h2></summary>
+    <div class="card-body">
+      {{ error("files") }}
+      <div id="fit-estimate" class="status-panel" hx-post="/fit/estimate" hx-target="this" hx-swap="innerHTML"
+           hx-trigger="change from:#fit-form, input from:#fit-form delay:500ms">
+        {% include "partials/fit_estimate.html" %}
+      </div>
     </div>
-
-    <div class="selection-actions">
-      <button type="submit" {% if selected_count == 0 %}disabled{% endif %}>fit を実行</button>
-      <span id="fit-result" class="fit-result"></span>
-    </div>
-  </div>
+  </details>
 </form>
+{#- The submit button sits in the status card outside the form (form="fit-form"). -#}
 {% if oob_status %}
+<span id="fit-result" class="fit-result" hx-swap-oob="true"></span>
 <div id="fit-run-status" hx-swap-oob="true">{% include "partials/fit_run_status.html" %}</div>
 {% endif %}

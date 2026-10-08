@@ -13,10 +13,10 @@
   </p>
   {% if choice.run_id %}
     <p data-transform-targets="{{ choice.file_options|length }}">
-      run {{ choice.run_id }} の transform 対象：{{ choice.file_options|length }} ファイル
+      Transform targets of run {{ choice.run_id }}: {{ choice.file_options|length }} files
     </p>
   {% else %}
-    <p class="muted">成功した fit run がありません。先に<a href="/fit">前処理・PCA</a>で fit を実行してください。</p>
+    <p class="muted">No succeeded fit run. Run a fit on <a href="/fit">Preprocess / PCA</a> first.</p>
   {% endif %}
 </section>
 {% endblock %}

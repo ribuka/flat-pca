@@ -29,22 +29,22 @@
       <div class="sidebar-top">
         <div class="sidebar-header">
           <button id="sidebar-toggle" type="button" class="icon-button"
-                  aria-controls="sidebar-body" aria-expanded="true" aria-label="サイドバーを折りたたむ" title="サイドバーを折りたたむ">
+                  aria-controls="sidebar-body" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar">
             {{ icon("left_panel_close", class="icon-collapse") }}{{ icon("left_panel_open", class="icon-expand") }}
           </button>
           <div class="brand">flat-pca</div>
         </div>
-        <div class="segmented" role="group" aria-label="メインページの幅">
-          <button type="button" data-width-choice="compact" aria-pressed="false">コンパクト</button>
-          <button type="button" data-width-choice="wide" aria-pressed="true">ワイド</button>
+        <div class="segmented" role="group" aria-label="Main page width">
+          <button type="button" data-width-choice="compact" aria-pressed="false">Compact</button>
+          <button type="button" data-width-choice="wide" aria-pressed="true">Wide</button>
         </div>
       </div>
       <div id="sidebar-body" class="sidebar-body">
-        <nav class="sidebar-nav" aria-label="画面">
+        <nav class="sidebar-nav" aria-label="Pages">
           <ul>
             {% for item in nav_items %}
               {% if item.path is none %}
-                <li><span class="nav-item nav-disabled" aria-disabled="true" title="未実装">{{ item.label }}</span></li>
+                <li><span class="nav-item nav-disabled" aria-disabled="true" title="Not implemented">{{ item.label }}</span></li>
               {% elif item.path == request.url.path %}
                 <li><a class="nav-item nav-current" href="{{ item.path }}" aria-current="page">{{ item.label }}</a></li>
               {% else %}
@@ -76,10 +76,10 @@
   <div id="busy-overlay" class="busy-overlay" hidden>
     <div class="busy-panel" role="status" aria-live="polite">
       <div class="busy-spinner" aria-hidden="true"></div>
-      <p class="busy-message" id="busy-message">処理中…</p>
-      <p class="busy-elapsed">経過 <output id="busy-elapsed">0</output> 秒</p>
+      <p class="busy-message" id="busy-message">Working…</p>
+      <p class="busy-elapsed">Elapsed <output id="busy-elapsed">0</output> s</p>
       <div class="busy-detail" id="busy-detail" hidden></div>
-      <button type="button" id="busy-cancel">キャンセル</button>
+      <button type="button" id="busy-cancel">Cancel</button>
     </div>
   </div>
 </body>

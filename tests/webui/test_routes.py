@@ -56,7 +56,7 @@ def test_data_selection_page_renders_controls(client: TestClient) -> None:
     assert "/static/vendor/htmx.min.js" in response.text
     assert 'hx-post="/catalog/refresh"' in response.text
     assert 'hx-get="/catalog/files"' in response.text
-    assert "catalog はまだ作成されていません" in response.text
+    assert "No catalog has been built yet" in response.text
 
 
 def test_data_selection_groups_are_collapsible(client: TestClient) -> None:
@@ -127,7 +127,7 @@ def test_file_table_lists_files_and_metadata_warnings(
     assert "<li>ghost</li>" in text
     assert text.count("data-check-all") == 1
     assert text.index("data-check-all") < text.index("<tbody>")
-    assert "全 3 件中 1〜3 件" in text
+    assert "1–3 of 3" in text
     assert "data-page=" not in text
 
 
@@ -182,13 +182,13 @@ def test_file_table_pages_and_lists_matching_stems(
 
     assert 'data-stem="run-2"' in first
     assert 'data-stem="run-10"' not in first
-    assert "全 3 件中 1〜2 件" in first
-    assert '<button type="button" data-page="2" >次へ</button>' in first
+    assert "1–2 of 3" in first
+    assert '<button type="button" data-page="2" >Next</button>' in first
     assert 'data-stem="run-10"' in second
     assert 'data-stem="run-1"' not in second
-    assert "全 3 件中 3〜3 件" in second
+    assert "3–3 of 3" in second
     assert 'aria-current="page" disabled>2</button>' in second
-    assert "全 3 件中 3〜3 件" in past
+    assert "3–3 of 3" in past
     for text in (first, second):
         assert '["run-1", "run-2", "run-10"]</script>' in text
     filtered = cataloged_client.get("/catalog/files", params={"eq__lot": "B"}).text
@@ -352,7 +352,7 @@ def test_sidebar_status_shows_catalog_and_selection(
     """The sidebar reports the catalog state and the selection size."""
     empty = client.get("/sidebar/status")
     assert empty.status_code == 200
-    assert "未作成" in empty.text
+    assert "not built" in empty.text
     assert "every 2s" not in empty.text
 
     workspace = _workspace(client)
@@ -365,6 +365,6 @@ def test_sidebar_status_shows_catalog_and_selection(
     finished = client.get("/sidebar/status").text
 
     assert "status-succeeded" in finished
-    assert "3 ファイル" in finished
+    assert "3 files" in finished
     assert "every 2s" not in finished
-    assert re.search(r'data-sidebar="selection">\s*2 ファイル', finished)
+    assert re.search(r'data-sidebar="selection">\s*2 files', finished)

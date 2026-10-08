@@ -64,15 +64,15 @@ and get element references for `browser_click`, `browser_select_option`, and `br
 
 | Operation | Expected result with the fixtures |
 | --- | --- |
-| Open the page | "catalog はまだ作成されていません。"; the file table shows 0 件; the sidebar shows catalog 未作成. |
-| Click "catalog 更新" | The status shows `queued`/`running` and polls every second; the button is disabled. |
-| Wait (`browser_wait_for` text `succeeded`) | Status `succeeded`, 3 ファイル; the file table reloads with `run-1`, `run-2`, `run-10`; the warnings list `run-10` (no metadata) and `ghost` (no file). |
-| Category filter `lot` (under the column name) | Options are `(すべて)`, `A`, `B` after the update; choosing `A` leaves only `run-1`. |
-| Numeric / datetime filters | e.g. `yield_pct 下限` = 90 leaves only `run-1`. |
+| Open the page | "No catalog has been built yet."; the file table shows 0 of 0; the sidebar shows catalog not built. |
+| Click "Update catalog" | The status shows `queued`/`running` and polls every second; the button is disabled. |
+| Wait (`browser_wait_for` text `succeeded`) | Status `succeeded`, 3 files; the file table reloads with `run-1`, `run-2`, `run-10`; the warnings list `run-10` (no metadata) and `ghost` (no file). |
+| Category filter `lot` (under the column name) | Options are `(all)`, `A`, `B` after the update; choosing `A` leaves only `run-1`. |
+| Numeric / datetime filters | e.g. `yield_pct lower` = 90 leaves only `run-1`. |
 | Click a column name, then again | The table sorts ascending (▲), then descending (▼). |
 | Header checkbox of the file table | Checks / clears every row matching the filters, on all pages; with only some of them checked it shows the indeterminate state. |
-| Click a group heading (catalog / ファイル) | The group folds and unfolds. |
-| "Select" (below the table, right) | A green check icon (Material Symbols `check_circle`) and "fit 対象：N ファイル" appear left of the button; the sidebar's fit 対象 count updates. |
+| Click a group heading (catalog / Files) | The group folds and unfolds. |
+| "Select" (below the table, right) | A green check icon (Material Symbols `check_circle`) and "Fit target: N files" appear left of the button; the sidebar's Fit target count updates. |
 
 ### Preprocessing and PCA (`/fit`)
 
@@ -80,11 +80,11 @@ Select the three files on the data selection screen first.
 
 | Operation | Expected result with the fixtures |
 | --- | --- |
-| Open the page | Steps `1` and `2` are checked; the disabled ranges show the catalog ranges (400〜402.5 nm, Time 0〜3); the estimate shows 3 ファイル × 特徴量 約 21; "fit はまだ実行されていません。" |
-| Uncheck Step 1 | The estimate updates to 特徴量 約 12. |
-| Enable 波長範囲 with 402 〜 401 and click "fit を実行" | The form comes back with the error next to 波長範囲; no run is queued. |
-| Fix the form and click "fit を実行" | The status shows `queued`/`running` with the progress and a キャンセル button, then a final status; the run list reloads. The fixture files differ only by a constant, so the run ends `failed` with "no residual variance remains …"; use your own data (edit the copied `settings.toml`) to see `succeeded`. |
-| A run that ends `succeeded` | A green check icon (`check_circle`) appears right of "fit を実行". |
+| Open the page | Steps `1` and `2` are checked; the disabled ranges show the catalog ranges (400 – 402.5 nm, Time 0 – 3); the estimate shows 3 files × about 21 features; "No fit has run yet."; every group is a collapsible card. |
+| Uncheck Step 1 | The estimate updates to about 12 features. |
+| Enable Wavelength range with 402 – 401 and click "Run fit" (top left of the Run status card) | The form comes back with the error next to Wavelength range; no run is queued. |
+| Fix the form and click "Run fit" | The status shows `queued`/`running` with the progress and a Cancel button, then a final status; the run list reloads. The fixture files differ only by a constant, so the run ends `failed` with "no residual variance remains …"; use your own data (edit the copied `settings.toml`) to see `succeeded`. |
+| A run that ends `succeeded` | A green check icon (`check_circle`) appears right of "Run fit". |
 | Click the run in the run list | `/fit?run=<run_id>` shows the run's settings in the form and its status. |
 
 ### Spectral exploration (`/explore`)

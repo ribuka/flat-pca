@@ -956,3 +956,9 @@ input[type="range"].range-vertical {
   align-items: center;
   gap: 0.25rem;
 }
+
+/* The fit button leads the run status card, aligned to the left. */
+.fit-actions {
+  justify-content: flex-start;
+  margin: 0 0 0.75rem;
+}

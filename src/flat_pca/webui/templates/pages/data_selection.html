@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}データ選択 - flat-pca{% endblock %}
+{% block title %}Data selection - flat-pca{% endblock %}
 {% block content %}
 <details class="card" data-group="catalog" open>
   <summary><h2>catalog</h2></summary>
@@ -9,12 +9,12 @@
 </details>
 
 <details class="card" data-group="files" open>
-  <summary><h2>ファイル</h2></summary>
+  <summary><h2>Files</h2></summary>
   <div class="card-body">
     <div id="file-table" hx-get="/catalog/files" hx-include="this"
          hx-target="this" hx-swap="innerHTML" hx-sync="this:replace"
          hx-trigger="load, catalog-updated from:body, file-query-changed">
-      <p class="muted">読み込み中…</p>
+      <p class="muted">Loading…</p>
     </div>
     {#- The selection over all pages and filters as a JSON array, kept outside
         the reloaded table. -#}

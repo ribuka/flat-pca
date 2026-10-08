@@ -16,14 +16,14 @@ import numpy as np
 from flat_pca.feature_engineering.pca import PcaModel
 
 FIXED_PARAMETER_LABELS: dict[str, str] = {
-    "mean": "中心化の平均",
-    "scaling_center": "スケーリングの center",
-    "scaling_scale": "スケーリングの scale",
-    "impute_median": "補完値（中央値）",
-    "outlier_lower": "外れ値の閾値（下限）",
-    "outlier_upper": "外れ値の閾値（上限）",
-    "winsor_lower": "winsorize の下限",
-    "winsor_upper": "winsorize の上限",
+    "mean": "centering mean",
+    "scaling_center": "scaling center",
+    "scaling_scale": "scaling scale",
+    "impute_median": "imputed value (median)",
+    "outlier_lower": "outlier threshold (lower)",
+    "outlier_upper": "outlier threshold (upper)",
+    "winsor_lower": "winsorize lower",
+    "winsor_upper": "winsorize upper",
 }
 PARAMETER_VALUE_NAME = "value"
 _CENTROID_KEY = re.compile(r"kmeans_centroid_([1-9][0-9]*)")
@@ -71,7 +71,7 @@ def parameter_options(model: PcaModel) -> dict[str, str]:
     options = {key: FIXED_PARAMETER_LABELS[key] for key in keys}
     if model.impute_model.strategy == "kmeans":
         for cluster in range(1, len(model.impute_model.kmeans_centroids) + 1):
-            options[f"kmeans_centroid_{cluster}"] = f"補完値（kmeans 重心 {cluster}）"
+            options[f"kmeans_centroid_{cluster}"] = f"imputed value (kmeans centroid {cluster})"
     if model.outlier_model.strategy is not None:
         for key in ("outlier_lower", "outlier_upper", "winsor_lower", "winsor_upper"):
             options[key] = FIXED_PARAMETER_LABELS[key]

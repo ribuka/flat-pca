@@ -1,7 +1,7 @@
 <p data-estimate data-n-features="{{ estimate.n_features }}">
-  {{ estimate.n_files }} ファイル × 特徴量 約 {{ estimate.n_features }}：
-  必要メモリの見積もり <strong>{{ "%.2f"|format(estimate.memory_gb) }} GB</strong>
-  <span class="muted">（上限 {{ memory_warn_gb }} GB）</span>
+  {{ estimate.n_files }} files × about {{ estimate.n_features }} features:
+  estimated memory <strong>{{ "%.2f"|format(estimate.memory_gb) }} GB</strong>
+  <span class="muted">(limit {{ memory_warn_gb }} GB)</span>
 </p>
 <p class="muted">
   特徴量数は catalog からの見積もりで、疎な列の除去（max_null_ratio）前の値です。
@@ -9,10 +9,10 @@
 </p>
 {% if estimate.exceeds(memory_warn_gb) %}
   <div class="warnings" data-memory-warning>
-    <p>見積もりが jobs.memory_warn_gb（{{ memory_warn_gb }} GB）を超えています。</p>
+    <p>The estimate exceeds jobs.memory_warn_gb ({{ memory_warn_gb }} GB).</p>
     <label>
       <input type="checkbox" name="confirm_memory" value="1" {% if values.get("confirm_memory") %}checked{% endif %}>
-      見積もりを超えても実行する
+      Run even though the estimate exceeds the limit
     </label>
     {% if errors.get("confirm_memory") %}<span class="field-error" data-error-for="confirm_memory">{{ errors.confirm_memory }}</span>{% endif %}
   </div>

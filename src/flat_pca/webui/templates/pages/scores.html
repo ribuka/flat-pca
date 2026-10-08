@@ -1,64 +1,73 @@
 {% extends "base.html" %}
-{% block title %}スコア - flat-pca{% endblock %}
+{% block title %}Scores - flat-pca{% endblock %}
 {% block scripts %}
   <script src="{{ url_for('static', path='vendor/plotly.min.js') }}" defer></script>
 {% endblock %}
 {% block content %}
-<section>
-  <h2>スコア</h2>
-  {% if shown.runs %}
-    <form id="scores-form" class="explore-form" method="get" action="/scores" data-auto-submit>
+<details class="card" data-group="scores" open>
+  <summary><h2>Scores</h2></summary>
+  <div class="card-body">
+    {% if shown.run_id and not shown.error %}
+      <p class="muted">Scores of run {{ shown.run_id }}.</p>
+    {% endif %}
+    {% if shown.error %}
+      <p class="error" data-scores-error>{{ shown.error }}</p>
+    {% endif %}
+    {#- The controls sit in the score scatter card and join this form with form="scores-form". -#}
+    {% if shown.runs %}
+      <form id="scores-form" class="explore-form" method="get" action="/scores" data-auto-submit></form>
+    {% endif %}
+  </div>
+</details>
+
+{% if figures %}
+  <details class="card" data-group="scatter" open>
+    <summary><h2>Score scatter</h2></summary>
+    <div class="card-body">
       <div class="field-row">
         {% if shown.component_count %}
-          <label>横軸 PCm
-            <input type="number" name="x" min="1" max="{{ shown.component_count }}" value="{{ shown.x }}">
+          <label>X axis PCm
+            <input type="number" name="x" form="scores-form" min="1" max="{{ shown.component_count }}" value="{{ shown.x }}">
           </label>
-          <label>縦軸 PCn
-            <input type="number" name="y" min="1" max="{{ shown.component_count }}" value="{{ shown.y }}">
+          <label>Y axis PCn
+            <input type="number" name="y" form="scores-form" min="1" max="{{ shown.component_count }}" value="{{ shown.y }}">
           </label>
-          <span class="muted">（1〜{{ shown.component_count }}）</span>
+          <span class="muted">(1–{{ shown.component_count }})</span>
         {% endif %}
-        <label>色分け
-          <select name="color">
-            <option value="" {% if shown.color is none %}selected{% endif %}>なし</option>
+        <label>Color by
+          <select name="color" form="scores-form">
+            <option value="" {% if shown.color is none %}selected{% endif %}>none</option>
             {% for column in shown.color_options %}
               <option value="{{ column }}" {% if column == shown.color %}selected{% endif %}>{{ column }}</option>
             {% endfor %}
           </select>
         </label>
-        <button type="submit">表示</button>
+        <button type="submit" form="scores-form">Show</button>
       </div>
-    </form>
-  {% endif %}
-</section>
-
-{% if shown.error %}
-  <section>
-    <p class="error" data-scores-error>{{ shown.error }}</p>
-  </section>
-{% elif figures %}
-  <section>
-    <p class="muted">run {{ shown.run_id }} のスコアです。点をクリックすると、そのファイルをサイドバーの表示ファイルに追加し、図の下の表に表示します。範囲を選ぶと、そのファイルを表に表示します。</p>
-    <p class="warnings" id="plot-select-warning" hidden></p>
-    <div id="scores-scatter" class="plot" data-plot="scores-scatter-figure" data-select-url="/sidebar/selection/files/add" data-run-id="{{ shown.run_id }}" data-point-table="point-table"></div>
-  </section>
+      <p class="muted">点をクリックすると、そのファイルをサイドバーの表示ファイルに追加し、図の下の表に表示します。範囲を選ぶと、そのファイルを表に表示します。</p>
+      <p class="warnings" id="plot-select-warning" hidden></p>
+      <div id="scores-scatter" class="plot" data-plot="scores-scatter-figure" data-select-url="/sidebar/selection/files/add" data-run-id="{{ shown.run_id }}" data-point-table="point-table"></div>
+    </div>
+  </details>
 
   {% include "partials/point_table.html" %}
 
-  <section>
-    <h3>部分スコア軌跡</h3>
-    <p class="muted">
-      サイドバーで選んだ表示ファイル（未選択なら先頭のファイル）について、
-      fit 時と同じ補完・スケーリングを適用して中心化した値 z を (Step, Sequence, StepTime) の昇順に並べ、
-      z<sub>f</sub>w<sub>f</sub> の累積和を時刻ごとに打ちます。終点（大きい点）は通常のスコアです。
-    </p>
-    {% if shown.dropped %}
-      <p class="warnings" data-dropped>欠損値を含み、補完方法 drop で除外されるため軌跡を描けないファイル：{{ shown.dropped|join("、") }}</p>
-    {% endif %}
-    {% if figures.trajectories %}
-      <div id="scores-trajectories" class="plot" data-plot="scores-trajectories-figure"></div>
-    {% endif %}
-  </section>
+  <details class="card" data-group="trajectories" open>
+    <summary><h2>Partial score trajectories</h2></summary>
+    <div class="card-body">
+      <p class="muted">
+        サイドバーで選んだ表示ファイル（未選択なら先頭のファイル）について、
+        fit 時と同じ補完・スケーリングを適用して中心化した値 z を (Step, Sequence, StepTime) の昇順に並べ、
+        z<sub>f</sub>w<sub>f</sub> の累積和を時刻ごとに打ちます。終点（大きい点）は通常のスコアです。
+      </p>
+      {% if shown.dropped %}
+        <p class="warnings" data-dropped>Cannot draw trajectories because they contain missing values and are dropped by the imputation strategy drop: {{ shown.dropped|join(", ") }}</p>
+      {% endif %}
+      {% if figures.trajectories %}
+        <div id="scores-trajectories" class="plot" data-plot="scores-trajectories-figure"></div>
+      {% endif %}
+    </div>
+  </details>
 
   {% for name, figure in figures.items() %}
     <script type="application/json" id="scores-{{ name }}-figure">{{ figure|safe }}</script>

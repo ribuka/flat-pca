@@ -1,29 +1,35 @@
 {% extends "base.html" %}
-{% block title %}前処理・PCA - flat-pca{% endblock %}
+{% block title %}Preprocess / PCA - flat-pca{% endblock %}
 {% block content %}
-<section>
-  <h2>前処理・PCA</h2>
-  <p>
-    fit 対象：<strong data-selected-count="{{ selected_count }}">{{ selected_count }}</strong> ファイル
-    （<a href="/">データ選択</a>で変更できます）
-  </p>
-</section>
+<details class="card" data-group="target" open>
+  <summary><h2>Preprocess / PCA</h2></summary>
+  <div class="card-body">
+    <p>
+      Fit target: <strong data-selected-count="{{ selected_count }}">{{ selected_count }}</strong> files
+      (change them on <a href="/">Data selection</a>)
+    </p>
+  </div>
+</details>
 
 {% include "partials/fit_form.html" %}
 
 <details class="card" data-group="status" open>
-  <summary><h2>実行状況</h2></summary>
+  <summary><h2>Run status</h2></summary>
   <div class="card-body">
+    <div class="selection-actions fit-actions">
+      <button type="submit" form="fit-form" {% if selected_count == 0 %}disabled{% endif %}>Run fit</button>
+      <span id="fit-result" class="fit-result"></span>
+    </div>
     <div id="fit-run-status">{% include "partials/fit_run_status.html" %}</div>
   </div>
 </details>
 
 <details class="card" data-group="runs" open>
-  <summary><h2>run 一覧</h2></summary>
+  <summary><h2>Runs</h2></summary>
   <div class="card-body">
     <div id="fit-runs" hx-get="/fit/runs" hx-target="this" hx-swap="innerHTML"
          hx-trigger="load, fit-started from:body, fit-updated from:body">
-      <p class="muted">読み込み中…</p>
+      <p class="muted">Loading…</p>
     </div>
   </div>
 </details>

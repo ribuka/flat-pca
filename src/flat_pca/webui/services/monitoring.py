@@ -33,10 +33,14 @@ class MonitoringRequest:
     order : str | None
         Metadata column ordering the control charts; ``None`` for the
         default column and ``""`` for the natural order of the stems.
+    color : str | None
+        Metadata column coloring the points; ``None`` for the default
+        column and ``""`` for no coloring.
     """
 
     run: str | None = None
     order: str | None = None
+    color: str | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +94,10 @@ class MonitoringView:
     order : str | None
         Chosen ordering column, or ``None`` for the natural order of the
         stems.
+    color_options : list[str]
+        Metadata columns of the run's samples that can color the points.
+    color : str | None
+        Chosen coloring column, or ``None`` for no coloring.
     points : MonitoringPoints | None
         T² and Q of the scored files in the chosen order.
     unscored : list[str]
@@ -102,6 +110,8 @@ class MonitoringView:
     run_id: str | None = None
     order_options: list[str] = field(default_factory=list)
     order: str | None = None
+    color_options: list[str] = field(default_factory=list)
+    color: str | None = None
     points: MonitoringPoints | None = None
     unscored: list[str] = field(default_factory=list)
     error: str | None = None
@@ -220,6 +230,7 @@ def resolve_monitoring(
     fit_runs: list[dict[str, object]],
     request: MonitoringRequest,
     default_order: str | None,
+    default_color: str | None,
 ) -> MonitoringView:
     """Resolve the requested choices and load the data they show.
 
@@ -233,6 +244,8 @@ def resolve_monitoring(
         Requested choices.
     default_order : str | None
         Default ordering column (``ui.default_order_by``).
+    default_color : str | None
+        Default coloring column (``ui.default_color_by``).
 
     Returns
     -------
@@ -250,7 +263,7 @@ def resolve_monitoring(
         raise ValueError(f"succeeded fit run not found: {request.run}")
     run = by_id[request.run] if request.run is not None else (runs[0] if runs else None)
     if run is None:
-        return MonitoringView(runs=runs, error="成功した fit run がありません")
+        return MonitoringView(runs=runs, error="No succeeded fit run.")
     run_id = str(run["run_id"])
     try:
         artifacts = cache.fit_artifacts(Path(str(run["artifact_dir"])))
@@ -263,6 +276,8 @@ def resolve_monitoring(
         "run_id": run_id,
         "order_options": order_options,
         "order": order,
+        "color_options": order_options,
+        "color": choose_metadata_column(request.color, default_color, order_options),
     }
     try:
         points = monitoring_points(artifacts, *statistic_configs(run), order)

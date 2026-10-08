@@ -250,13 +250,13 @@ class _Reader:
         error_key = key or name
         if not raw:
             if not optional:
-                self.errors.setdefault(error_key, "値を入力してください")
+                self.errors.setdefault(error_key, "Enter a value.")
             return None
         try:
             return convert(raw)
         except ValueError:
-            kind = "整数" if convert is int else "数値"
-            self.errors.setdefault(error_key, f"{kind}を入力してください")
+            kind = "an integer" if convert is int else "a number"
+            self.errors.setdefault(error_key, f"Enter {kind}.")
             return None
 
     def choice(self, name: str, choices: tuple[str, ...]) -> str:
@@ -276,7 +276,7 @@ class _Reader:
         """
         value = self.text(name)
         if value not in choices:
-            self.errors[name] = f"{', '.join(choices)} のいずれかを選んでください"
+            self.errors[name] = f"Choose one of {', '.join(choices)}."
         return value
 
 
@@ -325,9 +325,9 @@ def _parse_preprocess(reader: _Reader) -> dict[str, object]:
         try:
             steps.append(int(raw))
         except ValueError:
-            errors["target_steps"] = "Step は整数で指定してください"
+            errors["target_steps"] = "Steps must be integers."
     if not steps:
-        errors.setdefault("target_steps", "Step を 1 つ以上選んでください")
+        errors.setdefault("target_steps", "Choose at least one Step.")
     preprocess["target_steps"] = sorted(set(steps))
 
     preprocess["edge_trim"] = None
@@ -399,14 +399,14 @@ def _parse_pca(reader: _Reader, n_files: int) -> dict[str, object]:
     n_component = reader.number("n_component", int, optional=True)
     if n_component is not None and not 1 <= n_component <= max(n_files, 1):
         reader.errors["n_component"] = (
-            f"1 以上、選択ファイル数（{n_files}）以下の整数を入力してください"
+            f"Enter an integer from 1 to the number of selected files ({n_files})."
         )
     impute_strategy = reader.choice("impute_strategy", IMPUTE_STRATEGIES)
     n_clusters = None
     if impute_strategy == "kmeans":
         n_clusters = reader.number("impute_kmeans_n_clusters", int, optional=True)
         if n_clusters is not None and n_clusters < 1:
-            reader.errors["impute_kmeans_n_clusters"] = "1 以上の整数を入力してください"
+            reader.errors["impute_kmeans_n_clusters"] = "Enter an integer of 1 or more."
     return {
         "n_component": n_component,
         "impute_strategy": impute_strategy,
@@ -468,7 +468,7 @@ def parse_fit_form(values: Mapping[str, object], n_files: int) -> FitForm:
     """
     errors: dict[str, str] = {}
     if n_files == 0:
-        errors["files"] = "データ選択画面でファイルを選択してください"
+        errors["files"] = "Select files on Data selection."
     reader = _Reader(values, errors)
     preprocess = _parse_preprocess(reader)
     pca = _parse_pca(reader, n_files)

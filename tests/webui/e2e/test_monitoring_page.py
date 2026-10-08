@@ -80,7 +80,7 @@ def test_clicking_a_point_shows_its_row_and_stays(page: Page, fitted_server_url:
         expect(table).to_have_attribute("data-shown-count", "0")
         expect(table.locator("[data-point-table-empty]")).to_be_visible()
     expect(table.locator("th")).to_have_text(
-        ["ファイル名", "lot", "date", "yield_pct", "T²", "Q", "T² UCL 超過", "Q UCL 超過"]
+        ["file", "lot", "date", "yield_pct", "T²", "Q", "T² above UCL", "Q above UCL"]
     )
     assert page.url == url
     expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(0)
@@ -116,6 +116,19 @@ def test_choosing_the_order_reloads_the_charts(page: Page, fitted_server_url: st
 
     page.locator('select[name="order"]').select_option("lot")
 
-    expect(page).to_have_url(f"{fitted_server_url}/monitoring?order=lot")
+    expect(page).to_have_url(f"{fitted_server_url}/monitoring?color=lot&order=lot")
     _open(page, page.url)
     expect(page.locator("#monitoring-q .xtitle")).to_have_text("file order (lot)")
+
+
+def test_choosing_the_color_recolors_every_figure(page: Page, fitted_server_url: str) -> None:
+    """Choosing a coloring column reloads the page with every figure colored by it."""
+    _open(page, f"{fitted_server_url}/monitoring?color=")
+
+    page.locator('select[name="color"]').select_option("lot")
+
+    expect(page).to_have_url(f"{fitted_server_url}/monitoring?color=lot&order=date")
+    _open(page, page.url)
+    for name in ("t2", "q", "scatter"):
+        title = page.locator(f"#monitoring-{name}").evaluate("plot => plot.layout.legend.title.text")
+        assert title == "lot"

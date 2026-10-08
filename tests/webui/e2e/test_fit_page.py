@@ -27,7 +27,7 @@ def _open_fit_page(page: Page, url: str) -> None:
 
 def _submit_fit(page: Page) -> None:
     """Run fit and wait until the overlay shows the run."""
-    page.get_by_role("button", name="fit を実行").click()
+    page.get_by_role("button", name="Run fit").click()
     expect(page.locator("#busy-overlay")).to_have_class("busy-overlay busy-visible")
 
 
@@ -53,11 +53,11 @@ def test_running_fit_covers_the_page_until_it_ends(
 
     detail = page.locator("#busy-detail")
     expect(page.locator(".busy-spinner")).to_be_visible()
-    expect(page.locator("#busy-message")).to_have_text("fit を実行しています…")
+    expect(page.locator("#busy-message")).to_have_text("Running the fit…")
     expect(page.locator(".layout")).to_have_attribute("inert", "")
     expect(page.locator("#busy-cancel")).to_be_enabled()
-    expect(detail).to_contain_text("段階 fit：1 / 4", timeout=FIT_TIMEOUT_MS)
-    expect(detail).to_contain_text(re.compile(r"残り（全段階）：約 \d+ 秒"))
+    expect(detail).to_contain_text("Stage fit: 1 / 4", timeout=FIT_TIMEOUT_MS)
+    expect(detail).to_contain_text(re.compile(r"Remaining \(all stages\): about \d+ s"))
 
     # The reloaded page covers itself again and counts from the run's start.
     page.reload()
@@ -75,8 +75,10 @@ def test_running_fit_covers_the_page_until_it_ends(
 def test_cancel_stops_the_running_fit(page: Page, slow_fit_server_url: str) -> None:
     """Cancelling from the overlay cancels the run and then closes the overlay."""
     _open_fit_page(page, slow_fit_server_url)
-    page.locator('details[data-group="status"] summary').click()
     _submit_fit(page)
+    # The run button lives in the status card, so the card is closed only once
+    # the run covers the page.
+    page.locator('details[data-group="status"]').evaluate("group => { group.open = false; }")
 
     page.locator("#busy-cancel").click()
 
@@ -98,7 +100,7 @@ def test_invalid_value_in_a_collapsed_group_opens_it(
     group.locator("summary").click()
     expect(group).not_to_have_attribute("open", "")
 
-    page.get_by_role("button", name="fit を実行").click()
+    page.get_by_role("button", name="Run fit").click()
 
     expect(group).to_have_attribute("open", "")
     expect(n_component).to_be_focused()
@@ -118,7 +120,7 @@ def test_failed_cancel_request_can_be_retried(
     cancel.click()
 
     expect(page.locator("#busy-message")).to_have_text(
-        "キャンセルできませんでした。もう一度お試しください。"
+        "Could not cancel. Try again."
     )
     expect(cancel).to_be_enabled()
     expect(page.locator("[data-run-status]")).to_have_text("running")

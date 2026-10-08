@@ -68,7 +68,7 @@ def test_going_back_leaves_no_overlay(page: Page, fitted_server_url: str) -> Non
     shown_order = order.input_value()
 
     order.select_option("lot")
-    expect(page).to_have_url(f"{fitted_server_url}/monitoring?order=lot")
+    expect(page).to_have_url(f"{fitted_server_url}/monitoring?color=lot&order=lot")
     page.go_back()
 
     expect(page).to_have_url(url)

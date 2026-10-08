@@ -58,6 +58,7 @@ def _figures(shown: MonitoringView) -> dict[str, str]:
         if shown.order is None
         else [format_value(value) for value in points.samples[shown.order].to_list()]
     )
+    color = None if shown.color is None else points.samples[shown.color]
     figures = {
         "t2": create_control_chart(
             points.t2,
@@ -66,7 +67,8 @@ def _figures(shown: MonitoringView) -> dict[str, str]:
             y_name="T²",
             order_values=order_values,
             order_name=shown.order,
-        ).update_layout(title="T² 管理図"),
+            color=color,
+        ).update_layout(title="T² control chart"),
         "q": create_control_chart(
             points.q,
             ucl=points.q_ucl,
@@ -74,13 +76,15 @@ def _figures(shown: MonitoringView) -> dict[str, str]:
             y_name="Q",
             order_values=order_values,
             order_name=shown.order,
-        ).update_layout(title="Q 管理図"),
+            color=color,
+        ).update_layout(title="Q control chart"),
         "scatter": create_t2_q_scatter(
             points.t2,
             points.q,
             t2_ucl=points.t2_ucl,
             q_ucl=points.q_ucl,
             labels=labels,
+            color=color,
         ).update_layout(title="T² × Q"),
     }
     return {
@@ -110,8 +114,8 @@ def _point_table(shown: MonitoringView) -> PointTable:
         {
             "T²": points.t2.tolist(),
             "Q": points.q.tolist(),
-            "T² UCL 超過": ["超過" if value else "" for value in points.t2 > points.t2_ucl],
-            "Q UCL 超過": ["超過" if value else "" for value in points.q > points.q_ucl],
+            "T² above UCL": ["yes" if value else "" for value in points.t2 > points.t2_ucl],
+            "Q above UCL": ["yes" if value else "" for value in points.q > points.q_ucl],
         },
     )
 
@@ -121,6 +125,7 @@ def monitoring_page(
     request: Request,
     workspace: WorkspaceDependency,
     order: str | None = None,
+    color: str | None = None,
 ) -> HTMLResponse:
     """Render the T² and Q page of the fit run chosen in the sidebar.
 
@@ -133,6 +138,9 @@ def monitoring_page(
     order : str | None, default None
         Metadata column ordering the control charts; ``ui.default_order_by``
         by default and the natural order of the stems for ``""``.
+    color : str | None, default None
+        Metadata column coloring the points of all three figures;
+        ``ui.default_color_by`` by default and none for ``""``.
 
     Returns
     -------
@@ -149,8 +157,9 @@ def monitoring_page(
         shown = resolve_monitoring(
             workspace.cache,
             choice.runs,
-            MonitoringRequest(run=choice.run_id, order=order),
+            MonitoringRequest(run=choice.run_id, order=order, color=color),
             workspace.settings.ui.default_order_by,
+            workspace.settings.ui.default_color_by,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

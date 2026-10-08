@@ -18,11 +18,11 @@ def test_rows_hold_the_stem_metadata_and_extra_columns() -> None:
         }
     ).with_columns(pl.col("date").str.to_datetime())
 
-    table = point_table(samples, {"T²": [1.23456789, 2.0], "flag": ["超過", ""]})
+    table = point_table(samples, {"T²": [1.23456789, 2.0], "flag": ["exceeds", ""]})
 
-    assert table.columns == ["ファイル名", "lot", "date", "T²", "flag"]
+    assert table.columns == ["file", "lot", "date", "T²", "flag"]
     assert table.rows == [
-        ["b", "B", "2024-01-02 03:04:05", "1.23457", "超過"],
+        ["b", "B", "2024-01-02 03:04:05", "1.23457", "exceeds"],
         ["a", "", "", "2", ""],
     ]
 
@@ -33,7 +33,7 @@ def test_metadata_named_like_an_extra_column_is_kept() -> None:
 
     table = point_table(samples, {"PC1": [0.5]})
 
-    assert table.columns == ["ファイル名", "PC1", "PC1"]
+    assert table.columns == ["file", "PC1", "PC1"]
     assert table.rows == [["a", "meta", "0.5"]]
 
 

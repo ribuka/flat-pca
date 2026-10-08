@@ -30,12 +30,12 @@ def test_reconstruction_trends_overlay_the_preprocessed_values(
     _open(page, fitted_server_url)
 
     expect(page.locator("#explore-heatmap")).to_have_attribute(
-        "data-heatmap-label", f"{SHORT}（累積再構成）"
+        "data-heatmap-label", f"{SHORT} (reconstruction)"
     )
     legend = page.locator("#explore-trend-step-time .legend .traces")
     expect(legend).to_have_count(2)
-    expect(legend.nth(0)).to_contain_text("累積再構成")
-    expect(legend.nth(1)).to_contain_text("前処理済み")
+    expect(legend.nth(0)).to_contain_text("(reconstruction)")
+    expect(legend.nth(1)).to_contain_text("(preprocessed)")
 
 
 def test_view_and_component_choices_reload_the_page(
@@ -46,7 +46,7 @@ def test_view_and_component_choices_reload_the_page(
 
     page.locator('select[name="view"]').select_option("residual")
     expect(page).to_have_url(
-        f"{fitted_server_url}/explore?view=residual&heatmap_file={SHORT}&segment=2%3A1&k=2"
+        f"{fitted_server_url}/explore?view=residual&segment=2%3A1&k=2&heatmap_file={SHORT}"
     )
     expect(page.locator("[data-view-note]")).to_contain_text("1..2 成分")
 
