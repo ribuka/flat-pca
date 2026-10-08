@@ -24,8 +24,8 @@ from .input import StemUniquenessCheck
 class PreprocessConfig:
     """Preprocessing parameters, validated once at construction.
 
-    Built by ``flatten_pca`` and ``preprocess_and_flatten`` from their
-    keyword arguments and passed as a single object to the internal NumPy
+    Built by ``preprocess_and_flatten`` (also used by ``flatten_pca``) from
+    its keyword arguments and passed as a single object to the internal NumPy
     fast path and the polars pipeline, so every argument is validated before
     any input file is read and stages downstream receive already coerced
     values.
