@@ -19,7 +19,8 @@ src/flat_pca/
   feature_engineering/          データ生成（既存）。UIで必要な計算関数もここに追加する
   visualize/                    データ → go.Figure の純粋関数（Notebookからも使う）
   webui/
-    __main__.py                 uv run -m flat_pca.webui [--settings <path>] で起動
+    __main__.py                 uv run -m flat_pca.webui [--settings <path>] [--reload] で起動
+    reload_factory.py           --reload 用の引数なしのアプリfactory（設定ファイルのパスを環境変数から読む）
     app.py                      FastAPIアプリ生成、router登録、static mount
     settings.py                 settings.tomlの読み込み・検証
     settings_files.py           読み込む設定ファイルの選択（settings.local.toml優先）と読み込み
@@ -38,6 +39,17 @@ tests/webui/
 - htmxは`static/vendor/`に同梱する。Plotly.jsはPythonの`plotly`パッケージに同梱された`plotly.min.js`を`/static/vendor/plotly.min.js`で配信し、Python側とバージョンを揃える。いずれもCDNに依存しない。
 - アイコンはMaterial Symbols（Outlined）のうち使うアイコンだけを含むサブセットのwoff2を`static/vendor/`に同梱し、`templates/macros/icon.html`の`icon`マクロで表示する。アイコンを増やすときは`scripts/fetch_material_symbols.py`で取得し直す（手順は`static/vendor/README.md`）。
 - フォーム送信の解析に使う`python-multipart`も`webui`に含める。
+- `--reload`のファイル監視に使う`watchfiles`も`webui`に含める。`uvicorn[standard]`にはしない（`httptools`などが入ると、`--reload`なしのHTTP実装やイベントループまで変わるため）。
+
+### 開発用の自動リロード（`--reload`）
+
+- `--reload`を付けると、`src/flat_pca`以下の`*.py`の変更で自動で再起動する。既定は無効で、開発用とする。
+  - テンプレート・静的ファイル・settings.tomlは監視しない。テンプレートは次のリクエストで、静的ファイルはブラウザの再読み込みで反映される。settings.tomlは次の再起動で読み直す。
+- uvicornのリロードはインポート文字列からワーカープロセスでアプリを作り直すため、`reload_factory.create_app_from_environment`をfactoryとして渡す。
+  - `__main__.py`は`--settings`を検証したあと（不正なら終了コード2）、その絶対パスを自プロセスの環境変数`FLAT_PCA_WEBUI_SETTINGS`に入れてから`uvicorn.run`を呼ぶ。ワーカーはこれを受け継ぎ、factoryが`load_settings` → `create_app`する。
+  - `--reload`なしの起動ではこの環境変数を読まない。
+- リロードではlifespanの終了処理が走り、実行中のジョブは中断される（`Workspace.close()`で`cancelled`になる）。
+- Windowsでは、uvicornはワーカーをCtrl+Cイベントで止めて再起動する。コンソールのないプロセスから起動すると、変更を検知してもワーカーが止まらず再起動しない。ターミナルから起動する。
 
 ### レイヤーの責務
 

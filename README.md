@@ -24,7 +24,10 @@ Web UI の依存は optional dependency `webui` です（開発用の `dev` グ�
 uv sync --extra webui
 uv run -m flat_pca.webui                              # config/settings.toml を読む
 uv run -m flat_pca.webui --settings path/to/settings.toml
+uv run -m flat_pca.webui --reload                     # 開発用：src/flat_pca の *.py の変更で自動で再起動する
 ```
+
+`--reload` は開発用です。再起動すると実行中のジョブは中断されます。テンプレートと静的ファイルの変更は再起動なしで反映されます（静的ファイルはブラウザの再読み込みが必要）。
 
 `settings.toml` の書式は [docs/spec/webui.md](docs/spec/webui.md) の「設定（settings.toml）」を参照してください。相対パスは `settings.toml` のあるディレクトリ基準で解決されます。同じディレクトリに `settings.local.toml`（git 管理外）があれば、`settings.toml` の代わりにそちらだけが読まれます。
 

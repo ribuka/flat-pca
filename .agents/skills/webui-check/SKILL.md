@@ -48,6 +48,12 @@ uv run -m flat_pca.webui --settings tmp/webui-check/settings.toml --port 8765
 - Port 8765 is the default for this check. If it is in use, pick another port; do not stop processes you did not start.
 - Wait until `http://127.0.0.1:8765/` answers with status 200 (for example poll it with `curl`).
   `[Errno 10048]` / `address already in use` in the log means the port is taken.
+- While developing, add `--reload` to restart the server whenever a `*.py` file under `src/flat_pca` changes.
+  - A reload interrupts running jobs (they become `cancelled`), so do not edit Python code while checking a job.
+  - Templates and static files are not watched: templates apply on the next request, static files after a browser reload.
+  - On Windows, uvicorn restarts the worker with a Ctrl+C event, which does not reach a process started without a console
+    (e.g. a Claude Code background Bash). There the reload is detected but the old worker keeps running;
+    start the server in its own console window (PowerShell `Start-Process ... -WindowStyle Minimized`) or restart it manually.
 
 ## 3. Check the screens with Playwright MCP
 
