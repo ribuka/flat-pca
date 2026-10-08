@@ -15,7 +15,7 @@ from flat_pca.feature_engineering.pca.mahalanobis import resolve_mahalanobis_com
 from flat_pca.spectral.schema import SOURCE_COLUMN
 from flat_pca.utils import natural_keys
 
-from ..run_config import run_config, statistic_configs
+from ..run_config import run_config
 from .component_choice import choose_component
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError
@@ -23,6 +23,7 @@ from .q_consistency import QMismatch, q_mismatch, saved_q_by_stem
 from .reconstruction import ReconstructionKind, reconstruction_values
 from .run_choice import choose_run
 from .run_dirs import RunDirs, run_dirs
+from .run_statistics import shown_statistic_configs
 from .segment_choice import (
     choose_segment,
     feature_segments,
@@ -430,8 +431,7 @@ def _run_view(
     options = sorted(stems, key=natural_keys)
     files, omitted = _choose_files(options, request.files, max_files)
     order = _heatmap_first(files, request.heatmap_file)
-    config = run_config(run)
-    preprocess = config["preprocess"]
+    preprocess = run_config(run)["preprocess"]
     base = ExploreView(
         view=view,
         runs=runs,
@@ -472,7 +472,7 @@ def _run_view(
         if view == "q_contribution":
             # Q fixes its own component count; the chosen k is not used.
             shown_component = None
-            spe = statistic_configs(config)[1]
+            spe = shown_statistic_configs(run)[1]
             selector = spe.cumulative_explained_variance
             q_components = resolve_mahalanobis_components(
                 cache.pca_model(dirs.model).pca, selector

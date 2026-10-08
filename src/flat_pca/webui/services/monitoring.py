@@ -10,11 +10,11 @@ import polars as pl
 from flat_pca.feature_engineering.pca import MahalanobisConfig, SpeConfig
 from flat_pca.utils import natural_keys
 
-from ..run_config import run_config, statistic_configs
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError, artifact_error
 from .run_choice import choose_run
 from .run_dirs import run_dirs
+from .run_statistics import shown_statistic_configs
 from .scored_samples import choose_metadata_column, metadata_columns, scored_samples
 from .view_selection import NO_TRANSFORM_RUN
 
@@ -249,7 +249,7 @@ def resolve_monitoring(
         color=choose_metadata_column(request.color, default_color, order_options),
     )
     try:
-        points = monitoring_points(artifacts, *statistic_configs(run_config(run)), order)
+        points = monitoring_points(artifacts, *shown_statistic_configs(run), order)
     except RunArtifactError as error:
         return replace(base, error=str(error))
     scored = set(points.samples["stem"].to_list())

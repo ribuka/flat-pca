@@ -164,7 +164,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - 外れ値：`outlier_strategy`（無効は空文字列）、`outlier_iqr_multiplier`、`outlier_outlier_lower`・`outlier_outlier_upper`・`outlier_winsor_lower`・`outlier_winsor_upper`
   - スケーリング：`scaling_strategy`、`scaling_centers`、`scaling_scales`（`"none"`の場合は空）
 - 成果物に形式の版は持たせない。読み込めない成果物（形式が古い・壊れている）はエラーとして表示し、再実行を促す。
-- 成果物のファイル名と、transform run の`config.json`が fit run を指すキー（`fit_run_id`・`fit_run_dir`）は`run_layout.py`に置き、ジョブと表示側の両方がそこを参照する。run の`config.json`は`run_config.py::run_config`で読み、T²/Q設定は`run_config.py::statistic_configs`で`MahalanobisConfig`・`SpeConfig`にする。設定のキーは fit フォームが必ず書き込むので、欠けたキーを既定値で補わない（キーが欠けた古い run は読めない）。
+- 成果物のファイル名と、transform run の`config.json`が fit run を指すキー（`fit_run_id`・`fit_run_dir`）は`run_layout.py`に置き、ジョブと表示側の両方がそこを参照する。run の`config.json`は`run_config.py::run_config`で読み、T²/Q設定は`run_config.py::statistic_configs`で`MahalanobisConfig`・`SpeConfig`にする。表示画面は`services/run_statistics.py::shown_statistic_configs`で読み、保存値が不正なら成果物のエラーとして表示する。設定のキーは fit フォームが必ず書き込むので、欠けたキーを既定値で補わない（キーが欠けた古い run は読めない）。
 
 ### transform run の成果物
 

@@ -18,7 +18,7 @@ from view_choice import choose_view
 
 from flat_pca.webui.app import create_app
 from flat_pca.webui.services.explore import ExploreRequest, resolve_explore
-from flat_pca.webui.services.runs import list_succeeded_runs
+from flat_pca.webui.services.runs import get_run, list_succeeded_runs
 from flat_pca.webui.settings import Settings
 from flat_pca.webui.workspace import TRANSFORM_JOB, Workspace
 
@@ -282,6 +282,31 @@ def test_q_contribution_page_shows_the_fixed_component_count(client: TestClient)
     assert layout["coloraxis"]["colorbar"]["title"]["text"] == "q_contribution"  # type: ignore[index]
     # The float32 artifacts reproduce the saved Q of these spectra.
     assert "data-q-mismatch" not in html
+
+
+@pytest.mark.usefixtures("run_dir")
+@pytest.mark.parametrize(
+    ("path", "params"),
+    [("/monitoring", {}), ("/explore", {"view": "q_contribution"})],
+)
+def test_invalid_saved_statistics_ask_to_run_again(
+    client: TestClient, path: str, params: dict[str, str]
+) -> None:
+    """Broken T² and Q settings of the run are shown as an error, not a server error."""
+    choose_view(client, files=[SHORT])
+    database = _workspace(client).database
+    run = get_run(database, "fit-1")
+    assert run is not None
+    config = json.loads(str(run["config_json"]))
+    config["spe"] = None
+    database.execute(
+        "UPDATE runs SET config_json = ? WHERE run_id = ?", [json.dumps(config), "fit-1"]
+    )
+
+    response = client.get(path, params=params)
+
+    assert response.status_code == 200
+    assert "run the fit again" in response.text
 
 
 def _write_offset_spectra(directory: Path) -> list[Path]:
