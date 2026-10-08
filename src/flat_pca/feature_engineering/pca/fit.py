@@ -189,8 +189,7 @@ def fit_pca(
     impute_kmeans_n_clusters : int | None, default None
         Requested cluster count for ``impute_strategy="kmeans"``, or
         ``None`` to use ``impute.DEFAULT_KMEANS_N_CLUSTERS``. Must be
-        ``None`` for any other strategy. Keyword-only so it can be added
-        without disturbing existing positional ``fit_pca`` calls.
+        ``None`` for any other strategy.
 
     Returns
     -------
@@ -426,9 +425,7 @@ def fit_and_transform_pca(
     impute_kmeans_n_clusters : int | None, default None
         Requested cluster count for ``impute_strategy="kmeans"``, or
         ``None`` to use ``impute.DEFAULT_KMEANS_N_CLUSTERS``. Must be
-        ``None`` for any other strategy. Keyword-only so it can be added
-        without disturbing existing positional ``fit_and_transform_pca``
-        calls.
+        ``None`` for any other strategy.
     mahalanobis : MahalanobisConfig | None, default None
         Mahalanobis distance settings forwarded to ``transform_pca``.
         ``None`` leaves the output unchanged.

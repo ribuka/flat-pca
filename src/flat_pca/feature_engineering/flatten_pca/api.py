@@ -327,7 +327,7 @@ def preprocess_and_flatten(
         12-core machine, and more workers were slightly slower. Peak memory
         grows roughly in proportion to ``workers`` (one file's working
         arrays per worker).
-        The legacy polars pipeline (``materialize_once=False``, or the
+        The polars pipeline (``materialize_once=False``, or the
         fallback for non-floating-point wavelength columns) parallelizes
         each file's input validation scan and, when a normalization range
         is set, the per-file preprocessing up to normalization (which
@@ -439,20 +439,20 @@ def _preprocess_and_flatten(
             # An integer or decimal wavelength dtype would be corrupted by
             # the NumPy fast path's float64 conversion (silently rounding
             # values beyond 53 bits, or just changing dtype), so fall back
-            # to the original per-file polars pipeline -- the same one
+            # to the per-file polars pipeline -- the same one
             # materialize_once=False uses below -- and collect each file
             # eagerly instead. flatten_and_prune_inputs then routes such
             # dtypes through its own dtype-preserving row-dict path (see
             # flatten.py's _has_float_spectral_columns).
-            legacy_prepared_inputs = _build_legacy_prepared_inputs(
+            polars_prepared_inputs = _build_polars_prepared_inputs(
                 resolved_paths, config, workers=workers
             )
             prepared_inputs = run_per_file(
-                _collect_prepared_input, legacy_prepared_inputs, workers
+                _collect_prepared_input, polars_prepared_inputs, workers
             )
         return flatten_and_prune_inputs(prepared_inputs, config.max_null_ratio).lazy()
 
-    prepared_inputs = _build_legacy_prepared_inputs(paths, config, workers=workers)
+    prepared_inputs = _build_polars_prepared_inputs(paths, config, workers=workers)
     flattened = flatten_inputs(prepared_inputs)
     assert isinstance(flattened, pl.LazyFrame)
     return drop_sparse_feature_columns(flattened, config.max_null_ratio)
@@ -461,13 +461,13 @@ def _preprocess_and_flatten(
 def _collect_prepared_input(
     prepared_input: tuple[Path, pl.LazyFrame],
 ) -> tuple[Path, pl.DataFrame]:
-    """Collect one legacy-pipeline per-file query, keeping its path.
+    """Collect one polars-pipeline per-file query, keeping its path.
 
     Parameters
     ----------
     prepared_input : tuple[Path, pl.LazyFrame]
         Path paired with its preprocessed per-file query, as returned by
-        ``_build_legacy_prepared_inputs``.
+        ``_build_polars_prepared_inputs``.
 
     Returns
     -------
@@ -478,13 +478,13 @@ def _collect_prepared_input(
     return path, frame.collect()
 
 
-def _build_legacy_prepared_inputs(
+def _build_polars_prepared_inputs(
     paths: Sequence[str | Path],
     config: PreprocessConfig,
     *,
     workers: int = 1,
 ) -> list[tuple[Path, pl.LazyFrame]]:
-    """Validate and preprocess inputs through the original polars pipeline.
+    """Validate and preprocess inputs through the per-file polars pipeline.
 
     Shared by ``preprocess_and_flatten``'s ``materialize_once=False`` branch
     and by its ``materialize_once=True`` branch's fallback for inputs whose

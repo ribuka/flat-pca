@@ -254,7 +254,7 @@ def test_numpy_path_falls_back_and_preserves_integer_precision_beyond_53_bits(
     NumPy fast path converts spectral values to ``float64`` throughout,
     which would silently round an integer beyond 53 bits of precision (and
     change the flattened dtype for any non-float wavelength column).
-    ``preprocess_and_flatten`` must therefore fall back to the legacy
+    ``preprocess_and_flatten`` must therefore fall back to the
     per-file polars pipeline -- matching ``flatten.py``'s
     ``_has_float_spectral_columns`` dtype rule -- for such input, whether or
     not ``materialize_once`` is requested.

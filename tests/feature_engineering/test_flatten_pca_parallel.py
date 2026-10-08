@@ -148,7 +148,7 @@ def _write_integer_copy(source: Path, destination: Path) -> Path:
     """Write a copy of ``source`` with scaled Int64 spectral columns.
 
     Non-floating-point wavelength columns route ``materialize_once=True``
-    through the legacy polars pipeline instead of the NumPy fast path.
+    through the polars pipeline instead of the NumPy fast path.
     """
     frame = pl.read_parquet(source)
     spectra = [
@@ -171,13 +171,13 @@ def integer_fixture_paths(
 
 @pytest.mark.parametrize("normalize", [False, True], ids=["no-norm", "norm"])
 @pytest.mark.parametrize("route", ["deferred", "fallback"])
-def test_legacy_path_matches_across_worker_counts(
+def test_polars_path_matches_across_worker_counts(
     route: str,
     normalize: bool,
     real_fixture_paths: list[Path],
     integer_fixture_paths: list[Path],
 ) -> None:
-    """Produce identical legacy-path output for 1, 2, and 4 workers."""
+    """Produce identical polars-path output for 1, 2, and 4 workers."""
     paths = real_fixture_paths if route == "deferred" else integer_fixture_paths
     kwargs: dict[str, object] = {
         "t_downsampling_stride": 2,
@@ -207,14 +207,14 @@ def test_legacy_path_matches_across_worker_counts(
 
 @pytest.mark.parametrize("workers", [1, 2, 4])
 @pytest.mark.parametrize("route", ["deferred", "fallback"])
-def test_legacy_path_reports_first_invalid_file_regardless_of_workers(
+def test_polars_path_reports_first_invalid_file_regardless_of_workers(
     route: str,
     workers: int,
     tmp_path: Path,
     real_fixture_paths: list[Path],
     integer_fixture_paths: list[Path],
 ) -> None:
-    """Report the first invalid file in path order on the legacy pipeline."""
+    """Report the first invalid file in path order on the polars pipeline."""
     sources = real_fixture_paths if route == "deferred" else integer_fixture_paths
     first_invalid = _write_invalid_copy(real_fixture_paths[0], tmp_path / "a.parquet")
     second_invalid = _write_invalid_copy(real_fixture_paths[1], tmp_path / "b.parquet")
