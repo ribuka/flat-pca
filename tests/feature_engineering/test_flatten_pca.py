@@ -1169,7 +1169,7 @@ def test_preprocess_and_flatten_rejects_invalid_null_ratio_before_materializing(
     """Reject invalid thresholds before executing real-Parquet flatten inputs."""
     executions = _instrument_flatten_execution_count(monkeypatch)
 
-    with pytest.raises(ValueError, match="threshold must be between"):
+    with pytest.raises(ValueError, match="max_null_ratio must be between"):
         _api.preprocess_and_flatten(real_fixture_paths[:3], max_null_ratio=1.5)
 
     assert executions == []

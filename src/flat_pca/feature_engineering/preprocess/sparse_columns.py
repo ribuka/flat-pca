@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from ...utils.pl_snippets import (
-    drop_all_null_columns_from_polars,
-    validate_missing_ratio_threshold,
-)
+from ...utils.pl_snippets import drop_all_null_columns_from_polars
 
 
 def validate_max_null_ratio(max_null_ratio: float) -> None:
@@ -21,9 +18,14 @@ def validate_max_null_ratio(max_null_ratio: float) -> None:
     Raises
     ------
     ValueError
-        If ``max_null_ratio`` is not between 0.0 and 1.0.
+        If ``max_null_ratio`` is not between 0.0 and 1.0. The message names
+        the argument, unlike the generic
+        ``utils.pl_snippets.validate_missing_ratio_threshold``.
     """
-    validate_missing_ratio_threshold(max_null_ratio)
+    if not 0.0 <= max_null_ratio <= 1.0:
+        raise ValueError(
+            f"max_null_ratio must be between 0.0 and 1.0, got {max_null_ratio!r}"
+        )
 
 
 def drop_sparse_feature_columns(

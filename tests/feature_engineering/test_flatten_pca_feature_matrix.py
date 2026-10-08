@@ -273,7 +273,7 @@ def test_flatten_and_prune_rejects_invalid_arguments(
             [(path, frame.lazy()) for path, frame in inputs],  # ty:ignore[invalid-argument-type]
             0.1,
         )
-    with pytest.raises(ValueError, match="threshold must be between"):
+    with pytest.raises(ValueError, match="max_null_ratio must be between"):
         _flatten_and_prune_inputs(inputs, 1.5)
 
 
