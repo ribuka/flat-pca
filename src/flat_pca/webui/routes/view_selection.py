@@ -182,8 +182,8 @@ def add_file(
             return JSONResponse(
                 {
                     "added": False,
-                    "message": f"サイドバーの run が {choice.run_id} に変わったため、"
-                    f"run {run} の図から {stem} を追加しませんでした。ページを読み直してください。",
+                    "message": f"Did not add {stem} from the figure of run {run}, because the sidebar's run "
+                    f"changed to {choice.run_id}. Reload the page.",
                 }
             )
         if stem not in choice.file_options:
@@ -194,7 +194,7 @@ def add_file(
     return JSONResponse(
         {
             "added": False,
-            "message": f"表示ファイルは {max_files} 件まで選べます。"
-            f"{stem} を追加するには、サイドバーでほかのファイルの選択を外してください。",
+            "message": f"Up to {max_files} shown files can be chosen. "
+            f"To add {stem}, clear another file in the sidebar.",
         }
     )

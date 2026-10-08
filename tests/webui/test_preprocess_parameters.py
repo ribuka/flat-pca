@@ -42,7 +42,7 @@ def test_minimal_pipeline_holds_only_the_centering_mean() -> None:
     """Without scaling, imputation values, or outlier handling, only the mean is offered."""
     model = _fit("drop", None, "none")
 
-    assert parameter_options(model) == {"mean": "中心化の平均"}
+    assert parameter_options(model) == {"mean": "centering mean"}
     np.testing.assert_array_equal(parameter_values(model, "mean"), model.pca.mean_)
     with pytest.raises(ValueError, match="scaling_scale"):
         parameter_values(model, "scaling_scale")
@@ -87,7 +87,7 @@ def test_kmeans_imputation_offers_one_centroid_per_cluster() -> None:
         "kmeans_centroid_1",
         "kmeans_centroid_2",
     ]
-    assert options["kmeans_centroid_2"] == "補完値（kmeans 重心 2）"
+    assert options["kmeans_centroid_2"] == "imputed value (kmeans centroid 2)"
     centroid = model.impute_model.kmeans_centroids[1]
     np.testing.assert_allclose(
         parameter_values(model, "kmeans_centroid_2"),

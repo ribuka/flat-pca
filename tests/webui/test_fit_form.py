@@ -112,9 +112,9 @@ def test_enabled_stages_are_parsed() -> None:
 @pytest.mark.parametrize(
     ("overrides", "field", "message"),
     [
-        ({"target_steps": []}, "target_steps", "Step を 1 つ以上"),
-        ({"target_steps": ["x"]}, "target_steps", "整数"),
-        ({"edge_trim_start": "a"}, "edge_trim", "数値"),
+        ({"target_steps": []}, "target_steps", "at least one Step"),
+        ({"target_steps": ["x"]}, "target_steps", "integers"),
+        ({"edge_trim_start": "a"}, "edge_trim", "a number"),
         (
             {
                 "wavelength_range_enabled": "1",
@@ -127,25 +127,25 @@ def test_enabled_stages_are_parsed() -> None:
         (
             {"t_normalization_range_enabled": "1", "t_normalization_range_upper": ""},
             "t_normalization_range",
-            "値を入力",
+            "Enter a value",
         ),
         ({"t_smoothing_window": "-1"}, "t_smoothing_window", "t_smoothing_window"),
-        ({"intensity_transform": "exp"}, "intensity_transform", "いずれか"),
+        ({"intensity_transform": "exp"}, "intensity_transform", "Choose one of"),
         (
             {"intensity_transform": "log1p", "intensity_transform_scale": "0"},
             "intensity_transform_scale",
             "intensity_transform_scale",
         ),
-        ({"t_downsampling_stride": "1.5"}, "t_downsampling_stride", "整数"),
+        ({"t_downsampling_stride": "1.5"}, "t_downsampling_stride", "an integer"),
         ({"w_downsampling_stride": "0"}, "w_downsampling_stride", "w_downsampling_stride"),
         ({"max_null_ratio": "2"}, "max_null_ratio", "between 0.0 and 1.0"),
-        ({"n_component": "4"}, "n_component", "選択ファイル数（3）以下"),
-        ({"n_component": "0"}, "n_component", "1 以上"),
+        ({"n_component": "4"}, "n_component", "number of selected files (3)"),
+        ({"n_component": "0"}, "n_component", "from 1 to"),
         ({"impute_strategy": "mean"}, "impute_strategy", "drop, median, kmeans"),
         (
             {"impute_strategy": "kmeans", "impute_kmeans_n_clusters": "0"},
             "impute_kmeans_n_clusters",
-            "1 以上",
+            "of 1 or more",
         ),
         ({"scaling_strategy": "log"}, "scaling_strategy", "pareto"),
         ({"mahalanobis_alpha": "1"}, "mahalanobis_alpha", "alpha"),
@@ -154,7 +154,7 @@ def test_enabled_stages_are_parsed() -> None:
             "spe_cumulative_explained_variance",
             "cumulative_explained_variance",
         ),
-        ({"spe_alpha": ""}, "spe_alpha", "値を入力"),
+        ({"spe_alpha": ""}, "spe_alpha", "Enter a value"),
     ],
 )
 def test_invalid_fields_get_their_own_error(
@@ -187,7 +187,7 @@ def test_missing_selection_is_an_error() -> None:
     """Without selected files the form reports ``files``."""
     form = parse_fit_form(default_form_values(RANGES), n_files=0)
 
-    assert "データ選択画面" in form.errors["files"]
+    assert "Data selection" in form.errors["files"]
 
 
 def test_values_from_a_run_config_reproduce_its_settings(settings: Settings) -> None:

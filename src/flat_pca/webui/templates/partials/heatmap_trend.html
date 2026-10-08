@@ -1,8 +1,8 @@
 {# Heatmap with the point sliders and the two trends; context from routes/heatmap_trend.py::heatmap_context. #}
 {% if binned.binned %}
   <p class="warnings" data-binned>
-    セル数が上限 {{ max_cells }} を超えるため、時間方向の {{ binned.source_rows }} 行を
-    {{ binned.matrix.step_times|length }} 個のビンに平均して表示しています（トレンドはビニング前の値です）。
+    The cells exceed the limit of {{ max_cells }}, so the {{ binned.source_rows }} rows along time are averaged into
+    {{ binned.matrix.step_times|length }} bins (the trends show the values before binning).
   </p>
 {% endif %}
 <div class="heatmap-panel">
@@ -14,7 +14,7 @@
     <input type="range" id="explore-wavelength">
   </div>
   <div class="field-row explore-sliders">
-    <label for="explore-wavelength">波長</label>
+    <label for="explore-wavelength">Wavelength</label>
     <output id="explore-wavelength-value" for="explore-wavelength"></output>
   </div>
 </div>

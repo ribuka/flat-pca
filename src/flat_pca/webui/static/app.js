@@ -201,7 +201,7 @@ const busyOverlay = (() => {
     }
     const cancelledOwner = currentOwner;
     cancel.disabled = true;
-    message.textContent = "キャンセルしています…";
+    message.textContent = "Cancelling…";
     let accepted = false;
     try {
       accepted = action ? await action() : true;
@@ -210,7 +210,7 @@ const busyOverlay = (() => {
     }
     if (!accepted && currentOwner === cancelledOwner) {
       cancel.disabled = false;
-      message.textContent = "キャンセルできませんでした。もう一度お試しください。";
+      message.textContent = "Could not cancel. Try again.";
     }
   });
 
@@ -251,7 +251,7 @@ function syncFitOverlay() {
     };
     busyOverlay.start(cancelRun, {
       owner: key,
-      message: "fit を実行しています…",
+      message: "Running the fit…",
       keepOnCancel: true,
     });
   }
@@ -272,10 +272,11 @@ document.addEventListener(
   true,
 );
 
-// Submits a GET form whenever one of its controls changes.
+// Submits a GET form whenever one of its controls changes, including the
+// controls joined to it from other cards with the form attribute.
 document.addEventListener("change", (event) => {
-  const form = event.target.closest("form[data-auto-submit]");
-  if (form) {
+  const form = event.target.form;
+  if (form?.matches("[data-auto-submit]")) {
     form.requestSubmit();
   }
 });
@@ -394,7 +395,7 @@ async function selectClickedFile(target, stem, onAdded) {
     return;
   }
   busyOverlay.stop();
-  const message = result.message ?? `${stem} を表示ファイルに追加できませんでした。`;
+  const message = result.message ?? `Could not add ${stem} to the shown files.`;
   if (warning) {
     warning.textContent = message;
     warning.hidden = false;
@@ -741,7 +742,7 @@ function syncLayoutControls() {
   const root = document.documentElement;
   const collapsed = root.dataset.sidebar === "collapsed";
   const toggle = document.getElementById("sidebar-toggle");
-  const label = collapsed ? "サイドバーを広げる" : "サイドバーを折りたたむ";
+  const label = collapsed ? "Expand sidebar" : "Collapse sidebar";
   toggle.setAttribute("aria-expanded", `${!collapsed}`);
   toggle.setAttribute("aria-label", label);
   toggle.title = label;
@@ -778,3 +779,16 @@ window.addEventListener("pageshow", (event) => {
   syncLayoutControls();
   resizePlots();
 });
+
+// A figure resized while its card was collapsed is drawn at the card's width
+// again when the card opens. The toggle event does not bubble, so it is
+// caught on its way down.
+document.addEventListener(
+  "toggle",
+  (event) => {
+    if (event.target.matches("details.card") && event.target.open) {
+      resizePlots();
+    }
+  },
+  true,
+);

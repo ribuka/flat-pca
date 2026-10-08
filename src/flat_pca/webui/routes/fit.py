@@ -224,7 +224,7 @@ async def submit_fit(request: Request, workspace: WorkspaceDependency) -> HTMLRe
         and not values.get("confirm_memory")
     ):
         form.errors["confirm_memory"] = (
-            "見積もりメモリが上限を超えています。実行する場合は確認欄にチェックしてください"
+            "The memory estimate exceeds the limit. Check the confirmation box to run anyway."
         )
     if not form.is_valid:
         return templates.TemplateResponse(request, "partials/fit_form.html", context)

@@ -66,7 +66,7 @@ def test_clicking_a_point_at_the_limit_warns(page: Page, one_file_server_url: st
 
     warning = page.locator("#plot-select-warning")
     expect(warning).to_be_visible()
-    expect(warning).to_contain_text("1 件まで")
+    expect(warning).to_contain_text("Up to 1 shown files")
     expect(warning).to_contain_text("s-01")
     assert page.url == url
     expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(1)
@@ -100,7 +100,7 @@ def test_lasso_select_shows_the_rows_without_adding(
     table = page.locator("#point-table")
     expect(table).to_have_attribute("data-shown-count", "12")
     expect(table.locator("th")).to_have_text(
-        ["ファイル名", "lot", "date", "yield_pct", "PC1", "PC2"]
+        ["file", "lot", "date", "yield_pct", "PC1", "PC2"]
     )
     assert page.url == url
     expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(0)
@@ -142,7 +142,7 @@ def test_a_failed_click_request_releases_the_page(
 
     warning = page.locator("#plot-select-warning")
     expect(warning).to_be_visible()
-    expect(warning).to_contain_text("s-01 を表示ファイルに追加できませんでした")
+    expect(warning).to_contain_text("Could not add s-01 to the shown files")
     expect(page.locator("#busy-overlay")).to_be_hidden()
     expect(page.locator(".layout")).not_to_have_attribute("inert", "")
     assert page.url == url

@@ -7,29 +7,7 @@ import plotly.graph_objects as go
 import polars as pl
 
 from .component_plane import apply_component_plane_layout
-
-MISSING_LABEL = "(missing)"
-
-
-def _color_groups(color: pl.Series) -> dict[str, np.ndarray]:
-    """Group row positions by the text of a categorical color value.
-
-    Parameters
-    ----------
-    color : pl.Series
-        Color value of each row.
-
-    Returns
-    -------
-    dict[str, np.ndarray]
-        Row positions keyed by value text, in order of first appearance;
-        missing values are grouped as ``MISSING_LABEL``.
-    """
-    labels = color.cast(pl.String).fill_null(MISSING_LABEL).to_list()
-    groups: dict[str, list[int]] = {}
-    for position, label in enumerate(labels):
-        groups.setdefault(label, []).append(position)
-    return {label: np.asarray(rows, dtype=np.intp) for label, rows in groups.items()}
+from .marker_color import color_groups, continuous_marker
 
 
 def create_score_scatter(
@@ -75,12 +53,7 @@ def create_score_scatter(
     if color is None or color.dtype.is_numeric():
         marker: dict[str, object] = {"size": 9}
         if color is not None:
-            marker |= {
-                "color": color.cast(pl.Float64).to_numpy(),
-                "colorscale": "Viridis",
-                "showscale": True,
-                "colorbar": {"title": {"text": color.name}},
-            }
+            marker |= continuous_marker(color) | {"showscale": True}
         traces = [
             go.Scatter(
                 x=xs,
@@ -103,7 +76,7 @@ def create_score_scatter(
                 marker={"size": 9},
                 hovertemplate=hover,
             )
-            for value, rows in _color_groups(color).items()
+            for value, rows in color_groups(color).items()
         ]
     figure = go.Figure(traces).update_layout(
         xaxis_title=x_name,

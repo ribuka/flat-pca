@@ -77,7 +77,7 @@ def test_page_renders_the_form_from_the_catalog(client: TestClient) -> None:
     assert 'data-n-features="21"' in html
     assert "Q の UCL" in html
     assert 'name="outlier_strategy"' not in html
-    assert "fit はまだ実行されていません" in html
+    assert "No fit has run yet." in html
     assert 'hx-get="/fit/runs"' in html
 
 
@@ -85,7 +85,16 @@ def test_fit_groups_are_collapsible(client: TestClient) -> None:
     """Each settings group, the run status, and the run list are open accordions."""
     html = client.get("/fit").text
 
-    for group in ("target-steps", "preprocess", "pca", "t2-q", "status", "runs"):
+    for group in (
+        "target",
+        "target-steps",
+        "preprocess",
+        "pca",
+        "t2-q",
+        "estimate",
+        "status",
+        "runs",
+    ):
         assert f'<details class="card" data-group="{group}" open>' in html
     assert "<fieldset" not in html
 
@@ -116,8 +125,8 @@ def test_active_run_shows_progress_for_the_overlay(
     assert f'data-run-id="{run_id}"' in panel.group()
     assert re.search(r'data-elapsed-s="\d+\.\d"', panel.group())
     assert f'data-cancel-url="/runs/{run_id}/cancel"' in panel.group()
-    assert "段階 fit：1 / 4" in html
-    assert re.search(r"残り（全段階）：約 \d+ 秒", html)
+    assert "Stage fit: 1 / 4" in html
+    assert re.search(r"Remaining \(all stages\): about \d+ s", html)
 
 
 def test_active_run_without_done_stages_is_still_estimating(
@@ -128,7 +137,7 @@ def test_active_run_without_done_stages_is_still_estimating(
 
     html = client.get(f"/fit/runs/{run_id}/status?polling=true").text
 
-    assert "残り（全段階）：計算中" in html
+    assert "Remaining (all stages): estimating" in html
     assert "hx-trigger=\"every 1s\"" in html
 
 
@@ -144,7 +153,7 @@ def test_finished_run_leaves_no_overlay_data(
     assert response.headers["HX-Trigger"] == "fit-updated"
     assert "data-fit-active" not in response.text
     assert "data-fit-progress" not in response.text
-    assert "キャンセルされました" in response.text
+    assert "Cancelled." in response.text
 
 
 def test_estimate_inside_the_form_sets_its_own_target(client: TestClient) -> None:
@@ -165,7 +174,7 @@ def test_page_without_selection_disables_submit(settings: Settings) -> None:
     with TestClient(create_app(settings)) as opened:
         html = opened.get("/fit").text
 
-    assert re.search(r'<button type="submit" disabled>', html)
+    assert re.search(r'<button type="submit" form="fit-form" disabled>Run fit</button>', html)
 
 
 def test_estimate_follows_the_form(client: TestClient, form: dict[str, object]) -> None:
@@ -245,7 +254,7 @@ def test_polled_success_shows_icon_next_to_submit(
 ) -> None:
     """A poll that finds the run succeeded swaps a check icon next to the button."""
     form_html = _post(client, "/fit", form)
-    assert '<span id="fit-result" class="fit-result"></span>' in form_html
+    assert '<span id="fit-result" class="fit-result" hx-swap-oob="true"></span>' in form_html
     workspace = _workspace(client)
     run = latest_run(workspace.database, FIT_JOB)
     assert run is not None
@@ -344,3 +353,14 @@ def test_unknown_runs_are_not_found(client: TestClient) -> None:
     assert client.get(f"/fit?run={catalog_run['run_id']}").status_code == 404
     assert client.get("/fit/runs/missing/status").status_code == 404
     assert get_run(_workspace(client).database, "missing") is None
+
+
+def test_run_button_leads_the_status_card(client: TestClient) -> None:
+    """The run button sits in the run status card and submits the form from there."""
+    html = client.get("/fit").text
+
+    form = html.split('<form id="fit-form"', 1)[1].split("</form>", 1)[0]
+    status = html.split('data-group="status"', 1)[1].split("</details>", 1)[0]
+    assert '<button type="submit"' not in form
+    assert '<button type="submit" form="fit-form" >Run fit</button>' in status
+    assert status.index("Run fit") < status.index('id="fit-run-status"')

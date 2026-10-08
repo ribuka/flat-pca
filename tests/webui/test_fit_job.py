@@ -244,7 +244,7 @@ def test_register_rejects_missing_artifacts(
     run_dir = _run(config, tmp_path / "run")
     (run_dir / SCORES_FILE).unlink()
 
-    with pytest.raises(RunArtifactError, match="再実行"):
+    with pytest.raises(RunArtifactError, match="run the fit again"):
         register_fit_result(config, run_dir)
 
 
@@ -257,7 +257,7 @@ def test_old_pca_state_format_is_reported(
         entries = {name: state[name] for name in state.files if name != "scaling_scales"}
     np.savez(run_dir / PCA_STATE_FILE, **entries)
 
-    with pytest.raises(RunArtifactError, match="形式が古いか壊れている"):
+    with pytest.raises(RunArtifactError, match="outdated or broken"):
         load_fit_artifacts(run_dir)
 
 

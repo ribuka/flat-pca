@@ -1,108 +1,116 @@
 {% extends "base.html" %}
-{% block title %}モデル - flat-pca{% endblock %}
+{% block title %}Model - flat-pca{% endblock %}
 {% block scripts %}
   <script src="{{ url_for('static', path='vendor/plotly.min.js') }}" defer></script>
 {% endblock %}
 {% block content %}
-<section>
-  <h2>モデル</h2>
-  <p class="muted">サイドバーで選んだ run だけで決まる図です（表示ファイルの選択によらない）。{% if shown.run_id %}run：{{ shown.run_id }}{% endif %}</p>
-  {% if shown.runs %}
-    <form id="model-form" class="explore-form" method="get" action="/model" data-auto-submit>
-      {% if shown.component_count %}
-        <div class="field-row">
-          <label>ローディング 横軸 PCm
-            <input type="number" name="x" min="1" max="{{ shown.component_count }}" value="{{ shown.x }}">
-          </label>
-          <label>縦軸 PCn
-            <input type="number" name="y" min="1" max="{{ shown.component_count }}" value="{{ shown.y }}">
-          </label>
-          <label>集計
-            <select name="aggregation">
-              {% for key, label in aggregation_labels.items() %}
-                <option value="{{ key }}" {% if key == shown.aggregation %}selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
-          </label>
-        </div>
-        <div class="field-row">
-          <label>ヒートマップの値
-            <select name="view">
-              {% for key, label in shown.view_options.items() %}
-                <option value="{{ key }}" {% if key == shown.view %}selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
-          </label>
-          <label>成分 k
-            <input type="number" name="k" min="1" max="{{ shown.component_count }}" value="{{ shown.component }}">
-          </label>
-          <span class="muted">（1〜{{ shown.component_count }}）</span>
-          {% if shown.segment_options %}
-            <label>(Step, Sequence)
-              <select name="segment">
-                {% for step, sequence in shown.segment_options %}
-                  <option value="{{ step }}:{{ sequence }}" {% if shown.segment == (step, sequence) %}selected{% endif %}>({{ step }}, {{ sequence }})</option>
-                {% endfor %}
-              </select>
-            </label>
-          {% endif %}
-          <button type="submit">表示</button>
-        </div>
-      {% endif %}
-    </form>
-  {% endif %}
-</section>
+<details class="card" data-group="model" open>
+  <summary><h2>Model</h2></summary>
+  <div class="card-body">
+    <p class="muted">サイドバーで選んだ run だけで決まる図です（表示ファイルの選択によらない）。{% if shown.run_id %}run: {{ shown.run_id }}{% endif %}</p>
+    {% if shown.error %}
+      <p class="error" data-model-error>{{ shown.error }}</p>
+    {% endif %}
+    {#- The controls sit in the cards they change and join this form with form="model-form". -#}
+    {% if shown.runs %}
+      <form id="model-form" class="explore-form" method="get" action="/model" data-auto-submit></form>
+    {% endif %}
+  </div>
+</details>
 
-{% if shown.error %}
-  <section>
-    <p class="error" data-model-error>{{ shown.error }}</p>
-  </section>
-{% elif figures %}
-  <section>
-    <h3>寄与率</h3>
-    <div class="plot-grid">
-      <div id="model-scree" class="plot" data-plot="model-scree-figure"></div>
-      <div class="table-scroll">
-        <table class="file-table" data-explained-variance>
-          <thead>
-            <tr><th>成分</th><th>寄与率</th><th>累積寄与率</th><th>分散</th></tr>
-          </thead>
-          <tbody>
-            {% for row in shown.explained_variance.iter_rows(named=True) %}
-              <tr>
-                <td>PC{{ row.component }}</td>
-                <td>{{ row.explained_variance_ratio|cell }}</td>
-                <td>{{ row.cumulative_explained_variance|cell }}</td>
-                <td>{{ row.explained_variance|cell }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+{% if figures %}
+  <details class="card" data-group="explained-variance" open>
+    <summary><h2>Explained variance</h2></summary>
+    <div class="card-body">
+      <div class="plot-grid">
+        <div id="model-scree" class="plot" data-plot="model-scree-figure"></div>
+        <div class="table-scroll">
+          <table class="file-table" data-explained-variance>
+            <thead>
+              <tr><th>component</th><th>explained variance ratio</th><th>cumulative</th><th>variance</th></tr>
+            </thead>
+            <tbody>
+              {% for row in shown.explained_variance.iter_rows(named=True) %}
+                <tr>
+                  <td>PC{{ row.component }}</td>
+                  <td>{{ row.explained_variance_ratio|cell }}</td>
+                  <td>{{ row.cumulative_explained_variance|cell }}</td>
+                  <td>{{ row.explained_variance|cell }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
-  </section>
+  </details>
 
-  <section>
-    <h3>ローディング</h3>
-    <div id="model-loadings" class="plot" data-plot="model-loadings-figure"></div>
-    <p class="muted">成分 m と n の係数を波長ごとに集計した値で、1 点が 1 波長です（平均は符号の異なる係数が打ち消し合います）。</p>
-  </section>
-
-  <section>
-    {% if shown.notice %}
-      <p class="warnings" data-model-notice>{{ shown.notice }}</p>
-    {% endif %}
-    {% if shown.view == "component" %}
-      <h3>PCA 成分 {{ shown.component }}</h3>
-      <p class="muted">components.npy の第 {{ shown.component }} 行を、選んだ (Step, Sequence) の波長 × StepTime に並べた係数です。</p>
-    {% else %}
-      <h3>{{ shown.view_options[shown.view] }}</h3>
-      <p class="muted">PCA モデルが保存している特徴量ごとの前処理パラメータを、選んだ (Step, Sequence) の波長 × StepTime に並べた値です。{% if shown.view == "mean" %}スケーリング後の値の平均です。{% endif %}</p>
-    {% endif %}
-    <div data-explore data-trend-url="{{ trend_url }}">
-      {% include "partials/heatmap_trend.html" %}
+  <details class="card" data-group="loadings" open>
+    <summary><h2>Loadings</h2></summary>
+    <div class="card-body">
+      <div class="field-row">
+        <label>X axis PCm
+          <input type="number" name="x" form="model-form" min="1" max="{{ shown.component_count }}" value="{{ shown.x }}">
+        </label>
+        <label>Y axis PCn
+          <input type="number" name="y" form="model-form" min="1" max="{{ shown.component_count }}" value="{{ shown.y }}">
+        </label>
+        <label>Aggregation
+          <select name="aggregation" form="model-form">
+            {% for key, label in aggregation_labels.items() %}
+              <option value="{{ key }}" {% if key == shown.aggregation %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <span class="muted">(1–{{ shown.component_count }})</span>
+        <button type="submit" form="model-form">Show</button>
+      </div>
+      <div id="model-loadings" class="plot" data-plot="model-loadings-figure"></div>
+      <p class="muted">成分 m と n の係数を波長ごとに集計した値で、1 点が 1 波長です（平均は符号の異なる係数が打ち消し合います）。</p>
     </div>
-  </section>
+  </details>
+
+  <details class="card" data-group="heatmap" open>
+    <summary><h2>Heatmap</h2></summary>
+    <div class="card-body">
+      <div class="field-row">
+        <label>Heatmap values
+          <select name="view" form="model-form">
+            {% for key, label in shown.view_options.items() %}
+              <option value="{{ key }}" {% if key == shown.view %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Component k
+          <input type="number" name="k" form="model-form" min="1" max="{{ shown.component_count }}" value="{{ shown.component }}">
+        </label>
+        <span class="muted">(1–{{ shown.component_count }})</span>
+        {% if shown.segment_options %}
+          <label>(Step, Sequence)
+            <select name="segment" form="model-form">
+              {% for step, sequence in shown.segment_options %}
+                <option value="{{ step }}:{{ sequence }}" {% if shown.segment == (step, sequence) %}selected{% endif %}>({{ step }}, {{ sequence }})</option>
+              {% endfor %}
+            </select>
+          </label>
+        {% endif %}
+        <button type="submit" form="model-form">Show</button>
+      </div>
+      {% if shown.notice %}
+        <p class="warnings" data-model-notice>{{ shown.notice }}</p>
+      {% endif %}
+      {% if shown.view == "component" %}
+        <h3>PCA component {{ shown.component }}</h3>
+        <p class="muted">components.npy の第 {{ shown.component }} 行を、選んだ (Step, Sequence) の波長 × StepTime に並べた係数です。</p>
+      {% else %}
+        <h3>{{ shown.view_options[shown.view] }}</h3>
+        <p class="muted">PCA モデルが保存している特徴量ごとの前処理パラメータを、選んだ (Step, Sequence) の波長 × StepTime に並べた値です。{% if shown.view == "mean" %}スケーリング後の値の平均です。{% endif %}</p>
+      {% endif %}
+      <div data-explore data-trend-url="{{ trend_url }}">
+        {% include "partials/heatmap_trend.html" %}
+      </div>
+    </div>
+  </details>
 
   {% for name, figure in figures.items() %}
     <script type="application/json" id="model-{{ name }}-figure">{{ figure|safe }}</script>

@@ -10,7 +10,7 @@ import polars as pl
 from ..templating import format_value
 from .scored_samples import metadata_columns
 
-STEM_HEADER = "ファイル名"
+STEM_HEADER = "file"
 # Mode bar buttons of the figures whose points fill the table by a range.
 SELECT_TOOLS = ("select2d", "lasso2d")
 

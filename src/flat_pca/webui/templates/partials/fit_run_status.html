@@ -8,39 +8,39 @@
      data-elapsed-s="{{ '%.1f'|format(status.elapsed_s) }}" data-cancel-url="/runs/{{ run.run_id }}/cancel"
      hx-get="/fit/runs/{{ run.run_id }}/status?polling=true" hx-trigger="every 1s" hx-target="this" hx-swap="outerHTML"{% endif %}>
   {% if run is none %}
-    <p>fit はまだ実行されていません。</p>
+    <p>No fit has run yet.</p>
   {% else %}
     <p>
-      run <span class="mono">{{ run.run_id }}</span>：
+      run <span class="mono">{{ run.run_id }}</span>:
       <span class="status status-{{ run.status }}" data-run-status="{{ run.status }}">{{ run.status }}</span>
     </p>
     {% if status.active %}
       <div class="fit-progress" data-fit-progress>
         {% if status.progress %}
           <p data-fit-stage>
-            段階 {{ status.progress.stage }}：{{ status.progress.done }} / {{ status.progress.total }}
+            Stage {{ status.progress.stage }}: {{ status.progress.done }} / {{ status.progress.total }}
             <progress max="100" value="{{ status.progress.percent }}"></progress>
           </p>
           <p data-fit-eta>
-            残り（全段階）：{% if status.remaining_s is none %}計算中{% else %}約 {{ status.remaining_s|round|int }} 秒{% endif %}
+            Remaining (all stages): {% if status.remaining_s is none %}estimating{% else %}about {{ status.remaining_s|round|int }} s{% endif %}
           </p>
         {% else %}
-          <p data-fit-stage>開始を待っています。</p>
+          <p data-fit-stage>Waiting to start.</p>
         {% endif %}
       </div>
-      <button type="button" hx-post="/runs/{{ run.run_id }}/cancel" hx-swap="none">キャンセル</button>
+      <button type="button" hx-post="/runs/{{ run.run_id }}/cancel" hx-swap="none">Cancel</button>
     {% elif run.status == "failed" %}
       <p class="error" data-run-error>{{ run.error }}</p>
     {% elif run.status == "succeeded" %}
       <p data-run-summary>
-        {{ run.n_files }} ファイル・特徴量 {{ run.n_features }}・成分 {{ run.n_components }}
-        （{{ "%.1f"|format(run.duration_s or 0) }} 秒）
+        {{ run.n_files }} files, {{ run.n_features }} features, {{ run.n_components }} components
+        ({{ "%.1f"|format(run.duration_s or 0) }} s)
       </p>
     {% elif run.status == "cancelled" %}
-      <p class="muted">キャンセルされました。</p>
+      <p class="muted">Cancelled.</p>
     {% endif %}
   {% endif %}
 </div>
 {% if finished_succeeded %}
-<span id="fit-result" class="fit-result" hx-swap-oob="true">{{ icon("check_circle", class="icon-success", label="fit が成功しました") }}</span>
+<span id="fit-result" class="fit-result" hx-swap-oob="true">{{ icon("check_circle", class="icon-success", label="The fit succeeded") }}</span>
 {% endif %}

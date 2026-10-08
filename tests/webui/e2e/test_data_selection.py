@@ -49,13 +49,13 @@ def test_metadata_filters_narrow_file_list(
     expect(stems).to_have_text(["run-2"])
 
     page.locator('select[name="eq__lot"]').select_option("")
-    page.get_by_label("yield_pct 下限").fill("90")
+    page.get_by_label("yield_pct lower").fill("90")
     expect(stems).to_have_text(["run-1"])
 
-    page.get_by_label("yield_pct 下限").fill("")
-    page.get_by_label("ファイル名で絞り込み").fill("run-1")
+    page.get_by_label("yield_pct lower").fill("")
+    page.get_by_label("Filter by file name").fill("run-1")
     expect(stems).to_have_text(["run-1", "run-10"])
-    expect(page.get_by_label("ファイル名で絞り込み")).to_be_focused()
+    expect(page.get_by_label("Filter by file name")).to_be_focused()
 
 
 def test_column_names_sort_file_list(page: Page, cataloged_server_url: str) -> None:
@@ -88,26 +88,26 @@ def test_pages_keep_selection_and_select_saves_all(
     page.goto(cataloged_server_url)
     stems = _file_stems(page)
     expect(stems).to_have_text(["run-1", "run-2"])
-    expect(page.locator("[data-page-range]")).to_have_text("全 3 件中 1〜2 件")
-    header = page.get_by_label("絞り込み中をすべて選択")
+    expect(page.locator("[data-page-range]")).to_have_text("1–2 of 3")
+    header = page.get_by_label("Select all filtered files")
 
-    page.get_by_label("run-1 を選択").check()
-    page.get_by_role("button", name="次へ").click()
+    page.get_by_label("Select run-1").check()
+    page.get_by_role("button", name="Next").click()
     expect(stems).to_have_text(["run-10"])
-    expect(page.locator("[data-page-range]")).to_have_text("全 3 件中 3〜3 件")
+    expect(page.locator("[data-page-range]")).to_have_text("3–3 of 3")
     expect(header).to_have_js_property("indeterminate", True)
-    page.get_by_label("run-10 を選択").check()
+    page.get_by_label("Select run-10").check()
 
     page.get_by_role("button", name="1", exact=True).click()
     expect(stems).to_have_text(["run-1", "run-2"])
-    expect(page.get_by_label("run-1 を選択")).to_be_checked()
-    expect(page.get_by_label("run-2 を選択")).not_to_be_checked()
+    expect(page.get_by_label("Select run-1")).to_be_checked()
+    expect(page.get_by_label("Select run-2")).not_to_be_checked()
 
     page.get_by_role("button", name="Select").click()
     expect(page.locator("#selection-summary")).to_have_attribute(
         "data-selected-count", "2"
     )
-    expect(page.locator('[data-sidebar="selection"]')).to_have_text("2 ファイル")
+    expect(page.locator('[data-sidebar="selection"]')).to_have_text("2 files")
 
 
 def test_sorting_and_filtering_return_to_first_page(
@@ -119,14 +119,14 @@ def test_sorting_and_filtering_return_to_first_page(
     stems = _file_stems(page)
     expect(stems).to_have_text(["run-1", "run-2"])
 
-    page.get_by_role("button", name="次へ").click()
+    page.get_by_role("button", name="Next").click()
     expect(stems).to_have_text(["run-10"])
     page.locator('[data-sort="stem"]').click()
     expect(stems).to_have_text(["run-10", "run-2"])
 
-    page.get_by_role("button", name="次へ").click()
+    page.get_by_role("button", name="Next").click()
     expect(stems).to_have_text(["run-1"])
-    page.get_by_label("ファイル名で絞り込み").fill("run")
+    page.get_by_label("Filter by file name").fill("run")
     expect(stems).to_have_text(["run-10", "run-2"])
 
 
@@ -136,13 +136,13 @@ def test_catalog_update_shows_progress_and_replaces_category_filters(
     """A catalog update polls its status, then reloads filters and files."""
     page.goto(server_url)
     expect(page.locator("#catalog-status")).to_contain_text(
-        "catalog はまだ作成されていません"
+        "No catalog has been built yet"
     )
     lot_options = page.locator('#file-table select[name="eq__lot"] option')
-    expect(lot_options).to_have_text(["(すべて)"])
+    expect(lot_options).to_have_text(["(all)"])
     expect(_file_rows(page)).to_have_count(0)
 
-    page.get_by_role("button", name="catalog 更新").click()
+    page.get_by_role("button", name="Update catalog").click()
 
     status = page.locator("#catalog-status [data-run-status]")
     expect(status).to_have_attribute("data-run-status", re.compile("queued|running"))
@@ -152,7 +152,7 @@ def test_catalog_update_shows_progress_and_replaces_category_filters(
     expect(status).to_have_attribute(
         "data-run-status", "succeeded", timeout=CATALOG_TIMEOUT_MS
     )
-    expect(lot_options).to_have_text(["(すべて)", "A", "B"])
+    expect(lot_options).to_have_text(["(all)", "A", "B"])
     expect(_file_stems(page)).to_have_text(["run-1", "run-2", "run-10"])
     expect(page.locator('[data-sidebar="catalog"]')).to_contain_text("succeeded")
 
@@ -174,7 +174,7 @@ def test_selecting_files_shows_success_icon_offline(
     icon = page.locator("#selection-summary .material-symbols-outlined")
     expect(icon).to_have_count(0)
 
-    page.get_by_label("絞り込み中をすべて選択").check()
+    page.get_by_label("Select all filtered files").check()
     page.get_by_role("button", name="Select").click()
 
     expect(icon).to_have_text("check_circle")
@@ -196,7 +196,7 @@ def test_header_checkbox_toggles_matching_rows(
     """The header checkbox checks or unchecks every matching row and shows a mix."""
     page.goto(cataloged_server_url)
     expect(_file_stems(page)).to_have_text(["run-1", "run-2", "run-10"])
-    header = page.get_by_label("絞り込み中をすべて選択")
+    header = page.get_by_label("Select all filtered files")
     rows = page.locator("#file-table tbody input[data-stem-check]")
     expect(header).not_to_be_checked()
 
@@ -253,7 +253,7 @@ def test_groups_collapse(page: Page, cataloged_server_url: str) -> None:
     """Clicking a group's heading folds its body away and back."""
     page.goto(cataloged_server_url)
     files = page.locator('details[data-group="files"]')
-    name_filter = files.get_by_placeholder("含む文字列")
+    name_filter = files.get_by_placeholder("contains")
     expect(name_filter).to_be_visible()
 
     files.locator(":scope > summary").click()

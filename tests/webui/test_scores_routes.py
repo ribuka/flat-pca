@@ -105,7 +105,7 @@ def test_navigation_links_to_the_page(client: TestClient) -> None:
     html = client.get("/scores").text
 
     assert 'href="/scores" aria-current="page"' in html
-    assert "成功した fit run がありません" in html
+    assert "No succeeded fit run" in html
 
 
 @pytest.mark.usefixtures("run_dir")
@@ -115,8 +115,8 @@ def test_default_page_colors_scores_by_the_default_column(client: TestClient) ->
 
     assert response.status_code == 200
     html = response.text
-    assert 'name="x" min="1" max="3" value="1"' in html
-    assert 'name="y" min="1" max="3" value="2"' in html
+    assert 'name="x" form="scores-form" min="1" max="3" value="1"' in html
+    assert 'name="y" form="scores-form" min="1" max="3" value="2"' in html
     assert '<option value="lot" selected>' in html
     assert 'name="aggregation"' not in html
     assert 'data-select-url="/sidebar/selection/files/add"' in html
@@ -161,7 +161,7 @@ def test_point_table_holds_the_shown_scores(client: TestClient, run_dir: Path) -
     html = client.get("/scores", params={"x": 3, "y": 1}).text
 
     assert re.findall(r"<th>(.*?)</th>", html) == [
-        "ファイル名", "lot", "date", "yield_pct", "PC3", "PC1"
+        "file", "lot", "date", "yield_pct", "PC3", "PC1"
     ]
     match = re.search(r'data-point-rows>(.*?)</script>', html)
     assert match is not None
@@ -205,7 +205,7 @@ def test_drop_run_reports_files_without_trajectory(
     choose_view(client, files=["s-00", SHORT])
     html = client.get("/scores").text
 
-    assert f"描けないファイル：{SHORT}" in html
+    assert f"Cannot draw trajectories because they contain missing values and are dropped by the imputation strategy drop: {SHORT}" in html
     assert [trace["name"] for trace in _traces(html, "trajectories")] == ["s-00"]
     scored = [
         stem for trace in _traces(html, "scatter") for stem in _decode(trace["customdata"])
@@ -218,8 +218,8 @@ def test_out_of_range_components_fall_back_to_the_defaults(client: TestClient) -
     """Unavailable component numbers are replaced by PC1 and PC2."""
     html = client.get("/scores", params={"x": 9, "y": 0}).text
 
-    assert 'name="x" min="1" max="3" value="1"' in html
-    assert 'name="y" min="1" max="3" value="2"' in html
+    assert 'name="x" form="scores-form" min="1" max="3" value="1"' in html
+    assert 'name="y" form="scores-form" min="1" max="3" value="2"' in html
 
 
 @pytest.mark.usefixtures("run_dir")

@@ -1,10 +1,10 @@
 <div id="catalog-status" class="status-panel"
      {% if active %}hx-get="/catalog/status?polling=true" hx-trigger="every 1s" hx-swap="outerHTML"{% endif %}>
   {% if run is none %}
-    <p>catalog はまだ作成されていません。</p>
+    <p>No catalog has been built yet.</p>
   {% else %}
     <p>
-      最新の catalog 更新：
+      Latest catalog update:
       <span class="status status-{{ run.status }}" data-run-status="{{ run.status }}">{{ run.status }}</span>
       <span class="muted">({{ run.run_id }})</span>
     </p>
@@ -15,13 +15,13 @@
           <progress max="100" value="{{ progress.percent }}"></progress>
         </p>
       {% endif %}
-      <button type="button" hx-post="/runs/{{ run.run_id }}/cancel" hx-swap="none">キャンセル</button>
+      <button type="button" hx-post="/runs/{{ run.run_id }}/cancel" hx-swap="none">Cancel</button>
     {% elif run.status == "failed" %}
       <p class="error">{{ run.error }}</p>
     {% elif run.status == "succeeded" %}
-      <p>{{ run.n_files }} ファイル（{{ "%.1f"|format(run.duration_s or 0) }} 秒）</p>
+      <p>{{ run.n_files }} files ({{ "%.1f"|format(run.duration_s or 0) }} s)</p>
     {% endif %}
   {% endif %}
   <button type="button" hx-post="/catalog/refresh" hx-target="#catalog-status" hx-swap="outerHTML"
-          {% if active %}disabled{% endif %}>catalog 更新</button>
+          {% if active %}disabled{% endif %}>Update catalog</button>
 </div>

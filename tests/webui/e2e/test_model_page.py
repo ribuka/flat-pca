@@ -54,4 +54,4 @@ def test_choices_reload_the_page(page: Page, fitted_server_url: str) -> None:
         f"{fitted_server_url}/model?x=1&y=2&aggregation=abs_mean&view=component&k=3&segment=2%3A1"
     )
     expect(page.locator("#model-loadings")).to_have_attribute("data-plot-ready", "true")
-    expect(page.locator("#model-loadings .gtitle")).to_have_text("ローディング（絶対値平均）")
+    expect(page.locator("#model-loadings .gtitle")).to_have_text("Loadings (mean absolute)")

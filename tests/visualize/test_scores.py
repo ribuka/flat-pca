@@ -4,7 +4,7 @@ import numpy as np
 import polars as pl
 
 from flat_pca.visualize import create_partial_score_trajectories, create_score_scatter
-from flat_pca.visualize.scores import MISSING_LABEL
+from flat_pca.visualize.marker_color import MISSING_LABEL
 
 
 def _scores() -> pl.DataFrame:

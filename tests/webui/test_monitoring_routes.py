@@ -119,7 +119,7 @@ def test_navigation_links_to_the_page(client: TestClient) -> None:
     html = client.get("/monitoring").text
 
     assert 'href="/monitoring" aria-current="page"' in html
-    assert "成功した fit run がありません" in html
+    assert "No succeeded fit run" in html
 
 
 @pytest.mark.usefixtures("run_dir")
@@ -159,7 +159,7 @@ def test_natural_order_on_request(client: TestClient) -> None:
 
 def test_figures_show_the_saved_statistics(client: TestClient, run_dir: Path) -> None:
     """The charts and the scatter plot show the saved T², Q, and limits."""
-    html = client.get("/monitoring").text
+    html = client.get("/monitoring", params={"color": ""}).text
 
     saved = _scores_by_stem(run_dir)
     t2 = dict(zip(saved["stem"], saved["mahalanobis_sq"], strict=True))
@@ -174,9 +174,28 @@ def test_figures_show_the_saved_statistics(client: TestClient, run_dir: Path) ->
     assert shapes[0]["x0"] == pytest.approx(saved["mahalanobis_ucl"][0])
     assert shapes[1]["y0"] == pytest.approx(saved["spe_ucl"][0])
     exceeding = saved.filter(pl.col("spe_exceeds_ucl"))["stem"].to_list()
-    assert f"Q {len(exceeding)} 件" in html
+    assert f"Q {len(exceeding)}" in html.split("data-exceeding", 1)[1].split("</p>", 1)[0]
     q_traces = _figure(html, "monitoring-q-figure")["data"]  # type: ignore[index]
     assert sorted(_decode(q_traces[1]["customdata"])) == sorted(exceeding)  # type: ignore[index]
+
+
+@pytest.mark.usefixtures("run_dir")
+def test_points_are_colored_by_the_default_column(client: TestClient) -> None:
+    """Without a choice, all three figures are colored by ``ui.default_color_by``."""
+    html = client.get("/monitoring").text
+
+    assert '<select name="color">' in html
+    assert '<option value="lot" selected>' in html
+    for name in ("t2", "q", "scatter"):
+        figure = _figure(html, f"monitoring-{name}-figure")
+        groups = {trace["legendgroup"] for trace in figure["data"]}  # type: ignore[index, union-attr]
+        assert groups == {"A", "B"}
+        assert figure["layout"]["legend"]["title"]["text"] == "lot"  # type: ignore[index]
+
+    uncolored = client.get("/monitoring", params={"color": ""}).text
+    assert '<option value="" selected>none</option>' in uncolored
+    names = [trace["name"] for trace in _figure(uncolored, "monitoring-q-figure")["data"]]  # type: ignore[union-attr]
+    assert names == ["within UCL", "exceeds UCL"]
 
 
 def _point_rows(html: str) -> list[list[str]]:
@@ -194,7 +213,7 @@ def test_point_table_holds_the_statistics_of_every_file(
 
     headers = re.findall(r"<th>(.*?)</th>", html)
     assert headers == [
-        "ファイル名", "lot", "date", "yield_pct", "T²", "Q", "T² UCL 超過", "Q UCL 超過"
+        "file", "lot", "date", "yield_pct", "T²", "Q", "T² above UCL", "Q above UCL"
     ]
     for name in ("t2", "scatter"):
         assert f'data-plot="monitoring-{name}-figure" data-point-table="point-table"' in html
@@ -206,7 +225,7 @@ def test_point_table_holds_the_statistics_of_every_file(
         record = saved.row(by_predicate=pl.col("stem") == row[0], named=True)
         assert float(row[4]) == pytest.approx(record["mahalanobis_sq"], rel=1e-5)
         assert float(row[5]) == pytest.approx(record["spe"], rel=1e-5)
-        assert row[7] == ("超過" if record["spe_exceeds_ucl"] else "")
+        assert row[7] == ("yes" if record["spe_exceeds_ucl"] else "")
     undated = next(row for row in rows if row[0] == UNDATED)
     assert undated[2] == ""
     layout = _figure(html, "monitoring-t2-figure")["layout"]
@@ -221,7 +240,7 @@ def test_drop_run_reports_files_without_statistics(
 
     html = client.get("/monitoring").text
 
-    assert f"T²・Q を持たないファイル：{SHORT}" in html
+    assert f"dropped by the imputation strategy drop: {SHORT}" in html
     assert SHORT not in _points(html, "scatter")
 
 
@@ -314,7 +333,7 @@ def test_q_contribution_page_warns_when_float32_artifacts_lose_the_saved_q(
     match = re.search(r'data-q-mismatch="s-01">(.*?)</p>', html, re.DOTALL)
     assert match is not None
     assert f"{saved:.8g}" in match.group(1)
-    assert 'jobs.artifact_dtype = "float64" で再実行してください' in match.group(1)
+    assert 'Run the fit again with jobs.artifact_dtype = "float64".' in match.group(1)
 
 
 @pytest.mark.parametrize("stem", ["s-00", SHORT])

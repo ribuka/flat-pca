@@ -1,5 +1,5 @@
 {% from "macros/icon.html" import icon %}
 <span id="selection-summary" class="selection-summary" data-selected-count="{{ selected|length }}">
-  {%- if saved %}{{ icon("check_circle", class="icon-success", label="fit 対象にしました") }}{% endif -%}
-  fit 対象：{{ selected|length }} ファイル
+  {%- if saved %}{{ icon("check_circle", class="icon-success", label="Set as the fit target") }}{% endif -%}
+  Fit target: {{ selected|length }} files
 </span>

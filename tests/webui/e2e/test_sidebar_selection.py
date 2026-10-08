@@ -48,7 +48,7 @@ def test_changing_the_run_clears_the_files(page: Page, two_fits_server_url: str)
     wait_for_sidebar(page)
     run = page.locator("#view-selection select[name=run]")
     expect(run).to_have_value("fit-2")
-    expect(page.locator("main")).to_contain_text("run：fit-2")
+    expect(page.locator("main")).to_contain_text("run: fit-2")
     with page.expect_navigation():
         page.locator('#view-selection input[value="s-00"]').check()
     wait_for_sidebar(page)
@@ -59,7 +59,7 @@ def test_changing_the_run_clears_the_files(page: Page, two_fits_server_url: str)
 
     wait_for_sidebar(page)
     expect(run).to_have_value("fit-1")
-    expect(page.locator("main")).to_contain_text("run：fit-1")
+    expect(page.locator("main")).to_contain_text("run: fit-1")
     expect(page.locator("#view-selection input[name=file]")).to_have_count(12)
     expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(0)
 
@@ -73,4 +73,4 @@ def test_transform_page_fixes_the_fit_data(page: Page, fitted_server_url: str) -
     checkbox = page.get_by_label("use same data for fit")
     expect(checkbox).to_be_checked()
     expect(checkbox).to_be_disabled()
-    expect(page.locator("[data-transform-targets]")).to_contain_text("12 ファイル")
+    expect(page.locator("[data-transform-targets]")).to_contain_text("12 files")

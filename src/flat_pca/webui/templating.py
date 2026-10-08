@@ -54,12 +54,12 @@ class NavItem:
 
 
 NAV_ITEMS = (
-    NavItem("データ選択", "/"),
-    NavItem("前処理・PCA", "/fit"),
+    NavItem("Data selection", "/"),
+    NavItem("Preprocess / PCA", "/fit"),
     NavItem("transform", "/transform"),
-    NavItem("モデル", "/model"),
-    NavItem("スペクトル探索", "/explore"),
-    NavItem("スコア", "/scores"),
+    NavItem("Model", "/model"),
+    NavItem("Spectral explorer", "/explore"),
+    NavItem("Scores", "/scores"),
     NavItem("T² / Q", "/monitoring"),
 )
 

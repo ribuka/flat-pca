@@ -4,50 +4,77 @@
   <script src="{{ url_for('static', path='vendor/plotly.min.js') }}" defer></script>
 {% endblock %}
 {% block content %}
-<section>
-  <h2>T² / Q</h2>
-  {% if shown.runs %}
-    <form id="monitoring-form" class="explore-form" method="get" action="/monitoring" data-auto-submit>
+<details class="card" data-group="monitoring" open>
+  <summary><h2>T² / Q</h2></summary>
+  <div class="card-body">
+    {#- Controls in other cards join this form with form="monitoring-form". -#}
+    {% if shown.runs %}
+      <form id="monitoring-form" class="explore-form" method="get" action="/monitoring" data-auto-submit>
+        {% if figures %}
+          <div class="field-row">
+            <label>Color by
+              <select name="color">
+                <option value="" {% if shown.color is none %}selected{% endif %}>none</option>
+                {% for column in shown.color_options %}
+                  <option value="{{ column }}" {% if column == shown.color %}selected{% endif %}>{{ column }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <button type="submit">Show</button>
+          </div>
+        {% endif %}
+      </form>
+    {% endif %}
+    {% if shown.error %}
+      <p class="error" data-monitoring-error>{{ shown.error }}</p>
+    {% elif figures %}
+      <p class="muted">
+        run {{ shown.run_id }} の T² と Q です。色分けは 3 つの図に共通です。
+        UCL を超えた点を強調します。点をクリックするか範囲を選ぶと、そのファイルを図の下の表に表示します。
+      </p>
+      <p data-exceeding>
+        Above UCL: T² {{ shown.points.t2_exceeding|length }}{% if shown.points.t2_exceeding %} ({{ shown.points.t2_exceeding|join(", ") }}){% endif %},
+        Q {{ shown.points.q_exceeding|length }}{% if shown.points.q_exceeding %} ({{ shown.points.q_exceeding|join(", ") }}){% endif %}
+        / {{ shown.points.samples.height }} files
+      </p>
+      {% if shown.unscored %}
+        <p class="warnings" data-unscored>No T² or Q because they contain missing values and were dropped by the imputation strategy drop: {{ shown.unscored|join(", ") }}</p>
+      {% endif %}
+    {% endif %}
+  </div>
+</details>
+
+{% if not shown.error and figures %}
+  <details class="card" data-group="control-charts" open>
+    <summary><h2>Control charts</h2></summary>
+    <div class="card-body">
       <div class="field-row">
-        <label>管理図の並び順
-          <select name="order">
-            <option value="" {% if shown.order is none %}selected{% endif %}>ファイル名（自然順）</option>
+        <label>Order by
+          <select name="order" form="monitoring-form">
+            <option value="" {% if shown.order is none %}selected{% endif %}>file name (natural order)</option>
             {% for column in shown.order_options %}
               <option value="{{ column }}" {% if column == shown.order %}selected{% endif %}>{{ column }}</option>
             {% endfor %}
           </select>
         </label>
-        <button type="submit">表示</button>
+        <button type="submit" form="monitoring-form">Show</button>
       </div>
-    </form>
-  {% endif %}
-</section>
-
-{% if shown.error %}
-  <section>
-    <p class="error" data-monitoring-error>{{ shown.error }}</p>
-  </section>
-{% elif figures %}
-  <section>
-    <p class="muted">
-      run {{ shown.run_id }} の T² と Q です。
-      {% if shown.order is none %}管理図はファイル名の自然順に並べています。{% else %}管理図は {{ shown.order }} の昇順（欠損は末尾、同じ値はファイル名の自然順）に並べています。{% endif %}
-      UCL を超えた点を強調します。点をクリックするか範囲を選ぶと、そのファイルを図の下の表に表示します。
-    </p>
-    <p data-exceeding>
-      UCL 超過：T² {{ shown.points.t2_exceeding|length }} 件{% if shown.points.t2_exceeding %}（{{ shown.points.t2_exceeding|join("、") }}）{% endif %}、
-      Q {{ shown.points.q_exceeding|length }} 件{% if shown.points.q_exceeding %}（{{ shown.points.q_exceeding|join("、") }}）{% endif %}
-      ／ 全 {{ shown.points.samples.height }} 件
-    </p>
-    {% if shown.unscored %}
-      <p class="warnings" data-unscored>欠損値を含み、補完方法 drop で除外されたため T²・Q を持たないファイル：{{ shown.unscored|join("、") }}</p>
-    {% endif %}
-    <div class="plot-grid">
-      <div id="monitoring-t2" class="plot" data-plot="monitoring-t2-figure" data-point-table="point-table"></div>
-      <div id="monitoring-q" class="plot" data-plot="monitoring-q-figure" data-point-table="point-table"></div>
+      <p class="muted">
+        {% if shown.order is none %}管理図はファイル名の自然順に並べています。{% else %}管理図は {{ shown.order }} の昇順（欠損は末尾、同じ値はファイル名の自然順）に並べています。{% endif %}
+      </p>
+      <div class="plot-grid">
+        <div id="monitoring-t2" class="plot" data-plot="monitoring-t2-figure" data-point-table="point-table"></div>
+        <div id="monitoring-q" class="plot" data-plot="monitoring-q-figure" data-point-table="point-table"></div>
+      </div>
     </div>
-    <div id="monitoring-scatter" class="plot" data-plot="monitoring-scatter-figure" data-point-table="point-table"></div>
-  </section>
+  </details>
+
+  <details class="card" data-group="t2-q-scatter" open>
+    <summary><h2>T² × Q scatter</h2></summary>
+    <div class="card-body">
+      <div id="monitoring-scatter" class="plot" data-plot="monitoring-scatter-figure" data-point-table="point-table"></div>
+    </div>
+  </details>
 
   {% include "partials/point_table.html" %}
 

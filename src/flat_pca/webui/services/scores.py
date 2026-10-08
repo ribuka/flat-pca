@@ -344,7 +344,7 @@ def resolve_scores(
         raise ValueError(f"succeeded fit run not found: {request.run}")
     run = by_id[request.run] if request.run is not None else (runs[0] if runs else None)
     if run is None:
-        return ScoresView(runs=runs, error="成功した fit run がありません")
+        return ScoresView(runs=runs, error="No succeeded fit run.")
     try:
         artifacts = cache.fit_artifacts(Path(str(run["artifact_dir"])))
     except RunArtifactError as error:

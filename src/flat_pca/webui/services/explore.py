@@ -49,12 +49,12 @@ ExploreViewKind = Literal[
 # Views computed from the rows prepared with the run's imputation.
 PreparedViewKind = Literal["contribution", "reconstruction", "residual", "q_contribution"]
 VIEW_LABELS: dict[ExploreViewKind, str] = {
-    "raw": "元データ",
-    "preprocessed": "前処理済み",
-    "contribution": "第 k 成分のみの寄与",
-    "reconstruction": "累積再構成（1..k 成分）",
-    "residual": "残差",
-    "q_contribution": "Q 寄与",
+    "raw": "Raw",
+    "preprocessed": "Preprocessed",
+    "contribution": "Contribution of component k",
+    "reconstruction": "Reconstruction (components 1..k)",
+    "residual": "Residual",
+    "q_contribution": "Q contribution",
 }
 VALUE_NAMES: dict[ExploreViewKind, str] = {
     "contribution": "contribution",
@@ -286,7 +286,7 @@ def _raw_view(
         try:
             spectra = cache.raw_spectra(Path(str(paths[stem])))
         except (OSError, ValueError, pl.exceptions.PolarsError) as caught:
-            error = f"{stem} を読み込めません（{type(caught).__name__}: {caught}）"
+            error = f"Cannot read {stem} ({type(caught).__name__}: {caught})."
             break
         if stem == order[0]:
             segment_options = raw_segments(spectra)
@@ -372,10 +372,10 @@ def _reconstruction_matrices(
         if view != "reconstruction":
             matrices[stem] = feature_segment_matrix(artifacts.features, values, *segment)
             continue
-        matrices[f"{stem}（累積再構成）"] = feature_segment_matrix(
+        matrices[f"{stem} (reconstruction)"] = feature_segment_matrix(
             artifacts.features, values, *segment
         )
-        matrices[f"{stem}（前処理済み）"] = feature_segment_matrix(
+        matrices[f"{stem} (preprocessed)"] = feature_segment_matrix(
             artifacts.features,
             # Read only this row of the memory-mapped matrix.
             np.asarray(artifacts.x[row], dtype=np.float64),
@@ -511,7 +511,7 @@ def _run_view(
         )
     error = None
     if not matrices:
-        error = "選んだファイルはすべて欠損値を含み、補完方法 drop で除外されるため表示できません"
+        error = "Cannot show the chosen files: all of them contain missing values and are dropped by the imputation strategy drop."
     shown = [stem for stem in files if stem not in dropped]
     return ExploreView(
         view=view,
@@ -575,7 +575,7 @@ def resolve_explore(
         return ExploreView(
             view=view,
             runs=runs,
-            error="成功した fit run がありません。先に前処理・PCA で fit を実行してください",
+            error="No succeeded fit run. Run a fit on Preprocess / PCA first.",
         )
     run_id = str(run["run_id"])
     try:
