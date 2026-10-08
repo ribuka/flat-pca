@@ -188,16 +188,29 @@ const busyOverlay = (() => {
     tickTimer = setInterval(showElapsed, BUSY_TICK_MS);
   }
 
-  cancel.addEventListener("click", () => {
+  // With `keepOnCancel`, the action returns a promise of whether the cancel
+  // request was accepted; a refused or failed request lets the user retry.
+  cancel.addEventListener("click", async () => {
     const action = cancelAction;
-    if (keepOpen) {
-      cancel.disabled = true;
-      message.textContent = "キャンセルしています…";
-    } else {
+    if (!keepOpen) {
       stop();
+      if (action) {
+        action();
+      }
+      return;
     }
-    if (action) {
-      action();
+    const cancelledOwner = currentOwner;
+    cancel.disabled = true;
+    message.textContent = "キャンセルしています…";
+    let accepted = false;
+    try {
+      accepted = action ? await action() : true;
+    } catch {
+      // A failed request is reported below like a refused one.
+    }
+    if (!accepted && currentOwner === cancelledOwner) {
+      cancel.disabled = false;
+      message.textContent = "キャンセルできませんでした。もう一度お試しください。";
     }
   });
 
@@ -231,7 +244,12 @@ function syncFitOverlay() {
   const key = `fit:${panel.dataset.runId}`;
   if (owner !== key) {
     const cancelUrl = panel.dataset.cancelUrl;
-    busyOverlay.start(() => fetch(cancelUrl, { method: "POST" }), {
+    // A run that is no longer active (409) is closed by the next poll.
+    const cancelRun = async () => {
+      const response = await fetch(cancelUrl, { method: "POST" });
+      return response.ok || response.status === 409;
+    };
+    busyOverlay.start(cancelRun, {
       owner: key,
       message: "fit を実行しています…",
       keepOnCancel: true,
@@ -241,6 +259,18 @@ function syncFitOverlay() {
 }
 
 document.addEventListener("htmx:afterSettle", syncFitOverlay);
+
+// A control that fails the browser's validation inside a collapsed group
+// opens the group, so the browser can focus it and show the message.
+document.addEventListener(
+  "invalid",
+  (event) => {
+    for (let group = event.target.closest("details"); group; group = group.parentElement.closest("details")) {
+      group.open = true;
+    }
+  },
+  true,
+);
 
 // Submits a GET form whenever one of its controls changes.
 document.addEventListener("change", (event) => {

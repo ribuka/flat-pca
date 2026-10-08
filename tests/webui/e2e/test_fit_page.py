@@ -85,3 +85,46 @@ def test_cancel_stops_the_running_fit(page: Page, slow_fit_server_url: str) -> N
     # The closed status group opens to show the result.
     expect(page.locator('details[data-group="status"]')).to_have_attribute("open", "")
     expect(page.locator(".layout")).not_to_have_attribute("inert", "")
+
+
+def test_invalid_value_in_a_collapsed_group_opens_it(
+    page: Page, slow_fit_server_url: str
+) -> None:
+    """The browser's validation opens the collapsed group of the invalid field."""
+    _open_fit_page(page, slow_fit_server_url)
+    group = page.locator('details[data-group="pca"]')
+    n_component = page.locator('input[name="n_component"]')
+    n_component.fill("0")
+    group.locator("summary").click()
+    expect(group).not_to_have_attribute("open", "")
+
+    page.get_by_role("button", name="fit を実行").click()
+
+    expect(group).to_have_attribute("open", "")
+    expect(n_component).to_be_focused()
+    expect(page.locator("#busy-overlay")).to_be_hidden()
+
+
+def test_failed_cancel_request_can_be_retried(
+    page: Page, slow_fit_server_url: str, expected_console_errors: list[str]
+) -> None:
+    """A cancel request that does not reach the server enables the button again."""
+    expected_console_errors.append("net::ERR_FAILED")
+    _open_fit_page(page, slow_fit_server_url)
+    _submit_fit(page)
+    page.route("**/runs/*/cancel", lambda route: route.abort())
+    cancel = page.locator("#busy-cancel")
+
+    cancel.click()
+
+    expect(page.locator("#busy-message")).to_have_text(
+        "キャンセルできませんでした。もう一度お試しください。"
+    )
+    expect(cancel).to_be_enabled()
+    expect(page.locator("[data-run-status]")).to_have_text("running")
+
+    page.unroute("**/runs/*/cancel")
+    cancel.click()
+
+    expect(page.locator("#busy-overlay")).to_be_hidden(timeout=FIT_TIMEOUT_MS)
+    expect(page.locator("[data-run-status]")).to_have_text("cancelled")

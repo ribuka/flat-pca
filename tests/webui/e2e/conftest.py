@@ -191,9 +191,27 @@ def one_file_server_url(settings: Settings, spectra_paths: list[Path]) -> Iterat
     yield from serve(limited)
 
 
+@pytest.fixture
+def expected_console_errors() -> list[str]:
+    """Return texts of console errors that a test expects to be logged.
+
+    A test that makes a request fail on purpose appends a text contained in
+    the error that the browser logs for it.
+
+    Returns
+    -------
+    list[str]
+        Initially empty.
+    """
+    return []
+
+
 @pytest.fixture(autouse=True)
-def no_console_errors(page: Page) -> Iterator[None]:
-    """Fail the test when the page logs a console error or throws.
+def no_console_errors(page: Page, expected_console_errors: list[str]) -> Iterator[None]:
+    """Fail the test when the page logs an unexpected console error or throws.
+
+    Console errors containing a text of ``expected_console_errors`` are
+    allowed.
 
     Yields
     ------
@@ -204,7 +222,9 @@ def no_console_errors(page: Page) -> Iterator[None]:
 
     def on_console(message: ConsoleMessage) -> None:
         """Record console messages of type ``error``."""
-        if message.type == "error":
+        if message.type == "error" and not any(
+            text in message.text for text in expected_console_errors
+        ):
             errors.append(f"console: {message.text} ({message.location['url']})")
 
     def on_page_error(error: Error) -> None:
