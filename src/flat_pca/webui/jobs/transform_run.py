@@ -56,6 +56,27 @@ TARGET_PREPROCESS_OVERRIDES: dict[str, object] = {
 }
 
 
+def file_state(path: Path) -> dict[str, object]:
+    """Return the size and modification time identifying a file's contents.
+
+    Parameters
+    ----------
+    path : Path
+        Target file.
+
+    Returns
+    -------
+    dict[str, object]
+        ``size`` and ``mtime_ns`` of the file, both ``None`` if it cannot be
+        read (the job then fails on reading it).
+    """
+    try:
+        stat = path.stat()
+    except OSError:
+        return {"size": None, "mtime_ns": None}
+    return {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+
+
 def build_transform_config(
     settings: Settings,
     files: Sequence[Mapping[str, object]],
@@ -78,14 +99,18 @@ def build_transform_config(
     dict[str, object]
         Configuration passed to ``run_transform`` and saved as
         ``config.json``: the fit run's identifier and directory, the
-        target files, and the fit run's ``preprocess``, ``mahalanobis``,
-        and ``spe`` settings.
+        target files (each with its ``file_state`` when the configuration
+        is built), and the fit run's ``preprocess``, ``mahalanobis``, and
+        ``spe`` settings.
     """
     fit_config = cast(dict[str, object], json.loads(str(fit_run["config_json"])))
+    entries = file_entries(settings, files)
+    for entry in cast(list[dict[str, object]], entries["files"]):
+        entry |= file_state(Path(str(entry["path"])))
     return {
         FIT_RUN_ID_KEY: str(fit_run["run_id"]),
         FIT_RUN_DIR_KEY: str(fit_run["artifact_dir"]),
-        **file_entries(settings, files),
+        **entries,
         "preprocess": fit_config["preprocess"],
         "mahalanobis": fit_config["mahalanobis"],
         "spe": fit_config["spe"],

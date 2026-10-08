@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from typing import cast
 
-from .run_dirs import fit_run_reference
+from .run_dirs import FIT_RUN_ID_KEY, fit_run_reference
 
 
 def run_target_files(run: Mapping[str, object]) -> list[dict[str, object]]:
@@ -50,34 +50,63 @@ def run_target_stems(run: Mapping[str, object]) -> list[str]:
     return [str(file["stem"]) for file in run_target_files(run)]
 
 
+FileIdentity = tuple[str, str, object, object]
+
+
+def file_identities(files: Iterable[Mapping[str, object]]) -> frozenset[FileIdentity] | None:
+    """Return the identities of the target files of a transform configuration.
+
+    Parameters
+    ----------
+    files : Iterable[Mapping[str, object]]
+        ``files`` entries of a transform configuration, each with ``stem``,
+        ``path``, ``size``, and ``mtime_ns`` (see ``build_transform_config``).
+
+    Returns
+    -------
+    frozenset[FileIdentity] | None
+        ``(stem, path, size, mtime_ns)`` of every file, or ``None`` if a
+        file's size or modification time is unknown, so that it matches no
+        other run.
+    """
+    identities = set()
+    for file in files:
+        size, mtime_ns = file.get("size"), file.get("mtime_ns")
+        if size is None or mtime_ns is None:
+            return None
+        identities.add((str(file["stem"]), str(file["path"]), size, mtime_ns))
+    return frozenset(identities)
+
+
 def find_transform_run(
-    transform_runs: Iterable[dict[str, object]], fit_run_id: str, stems: Collection[str]
+    transform_runs: Iterable[dict[str, object]], config: Mapping[str, object]
 ) -> dict[str, object] | None:
-    """Return the first succeeded transform run of the same model and targets.
+    """Return the first succeeded transform run of the same model and target files.
 
     Parameters
     ----------
     transform_runs : Iterable[dict[str, object]]
         Transform runs to search, newest first.
-    fit_run_id : str
-        Fit run whose model transforms the targets.
-    stems : Collection[str]
-        Stems of the transform targets; their order does not matter.
+    config : Mapping[str, object]
+        Configuration of the transform to run (see ``build_transform_config``).
 
     Returns
     -------
     dict[str, object] | None
-        The first succeeded run made with ``fit_run_id`` whose target stems
-        are the same set as ``stems``, or ``None``.
+        The first succeeded run made with the same fit run whose target
+        files are the same set (order aside) with the same paths, sizes,
+        and modification times, or ``None``. A file changed since a run
+        makes that run unusable.
     """
-    wanted = set(stems)
+    wanted = file_identities(cast(list[dict[str, object]], config["files"]))
+    if wanted is None:
+        return None
+    fit_run_id = str(config[FIT_RUN_ID_KEY])
     for run in transform_runs:
         reference = fit_run_reference(run)
-        if (
-            run["status"] == "succeeded"
-            and reference is not None
-            and reference[0] == fit_run_id
-            and set(run_target_stems(run)) == wanted
-        ):
+        if run["status"] != "succeeded" or reference is None or reference[0] != fit_run_id:
+            continue
+        saved = cast(dict[str, object], json.loads(str(run["config_json"])))
+        if file_identities(cast(list[dict[str, object]], saved["files"])) == wanted:
             return run
     return None

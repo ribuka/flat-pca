@@ -53,7 +53,7 @@
     <input type="hidden" id="selected-stems" name="stems" value='{{ selected|tojson }}'>
     <div class="selection-actions">
       {% include "partials/transform_submit.html" %}
-      <button id="run-transform" type="button" class="button-primary" hx-post="/transform" hx-include="#selected-stems"
+      <button id="run-transform" type="button" class="button-primary" hx-post="/transform" hx-include="#selected-stems, #transform-settings-form"
               hx-target="#transform-submit-message" hx-swap="outerHTML" {% if not model_run_id %}disabled{% endif %}>Run transform</button>
     </div>
   </div>

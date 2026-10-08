@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -15,7 +16,7 @@ from view_choice import choose_view
 
 from flat_pca.webui.app import create_app
 from flat_pca.webui.jobs.fit_run import SCORES_FILE
-from flat_pca.webui.routes.view_selection import current_view_choice
+from flat_pca.webui.routes.view_selection import current_model_run, current_view_choice
 from flat_pca.webui.services.monitoring import MonitoringRequest, resolve_monitoring
 from flat_pca.webui.services.runs import insert_run, list_runs, update_run
 from flat_pca.webui.settings import Settings
@@ -53,9 +54,27 @@ def _register_transform(
     return targets
 
 
-def _submit(client: TestClient, stems: list[str]) -> object:
-    """Post the transform form with the chosen stems."""
-    return client.post("/transform", data={"stems": json.dumps(stems)})
+def _submit(
+    client: TestClient,
+    stems: list[str],
+    model: str | None = None,
+    use_same_data: bool | None = None,
+) -> object:
+    """Post "Run transform" with the chosen stems and the page's settings.
+
+    The model and the checkbox default to those a page drawn now shows.
+    """
+    page = _workspace(client)
+    if model is None and (shown := current_model_run(page)) is not None:
+        model = str(shown["run_id"])
+    if use_same_data is None:
+        use_same_data = page.transform_settings.use_same_data
+    data = {"stems": json.dumps(stems)}
+    if model is not None:
+        data["model"] = model
+    if use_same_data:
+        data["use_same_data"] = "true"
+    return client.post("/transform", data=data)
 
 
 def _settings(
@@ -132,7 +151,7 @@ def test_page_with_a_fit_run_locks_the_fit_targets(
     assert _selected_stems(html) == [path.stem for path in spectra_paths]
     assert 'hx-post="/transform/settings"' in html
     assert re.search(
-        r'<button id="run-transform"[^>]*hx-include="#selected-stems"[^>]*>', html
+        r'<button id="run-transform"[^>]*hx-include="#selected-stems, #transform-settings-form"[^>]*>', html
     )
     assert not re.search(r'<button id="run-transform"[^>]*disabled', html)
     assert 'hx-get="/transform/runs"' in html
@@ -241,6 +260,39 @@ def test_submit_with_the_same_data_transforms_the_fit_targets_once(
     assert _transform_run_ids(client) == [run["run_id"]]
     # Showing the run that is already shown keeps the shown files.
     assert current_view_choice(workspace).files == choice.file_options[:1]
+
+    # A target file changed since the run is transformed again.
+    changed = spectra_paths[0]
+    stat = changed.stat()
+    os.utime(changed, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
+    response = _submit(client, [])
+
+    assert response.headers["HX-Trigger"] == "transform-started"
+    rerun = re.search(r'data-run-id="([^"]+)"', response.text)
+    assert rerun is not None
+    assert wait_for(workspace.database, rerun.group(1))["status"] == "succeeded"
+    assert _transform_run_ids(client) == [rerun.group(1), run["run_id"]]
+
+
+def test_submit_uses_the_settings_the_page_was_drawn_with(
+    client: TestClient, settings: Settings, spectra_paths: list[Path], wait_for: Wait
+) -> None:
+    """A model chosen in another tab does not change what an older page transforms."""
+    _register_fit(client, settings, spectra_paths)
+    _register_fit(client, settings, spectra_paths[:6], "fit-2")
+    # Another tab chooses fit-2 and its own targets after this page showed fit-1.
+    _settings(client, "fit-2", use_same_data=True)
+
+    response = _submit(client, [], model="fit-1", use_same_data=True)
+
+    run_id = re.search(r'data-run-id="([^"]+)"', response.text)
+    assert run_id is not None
+    run = wait_for(_workspace(client).database, run_id.group(1))
+    assert json.loads(str(run["config_json"]))["fit_run_id"] == "fit-1"
+    assert run["n_files"] == SPECTRA_FILE_COUNT
+    gone = _submit(client, [], model="missing", use_same_data=True)
+    assert "Fit run missing is no longer available. Reload the page." in gone.text
+    assert "HX-Trigger" not in gone.headers
 
 
 def test_submit_runs_a_transform_job_of_the_chosen_files(

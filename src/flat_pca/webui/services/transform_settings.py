@@ -43,7 +43,7 @@ class TransformSettings:
         with self._lock:
             return self._use_same_data
 
-    def update(self, model_run_id: str, use_same_data: bool) -> None:
+    def update(self, model_run_id: str, use_same_data: bool) -> bool:
         """Replace the settings.
 
         Parameters
@@ -53,7 +53,14 @@ class TransformSettings:
             the caller.
         use_same_data : bool
             Whether the transform targets are the model's fit targets.
+
+        Returns
+        -------
+        bool
+            ``use_same_data`` before the update, read under the same lock.
         """
         with self._lock:
+            previous = self._use_same_data
             self._model_run_id = model_run_id
             self._use_same_data = use_same_data
+            return previous

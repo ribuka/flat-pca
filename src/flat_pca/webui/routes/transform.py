@@ -162,10 +162,8 @@ def update_settings(
     requested = _parse_stems(stems)
     if all(run["run_id"] != model for run in model_runs(workspace, model)):
         raise HTTPException(status_code=400, detail=f"succeeded fit run not found: {model}")
-    settings = workspace.transform_settings
-    if not settings.use_same_data:
+    if not workspace.transform_settings.update(model, use_same_data):
         workspace.transform_selection.replace(workspace.database, requested)
-    settings.update(model, use_same_data)
     return selection_changed("model")
 
 
@@ -173,15 +171,20 @@ def update_settings(
 def submit_transform(
     request: Request,
     workspace: WorkspaceDependency,
+    model: Annotated[str | None, Form()] = None,
+    use_same_data: Annotated[bool, Form()] = False,
     stems: Annotated[str, Form()] = "[]",
 ) -> HTMLResponse:
-    """Transform the targets with the chosen model, or show an earlier result.
+    """Transform the targets with the page's model, or show an earlier result.
 
-    With ``use same data for fit`` checked, the targets are the model's fit
-    targets and ``stems`` is ignored. Unchecked, the chosen stems are saved
-    and the cataloged files among them are the targets. If a succeeded
-    transform run already transformed the same set of targets with the same
-    model, no job is queued and that run is shown instead.
+    The model and the checkbox are those the page was drawn with, sent with
+    the request, so a change in another tab does not change what the page
+    transforms. With ``use same data for fit`` checked, the targets are the
+    model's fit targets and ``stems`` is ignored. Unchecked, the chosen
+    stems are saved and the cataloged files among them are the targets. If
+    a succeeded transform run already transformed the same target files,
+    unchanged since, with the same model (see ``find_transform_run``), no
+    job is queued and that run is shown instead.
 
     Parameters
     ----------
@@ -189,6 +192,10 @@ def submit_transform(
         Current request.
     workspace : Workspace
         Application workspace.
+    model : str | None, default None
+        Fit run chosen on the page; ``None`` when the page had none.
+    use_same_data : bool, default False
+        Whether the page's ``use same data for fit`` is checked.
     stems : str, default "[]"
         JSON array of the chosen target stems over all pages and filters,
         parsed by ``parse_stems_json``; stems not in the catalog are ignored.
@@ -196,8 +203,8 @@ def submit_transform(
     Returns
     -------
     HTMLResponse
-        Submit message partial: an error when no fit run succeeded or no
-        target is chosen. A reused run is chosen as the shown run and
+        Submit message partial: an error when the model is missing or gone,
+        or no target is chosen. A reused run is chosen as the shown run and
         announced with ``view-selection-changed`` (``{"changed": "run"}``).
         A queued run is chosen as the shown run, so it is shown once it
         succeeds; the response also replaces the run status out of band and
@@ -209,31 +216,34 @@ def submit_transform(
         With status 400 if ``stems`` is not a JSON array of strings.
     """
     requested = _parse_stems(stems)
-    model_run = current_model_run(workspace)
-    if workspace.transform_settings.use_same_data:
-        files = [] if model_run is None else run_target_files(model_run)
+    if model is None:
+        return _submit_message(
+            request, {"error": "No succeeded fit run. Run a fit on Preprocess / PCA first."}
+        )
+    model_run = next(
+        (run for run in model_runs(workspace, model) if run["run_id"] == model), None
+    )
+    if model_run is None:
+        return _submit_message(
+            request, {"error": f"Fit run {model} is no longer available. Reload the page."}
+        )
+    if use_same_data:
+        files = run_target_files(model_run)
     else:
         wanted = set(workspace.transform_selection.replace(workspace.database, requested))
         files = [
             file for file in list_files(workspace.database, FileQuery()) if file["stem"] in wanted
         ]
-    if model_run is None or not files:
-        error = (
-            "No succeeded fit run. Run a fit on Preprocess / PCA first."
-            if model_run is None
-            else "Choose the files to transform."
-        )
-        return _submit_message(request, {"error": error})
-    fit_run_id = str(model_run["run_id"])
+    if not files:
+        return _submit_message(request, {"error": "Choose the files to transform."})
+    config = build_transform_config(workspace.settings, files, model_run)
     reused = find_transform_run(
-        list_runs(workspace.database, TRANSFORM_JOB, limit=None, status="succeeded"),
-        fit_run_id,
-        [str(file["stem"]) for file in files],
+        list_runs(workspace.database, TRANSFORM_JOB, limit=None, status="succeeded"), config
     )
     if reused is not None:
         workspace.view_selection.choose_run(str(reused["run_id"]))
         return _submit_message(request, {"reused": reused}, selection_changed_trigger("run"))
-    run_id = workspace.submit_transform(build_transform_config(workspace.settings, files, model_run))
+    run_id = workspace.submit_transform(config)
     workspace.view_selection.choose_run(run_id)
     return _submit_message(
         request,

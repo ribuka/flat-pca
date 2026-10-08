@@ -83,8 +83,14 @@ def test_build_transform_config_takes_the_fit_run_settings(
     fit_run = _fit_run(database, settings, spectra_paths)
     fit_config = json.loads(str(fit_run["config_json"]))
 
+    target = spectra_paths[0]
     config = build_transform_config(
-        settings, [{"stem": "a", "path": "a.parquet", "lot": "Z"}], fit_run
+        settings,
+        [
+            {"stem": "a", "path": str(target), "lot": "Z"},
+            {"stem": "gone", "path": "gone.parquet"},
+        ],
+        fit_run,
     )
 
     assert config["fit_run_id"] == "fit-1"
@@ -92,12 +98,22 @@ def test_build_transform_config_takes_the_fit_run_settings(
     assert config["preprocess"] == fit_config["preprocess"]
     assert config["mahalanobis"] == fit_config["mahalanobis"]
     assert config["spe"] == fit_config["spe"]
+    # Each file's size and modification time identify the transformed contents.
     assert config["files"] == [
         {
             "stem": "a",
-            "path": "a.parquet",
+            "path": str(target),
             "metadata": {"lot": "Z", "date": None, "yield_pct": None},
-        }
+            "size": target.stat().st_size,
+            "mtime_ns": target.stat().st_mtime_ns,
+        },
+        {
+            "stem": "gone",
+            "path": "gone.parquet",
+            "metadata": {"lot": None, "date": None, "yield_pct": None},
+            "size": None,
+            "mtime_ns": None,
+        },
     ]
 
 

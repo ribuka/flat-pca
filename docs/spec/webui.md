@@ -170,7 +170,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 | ファイル | 内容 | 形式 |
 | --- | --- | --- |
-| `config.json` | 元の fit run の`fit_run_id`・`fit_run_dir`、対象ファイル一覧（ファイルごとのメタデータを含む）、fit run の前処理・T²/Q設定、`artifact_dtype` | JSON |
+| `config.json` | 元の fit run の`fit_run_id`・`fit_run_dir`、対象ファイル一覧（ファイルごとのメタデータと、投入時のサイズ`size`・更新時刻`mtime_ns`を含む）、fit run の前処理・T²/Q設定、`artifact_dtype` | JSON |
 | `samples.parquet` | fit run と同じ形式 | Parquet |
 | `X.npy` | 前処理・flatten 後、補完前の行列。列は fit run の`features.parquet`の順（欠損はNaN） | `.npy` |
 | `scores.parquet` | `source`、`pca-1..k`、T²（`mahalanobis_*`）・Q（`spe_*`）列。`impute_strategy="drop"`で除いた行は含まない。T²・QのUCLは fit run のモデル（`MahalanobisConfig`・`SpeConfig`）から求めるため、同じ fit run の transform run では同じ値になる | Parquet |
@@ -257,8 +257,8 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - 表はデータ選択と同じもの（`/catalog/files`の絞り込み・ソート・ページング、ページやフィルタをまたいだ選択、ヘッダのチェックボックスでの一括選択）とする。
   - チェックありのときは、モデルの fit 対象（fit run の`config.json`のファイル）を選んだ状態で表示し、表のチェックボックスを無効にしてグレーアウトする（`#file-table`の`data-locked`。絞り込み・ソート・ページングは使える）。
   - チェックなしのときは、catalog から自由に選べる。選択は送信時に workspace（`Workspace.transform_selection`）へ保存し、画面を開き直しても残す。
-- fit を実行しただけでは transform しない。「Run transform」（`POST /transform`）を押したときにだけ、選んだモデルで transformジョブ（種別`transform`）を投入する。チェックありのときは fit 対象を、チェックなしのときは表で選んだ catalog のファイルを対象とする。fit run がない・対象がないときは、ボタンの横にエラーを表示する。
-  - チェックの有無を問わず、同じ fit run で同じ対象ファイルの集合（順序は問わない）を transform した成功済みの transform run があれば、ジョブを作らずにその run を表示する run にし、その旨をボタンの横に表示する（`services/transform_targets.py::find_transform_run`）。チェックなしで fit 対象と同じファイルを手で選んだ場合も同じ。
+- fit を実行しただけでは transform しない。「Run transform」（`POST /transform`）を押したときにだけ、選んだモデルで transformジョブ（種別`transform`）を投入する。モデルとチェックの有無は、画面を描いたときのもの（設定フォームの値）を要求に含めて使い、別のタブで設定を変えても、その画面で選んだものとは別のモデル・対象を transform しない。要求のモデルがもう成功した fit run でなければ、画面の読み直しを促すエラーを表示する。チェックありのときは fit 対象を、チェックなしのときは表で選んだ catalog のファイルを対象とする。fit run がない・対象がないときは、ボタンの横にエラーを表示する。
+  - チェックの有無を問わず、同じ fit run で同じ対象ファイルの集合（順序は問わない）を transform した成功済みの transform run があり、その後どのファイルも変わっていなければ（`config.json`に保存したファイルごとのパス・サイズ・更新時刻`size`・`mtime_ns`が今と同じなら）、ジョブを作らずにその run を表示する run にし、その旨をボタンの横に表示する（`services/transform_targets.py::find_transform_run`）。チェックなしで fit 対象と同じファイルを手で選んだ場合も同じ。
   - 投入した transform run は、その時点で表示する run に選んでおき、成功したら表示する（実行中・失敗したときは最新の成功した transform run を表示する）。
 - 実行中は前処理・PCA画面と同じオーバーレイ（「Running the transform…」、経過時間、段階と進捗、残り時間、キャンセル）と実行状況を表示し、`/transform/runs/{run_id}/status`をポーリングする。終わったら`transform-updated`で transform run 一覧とサイドバーの表示ファイルを取得し直す。
 - transform run 一覧（`/transform/runs`）は、表示中の run（元の fit run とファイル数）と、run・元の fit run・作成日時・状態・ファイル数・所要時間を新しい順に表示する。成功した run の「Show」（`POST /transform/show`）で、その run をスペクトル探索・スコア・T² / Q とサイドバーの表示ファイルで使う run にする。
