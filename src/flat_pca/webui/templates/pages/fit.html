@@ -7,19 +7,24 @@
     fit 対象：<strong data-selected-count="{{ selected_count }}">{{ selected_count }}</strong> ファイル
     （<a href="/">データ選択</a>で変更できます）
   </p>
-  {% include "partials/fit_form.html" %}
 </section>
 
-<section>
-  <h2>実行状況</h2>
-  <div id="fit-run-status">{% include "partials/fit_run_status.html" %}</div>
-</section>
+{% include "partials/fit_form.html" %}
 
-<section>
-  <h2>run 一覧</h2>
-  <div id="fit-runs" hx-get="/fit/runs" hx-target="this" hx-swap="innerHTML"
-       hx-trigger="load, fit-started from:body, fit-updated from:body">
-    <p class="muted">読み込み中…</p>
+<details class="card" data-group="status" open>
+  <summary><h2>実行状況</h2></summary>
+  <div class="card-body">
+    <div id="fit-run-status">{% include "partials/fit_run_status.html" %}</div>
   </div>
-</section>
+</details>
+
+<details class="card" data-group="runs" open>
+  <summary><h2>run 一覧</h2></summary>
+  <div class="card-body">
+    <div id="fit-runs" hx-get="/fit/runs" hx-target="this" hx-swap="innerHTML"
+         hx-trigger="load, fit-started from:body, fit-updated from:body">
+      <p class="muted">読み込み中…</p>
+    </div>
+  </div>
+</details>
 {% endblock %}

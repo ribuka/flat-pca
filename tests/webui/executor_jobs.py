@@ -1,4 +1,4 @@
-"""Job functions run in child processes by the executor tests.
+"""Job functions run in child processes by the executor and Web UI tests.
 
 They live in a module of their own so spawned children can import them.
 """
@@ -8,6 +8,8 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
+
+from flat_pca.webui.jobs.progress import write_progress
 
 OUTPUT_FILE = "output.txt"
 
@@ -56,3 +58,32 @@ def raise_error(config: dict[str, object], run_dir: Path) -> None:
         Always.
     """
     raise ValueError("bad input")
+
+
+FIT_STAGE_SECONDS = 2.0
+FIT_STAGES = ("preprocess", "fit", "score", "save")
+SLOW_FIT_ERROR = "slow fit stopped after its stages"
+
+
+def fit_in_slow_stages(config: dict[str, object], run_dir: Path) -> None:
+    """Stand in for the fit job: go through its stages slowly, then fail.
+
+    Each stage writes ``progress.json`` like the fit job and lasts
+    ``FIT_STAGE_SECONDS``, so a browser can watch the run while it is active.
+
+    Parameters
+    ----------
+    config : dict[str, object]
+        Unused job configuration.
+    run_dir : Path
+        Run directory receiving ``progress.json``.
+
+    Raises
+    ------
+    RuntimeError
+        Always, after the last stage.
+    """
+    for index, stage in enumerate(FIT_STAGES):
+        write_progress(run_dir, stage, index, len(FIT_STAGES))
+        time.sleep(FIT_STAGE_SECONDS)
+    raise RuntimeError(SLOW_FIT_ERROR)

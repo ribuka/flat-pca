@@ -41,6 +41,26 @@ class Progress:
         """
         return 0.0 if self.total <= 0 else 100.0 * self.done / self.total
 
+    def remaining_s(self, elapsed_s: float) -> float | None:
+        """Return the estimated seconds until ``done`` reaches ``total``.
+
+        The rate of progress so far is assumed to continue:
+        ``elapsed_s * (total - done) / done``.
+
+        Parameters
+        ----------
+        elapsed_s : float
+            Seconds spent on the ``done`` units.
+
+        Returns
+        -------
+        float | None
+            The estimate, or ``None`` while no unit is done.
+        """
+        if self.done <= 0:
+            return None
+        return elapsed_s * max(self.total - self.done, 0) / self.done
+
 
 def write_progress(run_dir: Path, stage: str, done: int, total: int) -> None:
     """Atomically write ``progress.json``.

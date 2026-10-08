@@ -32,87 +32,96 @@
   {{ error(name) }}
 {%- endmacro %}
 <form id="fit-form" class="fit-form" hx-post="/fit" hx-target="this" hx-swap="outerHTML">
-  {{ error("files") }}
+  <details class="card" data-group="target-steps" open>
+    <summary><h2>対象 Step</h2></summary>
+    <div class="card-body">
+      <div class="field-row" data-field="target_steps">
+        {% for step in ranges.steps %}
+          <label><input type="checkbox" name="target_steps" value="{{ step }}" {% if step|string in values.get("target_steps", []) %}checked{% endif %}> {{ step }}</label>
+        {% else %}
+          <span class="muted">catalog に Step がありません。</span>
+        {% endfor %}
+        {{ error("target_steps") }}
+      </div>
+    </div>
+  </details>
 
-  <fieldset>
-    <legend>対象 Step</legend>
-    <div class="field-row" data-field="target_steps">
-      {% for step in ranges.steps %}
-        <label><input type="checkbox" name="target_steps" value="{{ step }}" {% if step|string in values.get("target_steps", []) %}checked{% endif %}> {{ step }}</label>
-      {% else %}
-        <span class="muted">catalog に Step がありません。</span>
-      {% endfor %}
-      {{ error("target_steps") }}
+  <details class="card" data-group="preprocess" open>
+    <summary><h2>前処理</h2></summary>
+    <div class="card-body">
+      {{ range_field("wavelength_range", "波長範囲", ranges.wavelength_min, ranges.wavelength_max) }}
+      <div class="field-row">
+        <span>端のトリム（StepTime）</span>
+        <input type="number" name="edge_trim_start" value="{{ values.get('edge_trim_start', '') }}" step="any" placeholder="先頭" aria-label="先頭のトリム">
+        <input type="number" name="edge_trim_end" value="{{ values.get('edge_trim_end', '') }}" step="any" placeholder="末尾" aria-label="末尾のトリム">
+        {% if ranges.step_time_max is not none %}<span class="muted">（StepTime 最大：{{ ranges.step_time_max|cell }}。空欄で無効）</span>{% endif %}
+        {{ error("edge_trim") }}
+      </div>
+      <div class="field-row">
+        {{ number("t_smoothing_window", "時間方向の平滑化（半幅、Time）", placeholder="空欄で無効", min=0) }}
+        {{ number("w_smoothing_window", "波長方向の平滑化（半幅、nm）", placeholder="空欄で無効", min=0) }}
+      </div>
+      {{ range_field("t_normalization_range", "時間方向の正規化範囲（Time）", ranges.time_min, ranges.time_max) }}
+      {{ range_field("w_normalization_range", "波長方向の正規化範囲（nm）", ranges.wavelength_min, ranges.wavelength_max) }}
+      <div class="field-row">
+        {{ select("intensity_transform", "強度変換", intensity_transforms) }}
+        {{ number("intensity_transform_scale", "変換スケール", min=0) }}
+        <span class="muted">log1p は x / スケール ≤ −1 の値があると、実行時にエラーになります。</span>
+      </div>
+      <div class="field-row">
+        {{ number("t_downsampling_stride", "時間方向の間引き", step=1, min=1) }}
+        {{ number("w_downsampling_stride", "波長方向の間引き", step=1, min=1) }}
+        {{ number("max_null_ratio", "max_null_ratio", min=0, max=1) }}
+      </div>
     </div>
-  </fieldset>
+  </details>
 
-  <fieldset>
-    <legend>前処理</legend>
-    {{ range_field("wavelength_range", "波長範囲", ranges.wavelength_min, ranges.wavelength_max) }}
-    <div class="field-row">
-      <span>端のトリム（StepTime）</span>
-      <input type="number" name="edge_trim_start" value="{{ values.get('edge_trim_start', '') }}" step="any" placeholder="先頭" aria-label="先頭のトリム">
-      <input type="number" name="edge_trim_end" value="{{ values.get('edge_trim_end', '') }}" step="any" placeholder="末尾" aria-label="末尾のトリム">
-      {% if ranges.step_time_max is not none %}<span class="muted">（StepTime 最大：{{ ranges.step_time_max|cell }}。空欄で無効）</span>{% endif %}
-      {{ error("edge_trim") }}
+  <details class="card" data-group="pca" open>
+    <summary><h2>PCA</h2></summary>
+    <div class="card-body">
+      <div class="field-row">
+        {{ number("n_component", "成分数", placeholder="自動", step=1, min=1) }}
+        <span class="muted">
+          空欄では累積寄与率 {{ auto_cumulative }} に達する成分数（上限 {{ auto_cap }}）にします。
+          成分数を打ち切ると、捨てた成分の分散を平均値で近似するため、Q の UCL（θ₂・θ₃）の精度が下がります。
+        </span>
+      </div>
+      <div class="field-row">
+        {{ select("impute_strategy", "欠損の補完", impute_strategies) }}
+        {{ number("impute_kmeans_n_clusters", "kmeans のクラスター数", placeholder="既定", step=1, min=1) }}
+      </div>
+      <div class="field-row">
+        {{ select("scaling_strategy", "スケーリング", scaling_strategies) }}
+        <span class="muted">none 以外では NumPy の高速経路を使わないため、fit が遅くなり、必要メモリも増えます。</span>
+      </div>
     </div>
-    <div class="field-row">
-      {{ number("t_smoothing_window", "時間方向の平滑化（半幅、Time）", placeholder="空欄で無効", min=0) }}
-      {{ number("w_smoothing_window", "波長方向の平滑化（半幅、nm）", placeholder="空欄で無効", min=0) }}
-    </div>
-    {{ range_field("t_normalization_range", "時間方向の正規化範囲（Time）", ranges.time_min, ranges.time_max) }}
-    {{ range_field("w_normalization_range", "波長方向の正規化範囲（nm）", ranges.wavelength_min, ranges.wavelength_max) }}
-    <div class="field-row">
-      {{ select("intensity_transform", "強度変換", intensity_transforms) }}
-      {{ number("intensity_transform_scale", "変換スケール", min=0) }}
-      <span class="muted">log1p は x / スケール ≤ −1 の値があると、実行時にエラーになります。</span>
-    </div>
-    <div class="field-row">
-      {{ number("t_downsampling_stride", "時間方向の間引き", step=1, min=1) }}
-      {{ number("w_downsampling_stride", "波長方向の間引き", step=1, min=1) }}
-      {{ number("max_null_ratio", "max_null_ratio", min=0, max=1) }}
-    </div>
-  </fieldset>
+  </details>
 
-  <fieldset>
-    <legend>PCA</legend>
-    <div class="field-row">
-      {{ number("n_component", "成分数", placeholder="自動", step=1, min=1) }}
-      <span class="muted">
-        空欄では累積寄与率 {{ auto_cumulative }} に達する成分数（上限 {{ auto_cap }}）にします。
-        成分数を打ち切ると、捨てた成分の分散を平均値で近似するため、Q の UCL（θ₂・θ₃）の精度が下がります。
-      </span>
+  <details class="card" data-group="t2-q" open>
+    <summary><h2>T² / Q</h2></summary>
+    <div class="card-body">
+      <div class="field-row">
+        {{ number("mahalanobis_cumulative_explained_variance", "T² の累積寄与率", min=0, max=1) }}
+        {{ number("mahalanobis_alpha", "T² の α", min=0, max=1) }}
+      </div>
+      <div class="field-row">
+        {{ number("spe_cumulative_explained_variance", "Q の累積寄与率", min=0, max=1) }}
+        {{ number("spe_alpha", "Q の α", min=0, max=1) }}
+      </div>
     </div>
-    <div class="field-row">
-      {{ select("impute_strategy", "欠損の補完", impute_strategies) }}
-      {{ number("impute_kmeans_n_clusters", "kmeans のクラスター数", placeholder="既定", step=1, min=1) }}
-    </div>
-    <div class="field-row">
-      {{ select("scaling_strategy", "スケーリング", scaling_strategies) }}
-      <span class="muted">none 以外では NumPy の高速経路を使わないため、fit が遅くなり、必要メモリも増えます。</span>
-    </div>
-  </fieldset>
+  </details>
 
-  <fieldset>
-    <legend>T² / Q</legend>
-    <div class="field-row">
-      {{ number("mahalanobis_cumulative_explained_variance", "T² の累積寄与率", min=0, max=1) }}
-      {{ number("mahalanobis_alpha", "T² の α", min=0, max=1) }}
+  <div class="card fit-actions">
+    {{ error("files") }}
+    <div id="fit-estimate" class="status-panel" hx-post="/fit/estimate" hx-target="this" hx-swap="innerHTML"
+         hx-trigger="change from:#fit-form, input from:#fit-form delay:500ms">
+      {% include "partials/fit_estimate.html" %}
     </div>
-    <div class="field-row">
-      {{ number("spe_cumulative_explained_variance", "Q の累積寄与率", min=0, max=1) }}
-      {{ number("spe_alpha", "Q の α", min=0, max=1) }}
+
+    <div class="selection-actions">
+      <button type="submit" {% if selected_count == 0 %}disabled{% endif %}>fit を実行</button>
+      <span id="fit-result" class="fit-result"></span>
     </div>
-  </fieldset>
-
-  <div id="fit-estimate" class="status-panel" hx-post="/fit/estimate" hx-target="this" hx-swap="innerHTML"
-       hx-trigger="change from:#fit-form, input from:#fit-form delay:500ms">
-    {% include "partials/fit_estimate.html" %}
-  </div>
-
-  <div class="selection-actions">
-    <button type="submit" {% if selected_count == 0 %}disabled{% endif %}>fit を実行</button>
-    <span id="fit-result" class="fit-result"></span>
   </div>
 </form>
 {% if oob_status %}

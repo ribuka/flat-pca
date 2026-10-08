@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
+import executor_jobs
 import pytest
 import uvicorn
 from fit_runs import register_fit_run
@@ -102,6 +103,25 @@ def cataloged_server_url(cataloged_settings: Settings) -> Iterator[str]:
     yield from serve(cataloged_settings)
 
 
+@pytest.fixture
+def slow_fit_server_url(
+    cataloged_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[str]:
+    """Serve the Web UI with a fit job that goes slowly through its stages and fails.
+
+    The job is ``executor_jobs.fit_in_slow_stages``, so the browser can watch
+    an active fit run.
+
+    Yields
+    ------
+    str
+        Base URL of the running server.
+    """
+    monkeypatch.setattr(
+        "flat_pca.webui.workspace.run_fit", executor_jobs.fit_in_slow_stages
+    )
+    yield from serve(cataloged_settings)
+
 def register_fit_runs(
     settings: Settings, spectra_paths: list[Path], run_ids: tuple[str, ...]
 ) -> None:
@@ -171,9 +191,27 @@ def one_file_server_url(settings: Settings, spectra_paths: list[Path]) -> Iterat
     yield from serve(limited)
 
 
+@pytest.fixture
+def expected_console_errors() -> list[str]:
+    """Return texts of console errors that a test expects to be logged.
+
+    A test that makes a request fail on purpose appends a text contained in
+    the error that the browser logs for it.
+
+    Returns
+    -------
+    list[str]
+        Initially empty.
+    """
+    return []
+
+
 @pytest.fixture(autouse=True)
-def no_console_errors(page: Page) -> Iterator[None]:
-    """Fail the test when the page logs a console error or throws.
+def no_console_errors(page: Page, expected_console_errors: list[str]) -> Iterator[None]:
+    """Fail the test when the page logs an unexpected console error or throws.
+
+    Console errors containing a text of ``expected_console_errors`` are
+    allowed.
 
     Yields
     ------
@@ -184,7 +222,9 @@ def no_console_errors(page: Page) -> Iterator[None]:
 
     def on_console(message: ConsoleMessage) -> None:
         """Record console messages of type ``error``."""
-        if message.type == "error":
+        if message.type == "error" and not any(
+            text in message.text for text in expected_console_errors
+        ):
             errors.append(f"console: {message.text} ({message.location['url']})")
 
     def on_page_error(error: Error) -> None:
