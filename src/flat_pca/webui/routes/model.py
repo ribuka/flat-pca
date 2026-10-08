@@ -19,9 +19,10 @@ from ..services.model import (
     heatmap_request,
     resolve_model,
 )
+from ..templating import script_json
 from ..workspace import Workspace
 from .dependencies import get_workspace
-from .heatmap_trend import heatmap_context, script_json, trend_response
+from .heatmap_trend import heatmap_context, trend_response
 from .view_page import render_view_page
 from .view_selection import current_model_run, model_runs
 

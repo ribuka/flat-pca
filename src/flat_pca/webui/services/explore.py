@@ -33,11 +33,8 @@ from .segment_choice import (
 )
 from .spectral_matrix import (
     SpectralMatrix,
-    TrendLine,
     feature_segment_matrix,
     raw_segment_matrix,
-    trend_at_step_time,
-    trend_at_wavelength,
 )
 from .view_selection import NO_TRANSFORM_RUN
 
@@ -603,31 +600,4 @@ def shown_request(view: ExploreView) -> ExploreRequest:
         heatmap_file=view.heatmap_file,
         segment=format_segment(view.segment),
         component=view.component,
-    )
-
-
-def explore_trends(
-    matrices: dict[str, SpectralMatrix], wavelength: float, step_time: float
-) -> tuple[dict[str, TrendLine], dict[str, TrendLine]]:
-    """Cut every matrix of a view at the nearest grid point.
-
-    Parameters
-    ----------
-    matrices : dict[str, SpectralMatrix]
-        Unbinned matrices of a view keyed by trace label.
-    wavelength : float
-        Requested wavelength.
-    step_time : float
-        Requested ``StepTime``.
-
-    Returns
-    -------
-    tuple[dict[str, TrendLine], dict[str, TrendLine]]
-        Lines over ``StepTime`` at ``wavelength``, and lines over
-        wavelength at ``step_time``, keyed by trace label. Each matrix is
-        cut at its own nearest grid point.
-    """
-    return (
-        {label: trend_at_wavelength(matrix, wavelength) for label, matrix in matrices.items()},
-        {label: trend_at_step_time(matrix, step_time) for label, matrix in matrices.items()},
     )
