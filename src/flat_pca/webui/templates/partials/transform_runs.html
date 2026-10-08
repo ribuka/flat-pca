@@ -1,3 +1,8 @@
+{% if choice.run_id %}
+  <p data-transform-shown="{{ choice.run_id }}">
+    Shown: transform run <span class="mono">{{ choice.run_id }}</span> (fit run <span class="mono">{{ choice.fit_run_id }}</span>, {{ choice.file_options|length }} files)
+  </p>
+{% endif %}
 {% if not rows %}
   <p class="muted">No transform run yet.</p>
 {% else %}
@@ -23,10 +28,10 @@
         <td>{{ run.n_files|cell }}</td>
         <td>{% if run.duration_s is not none %}{{ "%.1f"|format(run.duration_s) }} s{% endif %}</td>
         <td>
-          {% if run.run_id == shown_run_id %}
+          {% if run.run_id == choice.run_id %}
             <span class="muted" data-shown-run>Shown</span>
           {% elif run.status == "succeeded" %}
-            <form hx-post="/sidebar/selection/run" hx-swap="none" data-view-choice>
+            <form hx-post="/transform/show" hx-swap="none" data-view-choice>
               <input type="hidden" name="run" value="{{ run.run_id }}">
               <button type="submit" data-show-run>Show</button>
             </form>

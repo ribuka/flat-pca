@@ -110,7 +110,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 ## Workspace と DB
 
 - 状態は1つの`Workspace`オブジェクト（DuckDB接続、表示用キャッシュ、ジョブ実行器）に集約し、グローバル変数に分散させない。
-- 表示用キャッシュ（`services/display_cache.py`）は、読み込んだ元データ（`StepTime`列を付けたファイル全体。パス・サイズ・更新時刻をキーとする）と、fit run・transform runの成果物（`X.npy`はmemmapのまま。モデル側とデータ側のrunディレクトリの組`RunDirs`をキーとする）をそれぞれLRUで保持する。
+- 表示用キャッシュ（`services/display_cache.py`）は、読み込んだ元データ（`StepTime`列を付けたファイル全体。パス・サイズ・更新時刻をキーとする）、transform runの成果物（`X.npy`はmemmapのまま。モデル側とデータ側のrunディレクトリの組`RunDirs`をキーとする）、モデル画面が使う fit run の特徴量と`components.npy`（memmapのまま。fit run のディレクトリをキーとする）をそれぞれLRUで保持する。
 - DuckDBファイルは`{workspace.dir}/flatpca.duckdb`とする。書き込みは親プロセスのみが行う。
 - スキーマに版管理・マイグレーションは持たない。スキーマを変えたときはWorkspaceを作り直す。`file_metadata`だけは、settings.tomlの列定義（列名・順序・SQL型）と食い違う場合に起動時に空で作り直す（次のcatalog更新で埋まる）。
 - テーブル：
@@ -124,7 +124,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 - ピークメモリが大きくなり得る処理はサブプロセスで実行する。対象は次のとおり。
   - catalogの構築・更新
-  - 前処理・flatten・PCA fit・スコア付与（1つのfitジョブ）
+  - 前処理・flatten・PCA fit（1つのfitジョブ。fit 対象のスコアは付けない）
   - 学習済みモデルによる前処理・flatten・transform・スコア付与（1つのtransformジョブ）
 - 実行器はアプリ側で保持するFIFOキューと、ジョブごとに起動する子プロセス（`multiprocessing.get_context("spawn").Process`）からなる。ジョブ終了ごとに子プロセスが終了し、メモリを確実に解放する。同時に実行するジョブは1つとし、後続はキューで待つ。
   - `ProcessPoolExecutor`は使わない。ワーカーを強制終了するとプール全体が`BrokenProcessPool`となり、待機中のジョブと以後のsubmitがすべて失敗するため、キャンセルと両立しない。
@@ -151,9 +151,9 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 | `X.npy` | 前処理・flatten・sparse列除去後、補完前の行列（欠損はNaN） | `.npy` |
 | `components.npy` | `pca.components_`（`n_comp × n_features`） | `.npy` |
 | `pca_state.npz` | PCA（mean・explained_variance等）と前処理3段階の状態（下記） | `.npz` |
-| `scores.parquet` | `source`、`pca-1..k`、T²（`mahalanobis_*`）・Q（`spe_*`）列。`impute_strategy="drop"`で除いた行は含まない | Parquet |
-| `progress.json`・`log.txt` | 進捗（`preprocess`・`fit`・`score`・`save`の4段階）・ログ | JSON・テキスト |
+| `progress.json`・`log.txt` | 進捗（`preprocess`・`fit`・`save`の3段階）・ログ | JSON・テキスト |
 
+- fit run はスコア・T²・Qを持たない（`scores.parquet`を出さない）。fit 対象を含め、スコア・T²・Qは transform run だけが持つ（transform 画面で「Run transform」を押したときにだけ作る）。
 - 巨大な数値行列は`.npy`とし、親プロセスは`np.load(..., mmap_mode="r")`で開いて必要な行だけを読む。表形式のデータはParquetとする。
 - `X.npy`・`components.npy`は`jobs.artifact_dtype`で保存する（既定`float32`）。読み込み後の計算（スケーリング、スコア、再構成、残差、Q、累積和）はすべて`float64`へ変換してから行う。
 - `.npy`/`.npz`から`PcaModel`を復元する関数を`pca/serialization.py`に追加する（`build_pca_state`・`parse_pca_state`、`PcaModel.to_pca_state`・`PcaModel.from_pca_state`）。既存のJSONシリアライズは変更しない。
@@ -166,27 +166,27 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 ### transform run の成果物
 
-学習済みの fit run のモデルで、fit に使っていないファイルを transform した結果を`{workspace.dir}/runs/{run_id}/`に保存する。モデル（`features.parquet`・`components.npy`・`pca_state.npz`）は複製せず、元の fit run のものを使う。
+学習済みの fit run のモデルで transform 対象（fit 対象と同じファイル、または catalog から選んだファイル）を transform した結果を`{workspace.dir}/runs/{run_id}/`に保存する。モデル（`features.parquet`・`components.npy`・`pca_state.npz`）は複製せず、元の fit run のものを使う。
 
 | ファイル | 内容 | 形式 |
 | --- | --- | --- |
 | `config.json` | 元の fit run の`fit_run_id`・`fit_run_dir`、対象ファイル一覧（ファイルごとのメタデータを含む）、fit run の前処理・T²/Q設定、`artifact_dtype` | JSON |
 | `samples.parquet` | fit run と同じ形式 | Parquet |
 | `X.npy` | 前処理・flatten 後、補完前の行列。列は fit run の`features.parquet`の順（欠損はNaN） | `.npy` |
-| `scores.parquet` | fit run と同じ形式。T²・QのUCLは fit run のモデルから求めるため、fit run と同じ値になる | Parquet |
+| `scores.parquet` | `source`、`pca-1..k`、T²（`mahalanobis_*`）・Q（`spe_*`）列。`impute_strategy="drop"`で除いた行は含まない。T²・QのUCLは fit run のモデル（`MahalanobisConfig`・`SpeConfig`）から求めるため、同じ fit run の transform run では同じ値になる | Parquet |
 | `progress.json`・`log.txt` | 進捗（`preprocess`・`transform`・`save`の3段階）・ログ | JSON・テキスト |
 
 - 前処理は fit run の設定（`config.json`の`preprocess`）で行う。ただし、列は fit run の特徴量で決まるため、transform 対象の格子での間引き（`t_downsampling_stride`・`w_downsampling_stride`）と、transform 対象の欠損率による列の除去（`max_null_ratio`）は行わない。間引きは格子点を選ぶだけで、平滑化・正規化の後に行うため、間引かずに fit run の特徴量を選べば、格子が同じときは fit と同じ値になる。要素ごとの強度変換（`intensity_transform`）は、fit run の特徴量を選んだ後に行う（`jobs/transform_run.py::transform_target_intensity`）。fit で間引いて使わなかった値が`log1p`の定義域外でも、transform は失敗しない。
 - flatten 後の列を fit run の特徴量にそろえる（`jobs/transform_run.py::align_features`）。transform 対象の`(Step, Sequence, StepTime)`の格子や波長が fit と違い、fit の特徴量に足りない列は欠損値とし、fit run の補完で埋める。fit run にない列は捨てる。fit run の特徴量が1つもない場合はエラーとする。
-- `impute_strategy="drop"`の fit run では、欠損を含む transform 対象の行は`X.npy`・`samples.parquet`に残し、`scores.parquet`には含めない（fit run と同じ扱い）。すべての行が除かれる場合はエラーとする。
-- 表示側は`services/run_dirs.py::run_dirs`で、モデル側（fit run）とデータ側（fit run 自身、または transform run）のディレクトリを解決し、同じ読み込み処理（`services/fit_artifacts.py::load_display_artifacts`）で読む。transform run の検証は`services/transform_artifacts.py::register_transform_result`で行う。
+- `impute_strategy="drop"`の fit run では、欠損を含む transform 対象の行は`X.npy`・`samples.parquet`に残し、`scores.parquet`には含めない（fit の補完と同じ扱い）。すべての行が除かれる場合はエラーとする。
+- 表示側は`services/run_dirs.py::run_dirs`で、モデル側（fit run）とデータ側（transform run）のディレクトリを解決し、`services/fit_artifacts.py::load_display_artifacts`で読む。モデル画面は fit run の特徴量と`components.npy`だけを`load_model_artifacts`で読む。transform run の検証は`services/transform_artifacts.py::register_transform_result`で行う。
 
 ## 画面
 
 ### 共通レイアウト
 
-- 左にサイドバーを置き、各画面へのナビゲーション（未実装の画面は無効表示）、表示する run とファイルの選択、catalogの状態・fit 対象のファイル数を表示する。
-- サイドバーは上から、折りたたみボタンとメインページの幅の切り替え、ナビゲーション、run とファイルの選択、catalogの状態・fit 対象のファイル数、メモリ使用量と version の順に並べる。中身（ナビゲーションから catalog の状態まで）だけをスクロールさせ、上端と下端は常に表示する。
+- 左にサイドバーを置き、各画面へのナビゲーション（未実装の画面は無効表示）、表示ファイルの選択、catalogの状態・fit 対象のファイル数を表示する。表示する run はサイドバーでは選ばない（transform 画面で選ぶ）。
+- サイドバーは上から、折りたたみボタンとメインページの幅の切り替え、ナビゲーション、表示ファイルの選択、catalogの状態・fit 対象のファイル数、メモリ使用量と version の順に並べる。中身（ナビゲーションから catalog の状態まで）だけをスクロールさせ、上端と下端は常に表示する。
   - 折りたたみボタン（Material Symbols の`left_panel_close`・`left_panel_open`）は、折りたたむとボタンだけを残してサイドバーを狭める。ボタンの画面上の位置は折りたたみの前後で変えない。折りたたんでも、メインページはそのとき選ばれている run とファイルで表示したままとする。
   - メインページの幅は segmented control で「Compact」（最大幅を固定して中央に寄せる）と「Wide」（ウィンドウの幅に合わせる。既定）から選ぶ。
   - 折りたたみ状態と幅は`localStorage`に保存し、ページを移っても保つ。最初の描画の前に`<html>`の`data-sidebar`・`data-width`へ反映し、ちらつかせない。「戻る」で bfcache から復帰したページ（`pageshow`の`persisted`）にも、離れた後に変えた保存値を反映する。幅や折りたたみを変えたら、Plotly の図を`Plotly.Plots.resize`で新しい幅に合わせて描き直す。
@@ -196,21 +196,21 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - 画面の文言（ナビゲーション・見出し・ラベル・ボタン・選択肢・プレースホルダー・表の列名・状態・警告・エラーメッセージ・図のタイトル）は英語とする。詳細説明（`.muted`の注記）だけを日本語で書く。
 - 各画面の内容は、データ選択と同じく折りたためるカード（`<details class="card">`、既定は開いた状態）に分ける。先頭のカードは画面名を見出しにする。折りたたんだカードを開いたら、Plotly の図を`Plotly.Plots.resize`でカードの幅に合わせて描き直す。
 - 表示条件の入力欄は、それが変える図のカードに置く。ページを読み直すフォームは1つだけとし、ほかのカードの入力欄はHTMLの`form`属性でそのフォームに属させる（自動送信・リセットも同じフォームで行う）。
-- サイドバーの run と表示ファイル（`/sidebar/selection`。どの画面でも常に表示する）：
-  - モデル・T² / Q・スペクトル探索・スコアは、ここで選んだ run と表示ファイルを使う。各画面のメインには run とファイルの選択欄を置かない。
-  - run の選択肢は、成功した fit run（新しい順。表示は`run_id（作成日時）`）と、その直後に並べたその fit run の成功した transform run（新しい順。表示は`└ transform run_id（作成日時）`）。何も選んでいないとき、または選んでいた run がなくなったときは、最新の fit run を使う。fit・transform が終わったら（`fit-updated`・`transform-updated`イベント）選択肢を取得し直し、選んでいる run は変えない。
-  - transform run を選んだときは、モデル（寄与率・ローディング・PCA成分・前処理の状態）は元の fit run のものを、ファイル（元データ・前処理済み・再構成・スコア・T² / Q）は transform run のものを使う。T² / Q の UCL は fit run のもの（`MahalanobisConfig`・`SpeConfig`）とする。
-  - 表示ファイルの選択肢は、使う run の transform 対象（`samples.parquet`の`stem`）を`natural_keys`の順に並べたもの。run がなければ空とする。検索ボックスで絞り込めるチェックボックスのリストとし、複数選べる。上限は`ui.explore_max_files`件（既定 20）で、上限に達したらほかのチェックボックスを無効にしてその旨を表示する。サーバーも上限を超えた分（選択肢の順で後ろのもの）と選択肢にないファイルを捨てる。
-  - run を変えると、表示ファイルの選択をすべて解除する。
+- 表示する transform run と表示ファイル：
+  - T² / Q・スペクトル探索・スコアは、transform 画面で選んだ transform run（表示する run）と、サイドバーで選んだ表示ファイルを使う。モデル画面は transform 画面で選んだモデル（fit run）を使う。各画面のメインには run とファイルの選択欄を置かない。
+  - 表示する run は、成功した transform run から選ぶ。何も選んでいないとき、または選んでいた run が成功していない（実行中・失敗・消えた）ときは、最新の成功した transform run を使う。成功した transform run がなければ、これらの画面は transform を先に実行する旨（No succeeded transform run. Run a transform on Transform first.）を表示する。
+  - 表示する run のモデル（寄与率・ローディング・PCA成分・前処理の状態）は元の fit run のものを、ファイル（元データ・前処理済み・再構成・スコア・T² / Q）は transform run のものを使う。T² / Q の UCL は fit run のもの（`MahalanobisConfig`・`SpeConfig`）とする。
+  - サイドバーの表示ファイル（`/sidebar/selection`。どの画面でも常に表示する）の選択肢は、表示する run の transform 対象（`samples.parquet`の`stem`）を`natural_keys`の順に並べたもの。run がなければ空とする。検索ボックスで絞り込めるチェックボックスのリストとし、複数選べる。上限は`ui.explore_max_files`件（既定 20）で、上限に達したらほかのチェックボックスを無効にしてその旨を表示する。サーバーも上限を超えた分（選択肢の順で後ろのもの）と選択肢にないファイルを捨てる。fit・transform が終わったら（`fit-updated`・`transform-updated`イベント）取得し直す。
+  - 表示する run を変えると、表示ファイルの選択をすべて解除する。
   - 表示ファイルの変更は、サイドバーを描いたときの run も送る。その後に run が変わっていれば（別のタブなど）、選択を変えずに run の変更（`{"changed": "run"}`）を知らせ、サイドバーとメイン部分を今の run で取得し直させる。使う run の解決・一致の確認・選択の更新は、`ViewSelection.transaction()`のロックの中でまとめて行い、ほかの要求による変更が途中に入らないようにする。
-  - 選択はデータ選択の選択（`services/selection.py::FileSelection`）と同じく、サーバー側の workspace（`services/view_selection.py::ViewSelection`）に持つ。画面を移っても、ブラウザで再読み込みしても残り、ブラウザのタブ間で共有される。
-  - 選択を変えると、サーバーは`HX-Trigger`で`view-selection-changed`イベント（`{"changed": "run"}`または`{"changed": "files"}`）を返し、ページは読み直さない。ブラウザ（`app.js`の`refreshView`）は、サイドバーの選択（`#view-selection`）と、今の画面がその選択を使うときはメイン部分（`<main class="content">`の中身）を今の URL（クエリを含む）で取得し直し、両方が届いてからまとめて差し替える。URL と履歴は変えない。
-    - メイン部分を差し替える選択は、`base.html`の`<main>`の`data-view-swap`に画面ごとに書く（`view_swap`ブロック）。スペクトル探索・スコアは run と表示ファイル（`run files`）、transform・モデル・T² / Q は run だけ（`run`。表示ファイルを使わないため。transform 画面では作業中の transform 対象の選択を失わない）、データ選択と前処理・PCA は差し替えない（編集中のフォームを失わないため）。
+  - 選択はデータ選択の選択（`services/selection.py::FileSelection`）と同じく、サーバー側の workspace（表示する run と表示ファイルは`services/view_selection.py::ViewSelection`、transform 画面のモデルとチェックボックスは`services/transform_settings.py::TransformSettings`）に持つ。画面を移っても、ブラウザで再読み込みしても残り、ブラウザのタブ間で共有される。
+  - 選択を変えると、サーバーは`HX-Trigger`で`view-selection-changed`イベント（表示する run は`{"changed": "run"}`、表示ファイルは`{"changed": "files"}`、transform 画面のモデルとチェックボックスは`{"changed": "model"}`）を返し、ページは読み直さない。ブラウザ（`app.js`の`refreshView`）は、サイドバーの選択（`#view-selection`）と、今の画面がその選択を使うときはメイン部分（`<main class="content">`の中身）を今の URL（クエリを含む）で取得し直し、両方が届いてからまとめて差し替える。URL と履歴は変えない。
+    - メイン部分を差し替える選択は、`base.html`の`<main>`の`data-view-swap`に画面ごとに書く（`view_swap`ブロック）。スペクトル探索・スコアは run と表示ファイル（`run files`）、T² / Q は run だけ（`run`。表示ファイルを使わないため）、transform・モデルはモデルだけ（`model`。transform 画面では、表示する run を変えても送信メッセージを失わないよう、transform run 一覧だけを`view-selection-changed`で取得し直す）、データ選択と前処理・PCA は差し替えない（編集中のフォームを失わないため）。
     - これらの画面のルートは`routes/view_page.py::render_view_page`で描き、htmx の要求（`HX-Request: true`）にはメイン部分だけを返す（`base.html`が`main_only`で切り替える）。応答には`Vary: HX-Request`を付ける。
     - 差し替える前に、メイン部分の Plotly の図を`Plotly.purge`で破棄し、差し替え前に始まったトレンドの取得が差し替え後の図に描かないようにする。差し替えたあと（`htmx:afterSettle`）とページを開いたとき（`pageshow`）に、同じ関数（`initMain`）でメイン部分を初期化する。
     - 表示ファイルを変えたときは、ファイルリストのスクロール位置を差し替えの前後で保つ。run を変えたときはリストの中身が変わるので先頭に戻す。検索ボックスの文字列はタブごとに`sessionStorage`へ保存し、差し替えやページの読み直しのあとも保つ。
     - 待つ間は下記のオーバーレイを表示する。キャンセルでは htmx の要求（`htmx:abort`）と取得を止め、サイドバーをサーバー側の選択で取得し直す（メイン部分は差し替えない）。取得に失敗したときは何も差し替えずにオーバーレイを閉じる。
-  - スコア散布図の点のクリックは、`/sidebar/selection/files/add`に図の run とファイルを送り、そのファイルを表示ファイルに追加する。上限に達しているとき、または図を描いた後にサイドバーの run が変わったとき（別のタブなど）は追加せず、警告を表示する。通信に失敗したときも警告を表示する。追加したら、上記と同じくサイドバーとメイン部分を差し替える。
+  - スコア散布図の点のクリックは、`/sidebar/selection/files/add`に図の run とファイルを送り、そのファイルを表示ファイルに追加する。上限に達しているとき、または図を描いた後に表示する run が変わったとき（別のタブなど）は追加せず、警告を表示する。通信に失敗したときも警告を表示する。追加したら、上記と同じくサイドバーとメイン部分を差し替える。
 - フォーム内でhtmxの要求を出す要素は、フォームの`hx-target`を継承しないよう`hx-target`を明示する。
 - 表示条件を変えるとページ全体を読み込み直すフォーム（`data-auto-submit`。モデル・スペクトル探索・スコア・T² / Q）は、送信から次のページの表示までオーバーレイを表示する。
   - 送信と同時に操作をできなくし（`inert`）、300 ms 後に画面をグレーアウトして中央にスピナー・経過時間（秒）・キャンセルボタンを表示する。短い処理ではちらつかない。
@@ -252,18 +252,20 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 ### 3. transform
 
-- `/transform`。`use same data for fit`のチェックボックスを置く。既定はチェックあり（サイドバーで transform run を選んでいるときだけチェックなし）。
-- チェックありのときは、transform の対象を fit の対象と同じファイル（その fit run の`samples.parquet`）とし、fit run の成果物をそのまま表示する（実行は不要）。サイドバーで transform run を選んでいるときにチェックすると、サイドバーの run をその fit run に変え、サイドバーとメイン部分を差し替える。
-- チェックを外すと、transform の対象を catalog から選ぶ表と「Run transform」ボタンを表示する。
-  - 表はデータ選択と同じもの（`/catalog/files`の絞り込み・ソート・ページング、ページやフィルタをまたいだ選択、ヘッダのチェックボックスでの一括選択）とする。選択は送信時に workspace（`Workspace.transform_selection`）へ保存し、画面を開き直しても残す。
-  - 実行（`POST /transform`）は、サイドバーで選んだ run の fit run（transform run を選んでいるときはその元の fit run）のモデルで、transformジョブ（種別`transform`）を投入する。fit run がない・対象がないときは、ボタンの横にエラーを表示する。
-- 実行中は前処理・PCA画面と同じオーバーレイ（「Running the transform…」、経過時間、段階と進捗、残り時間、キャンセル）と実行状況を表示し、`/transform/runs/{run_id}/status`をポーリングする。終わったら`transform-updated`で transform run 一覧とサイドバーの run の選択肢を取得し直す。
-- transform run 一覧（`/transform/runs`）は、run・元の fit run・作成日時・状態・ファイル数・所要時間を新しい順に表示し、成功した run の「Show」でサイドバーの run をその transform run に変える。
-- 画面には、使うモデル（fit run）と、サイドバーで選んだ run の transform 対象のファイル数を表示する。サイドバーの表示ファイルの選択肢、スペクトル探索の各ビュー、スコア、T² / Q は、サイドバーで選んだ run の transform 対象を表示する。
+- `/transform`。transform に使うモデル（成功した fit run。新しい順。表示は`run_id（作成日時）`）の選択欄と、`use same data for fit`のチェックボックスを置く。モデルの既定は最新の fit run（選んでいた fit run がなくなったときも最新に戻す）、チェックボックスの既定はチェックあり。どちらも workspace（`TransformSettings`）に持ち、変えると`POST /transform/settings`で保存して`{"changed": "model"}`を知らせ、メイン部分を差し替える。チェックなしのときの表の選択も、このとき workspace に保存する。
+- transform 対象を選ぶ表と「Run transform」ボタンは、チェックの有無にかかわらず常に表示する。
+  - 表はデータ選択と同じもの（`/catalog/files`の絞り込み・ソート・ページング、ページやフィルタをまたいだ選択、ヘッダのチェックボックスでの一括選択）とする。
+  - チェックありのときは、モデルの fit 対象（fit run の`config.json`のファイル）を選んだ状態で表示し、表のチェックボックスを無効にしてグレーアウトする（`#file-table`の`data-locked`。絞り込み・ソート・ページングは使える）。
+  - チェックなしのときは、catalog から自由に選べる。選択は送信時に workspace（`Workspace.transform_selection`）へ保存し、画面を開き直しても残す。
+- fit を実行しただけでは transform しない。「Run transform」（`POST /transform`）を押したときにだけ、選んだモデルで transformジョブ（種別`transform`）を投入する。チェックありのときは fit 対象を、チェックなしのときは表で選んだ catalog のファイルを対象とする。fit run がない・対象がないときは、ボタンの横にエラーを表示する。
+  - チェックの有無を問わず、同じ fit run で同じ対象ファイルの集合（順序は問わない）を transform した成功済みの transform run があれば、ジョブを作らずにその run を表示する run にし、その旨をボタンの横に表示する（`services/transform_targets.py::find_transform_run`）。チェックなしで fit 対象と同じファイルを手で選んだ場合も同じ。
+  - 投入した transform run は、その時点で表示する run に選んでおき、成功したら表示する（実行中・失敗したときは最新の成功した transform run を表示する）。
+- 実行中は前処理・PCA画面と同じオーバーレイ（「Running the transform…」、経過時間、段階と進捗、残り時間、キャンセル）と実行状況を表示し、`/transform/runs/{run_id}/status`をポーリングする。終わったら`transform-updated`で transform run 一覧とサイドバーの表示ファイルを取得し直す。
+- transform run 一覧（`/transform/runs`）は、表示中の run（元の fit run とファイル数）と、run・元の fit run・作成日時・状態・ファイル数・所要時間を新しい順に表示する。成功した run の「Show」（`POST /transform/show`）で、その run をスペクトル探索・スコア・T² / Q とサイドバーの表示ファイルで使う run にする。
 
 ### 4. モデル
 
-- fit runを選んだ時点で決まり、ファイルの選択で変わらない図をまとめる。run はサイドバーで選んだものを使い、表示ファイルの選択は使わない。
+- fit runを選んだ時点で決まり、ファイルの選択で変わらない図をまとめる。fit run は transform 画面で選んだモデルを使い、表示ファイルの選択は使わない。fit run がなければ、その旨を表示する。
 - 選択項目：ローディングの成分番号m・n（既定はPC1・PC2。範囲外は既定に戻す）、ローディングの集計方法、ヒートマップの値（PCA成分kか前処理パラメータ。既定はPCA成分k）、成分番号k（既定は1。範囲外は既定に戻す）、`(Step, Sequence)`（`features.parquet`から求める。既定は先頭）。
   - 選択は`/model?x={m}&y={n}&aggregation=…&view=…&k=…&segment={Step}:{Sequence}`のクエリで表す。
   - ローディングの成分番号m・n・集計方法は Loadings のカードに、ヒートマップの値・成分番号k・`(Step, Sequence)`は Heatmap のカードに置く。
@@ -289,7 +291,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - 残差（補完・外れ値処理後の前処理済み − 累積再構成、元のスケール）
   - Q寄与（特徴量ごとの残差の二乗。定義は「計算仕様」を参照）
 - 「前処理済み」は`X.npy`の値をそのまま表示し、欠損はNaN（空白セル）として示す。再構成・残差・Q寄与は、fit時と同じ補完・外れ値処理を適用した値から計算するため欠損を含まない。`impute_strategy="drop"`のrunで欠損を含むファイルは除外されて再構成できないため、その旨を表示する。強度変換の逆変換は行わない（「元のスケール」は`X.npy`と同じ強度変換後の空間を指す）。
-- run とファイルはサイドバーで選んだものを使う。どのビューも（元データを含めて）、その run の transform 対象（`samples.parquet`のファイル。元データは`source`のパスから読む）を表示する。run がなければ、元データも表示せず、fit を先に実行する旨を表示する。
+- run は transform 画面で選んだ表示する run、ファイルはサイドバーで選んだものを使う。どのビューも（元データを含めて）、その run の transform 対象（`samples.parquet`のファイル。元データは`source`のパスから読む）を表示する。run がなければ、元データも表示せず、transform を先に実行する旨を表示する。
 - 選択項目：表示対象（ビュー）、ヒートマップのファイル（Heatmap file）、`(Step, Sequence)`、成分番号k。
   - ビュー・`(Step, Sequence)`・成分番号kは画面名のカードに、ヒートマップのファイルは Heatmap のカード（ヒートマップとトレンド）に置く。
   - サイドバーで選んだファイルを`natural_keys`の順に並べ、すべてのファイルをトレンドに重ねる。ファイルを選んでいなければ先頭のファイルを表示する。
@@ -310,7 +312,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 ### 6. スコア
 
-- run と軌跡のファイルはサイドバーで選んだものを使う。
+- run は transform 画面で選んだ表示する run、軌跡のファイルはサイドバーで選んだものを使う。
 - 選択項目：成分番号m・n（既定はPC1・PC2。範囲外は既定に戻す）、色分けの列。
   - 選択は`/scores?x={m}&y={n}&color=…`のクエリで表す。
   - 選択欄と表示ボタンは Score scatter のカードに置く。カードは上から、画面名・Score scatter・Selected points（選んだ点の表）・Partial score trajectories とする。
@@ -322,7 +324,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 ### 7. T² / Q
 
-- run はサイドバーで選んだものを使い、表示ファイルの選択は使わない。
+- run は transform 画面で選んだ表示する run を使い、表示ファイルの選択は使わない。
 - 選択項目：色分けの列、管理図の並び順の列。
   - 選択は`/monitoring?color=…&order=…`のクエリで表す。
   - 色分けは画面名のカードに置き、3つの図に共通とする。並び順は Control charts のカードに置く。カードは上から、画面名・Control charts・T² × Q scatter・Selected points とする。

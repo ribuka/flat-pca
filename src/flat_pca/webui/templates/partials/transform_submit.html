@@ -1,6 +1,7 @@
 {% from "macros/icon.html" import icon %}
 <span id="transform-submit-message" class="selection-summary">
   {%- if error %}<span class="error" data-transform-error>{{ error }}</span>{% endif -%}
+  {%- if reused %}<span data-transform-reused="{{ reused.run_id }}">{{ icon("check_circle", class="icon-success", label="Already transformed") }}Transform run {{ reused.run_id }} already transformed these files with this model, so it is shown without running again.</span>{% endif -%}
   {%- if queued %}{{ icon("check_circle", class="icon-success", label="The transform started") }}The transform started{% endif -%}
 </span>
 {% if queued %}

@@ -23,7 +23,7 @@ from ..workspace import Workspace
 from .dependencies import get_workspace
 from .heatmap_trend import heatmap_context, script_json, trend_response
 from .view_page import render_view_page
-from .view_selection import current_view_choice, view_runs
+from .view_selection import current_model_run, model_runs
 
 router = APIRouter(prefix="/model")
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
@@ -52,7 +52,7 @@ def _resolve(workspace: Workspace, request: ModelRequest) -> ModelView:
     try:
         return resolve_model(
             workspace.cache,
-            view_runs(workspace, request.run),
+            model_runs(workspace, request.run),
             request,
         )
     except ValueError as error:
@@ -114,7 +114,7 @@ def model_page(
     k: int | None = None,
     segment: str | None = None,
 ) -> HTMLResponse:
-    """Render the model page of the fit run chosen in the sidebar.
+    """Render the model page of the fit run chosen on the transform screen.
 
     Parameters
     ----------
@@ -146,10 +146,11 @@ def model_page(
         Full page with the figures, or its main part for an htmx request
         (see ``render_view_page``).
     """
+    model_run = current_model_run(workspace)
     shown = _resolve(
         workspace,
         ModelRequest(
-            run=current_view_choice(workspace).run_id,
+            run=None if model_run is None else str(model_run["run_id"]),
             x=x,
             y=y,
             aggregation=aggregation,

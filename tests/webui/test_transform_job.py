@@ -19,6 +19,7 @@ from flat_pca.webui.jobs.fit_run import (
     X_FILE,
     build_fit_config,
     run_fit,
+    score_frame,
 )
 from flat_pca.webui.jobs.progress import read_progress
 from flat_pca.webui.jobs.transform_run import (
@@ -100,11 +101,12 @@ def test_build_transform_config_takes_the_fit_run_settings(
     ]
 
 
+@pytest.mark.parametrize("impute_strategy", ["drop", "median"])
 def test_transform_of_the_fitted_files_reproduces_the_fit_scores(
-    database: Database, settings: Settings, spectra_paths: list[Path]
+    database: Database, settings: Settings, spectra_paths: list[Path], impute_strategy: str
 ) -> None:
-    """Transforming the fitted files gives the fit run's matrix, scores, T², and Q."""
-    fit_run = _fit_run(database, settings, spectra_paths)
+    """Transforming the fitted files gives the fit run's matrix and its model's scores, T², and Q."""
+    fit_run = _fit_run(database, settings, spectra_paths, impute_strategy)
     config, run_dir = _transform(settings, fit_run, spectra_paths)
 
     fit = load_fit_artifacts(Path(str(fit_run["artifact_dir"])))
@@ -114,13 +116,18 @@ def test_transform_of_the_fitted_files_reproduces_the_fit_scores(
     np.testing.assert_allclose(shown.x, fit.x)
     assert shown.samples["stem"].to_list() == fit.samples["stem"].to_list()
     assert shown.samples["lot"].to_list() == ["Z"] * len(spectra_paths)
-    shown_scores = shown.scores.select(pl.exclude(SOURCE_COLUMN))
-    expected = fit.scores.select(pl.exclude(SOURCE_COLUMN))
-    assert shown_scores.columns == expected.columns
+    fitted = pl.DataFrame(
+        np.asarray(fit.x, dtype=np.float64), schema=fit.features["feature"].to_list()
+    ).insert_column(0, fit.samples[SOURCE_COLUMN])
+    expected = score_frame(fitted.lazy(), fit.model, json.loads(str(fit_run["config_json"])))
+    assert shown.scores[SOURCE_COLUMN].to_list() == expected[SOURCE_COLUMN].to_list()
+    assert shown.scores.columns == expected.columns
     np.testing.assert_allclose(
-        shown_scores.select(pl.col(pl.Float64)).to_numpy(),
-        expected.select(pl.col(pl.Float64)).to_numpy(),
-        rtol=1e-6,
+        shown.scores.select(pl.exclude(SOURCE_COLUMN)).to_numpy(),
+        expected.select(pl.exclude(SOURCE_COLUMN)).to_numpy(),
+        # The expected scores come from the float32 X.npy.
+        rtol=1e-4,
+        atol=1e-4,
     )
     progress = read_progress(run_dir)
     assert progress is not None

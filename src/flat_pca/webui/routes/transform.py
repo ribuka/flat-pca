@@ -1,37 +1,97 @@
-"""Transform screen: the data the fitted model transforms for display."""
+"""Transform screen: the model, the transform targets, and the shown transform run."""
 
 from __future__ import annotations
 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from ..jobs.transform_run import build_transform_config
 from ..services.catalog_query import FileQuery, list_files
 from ..services.run_dirs import fit_run_reference
 from ..services.runs import get_run, latest_run, list_runs, run_status
 from ..services.selection import parse_stems_json
+from ..services.transform_targets import (
+    find_transform_run,
+    run_target_files,
+    run_target_stems,
+)
 from ..templating import templates
 from ..workspace import TRANSFORM_JOB, Workspace
 from .dependencies import get_workspace
 from .view_page import render_view_page
-from .view_selection import current_view_choice
+from .view_selection import (
+    current_model_run,
+    current_view_choice,
+    model_runs,
+    selection_changed,
+    selection_changed_trigger,
+    view_runs,
+)
 
 router = APIRouter(prefix="/transform")
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
+
+
+def _parse_stems(stems: str) -> list[str]:
+    """Parse the chosen stems sent by the transform screen.
+
+    Parameters
+    ----------
+    stems : str
+        JSON array of stems (see ``parse_stems_json``).
+
+    Returns
+    -------
+    list[str]
+        The stems.
+
+    Raises
+    ------
+    HTTPException
+        With status 400 if ``stems`` is not a JSON array of strings.
+    """
+    try:
+        return parse_stems_json(stems)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+def _submit_message(
+    request: Request, context: dict[str, object], trigger: str | None = None
+) -> HTMLResponse:
+    """Render the message next to the "Run transform" button.
+
+    Parameters
+    ----------
+    request : Request
+        Current request.
+    context : dict[str, object]
+        Context of ``partials/transform_submit.html``.
+    trigger : str | None, default None
+        ``HX-Trigger`` header of the response, if any.
+
+    Returns
+    -------
+    HTMLResponse
+        Submit message partial.
+    """
+    response = templates.TemplateResponse(request, "partials/transform_submit.html", context)
+    if trigger is not None:
+        response.headers["HX-Trigger"] = trigger
+    return response
 
 
 @router.get("", response_class=HTMLResponse)
 def transform_page(request: Request, workspace: WorkspaceDependency) -> HTMLResponse:
     """Render the transform page.
 
-    With ``use same data for fit`` checked, the display screens show the
-    files the sidebar's fit run was fitted on, and nothing is executed.
-    Unchecked, the page lets the user choose the transform targets from the
-    catalog and transform them with the model of the sidebar's fit run (the
-    fit run of a chosen transform run). The checkbox starts unchecked only
-    while the sidebar shows a transform run.
+    The page chooses the model (a succeeded fit run) and the transform
+    targets. With ``use same data for fit`` checked, the targets are the
+    files the model was fitted on, shown chosen in the locked table;
+    unchecked, the user chooses them from the catalog. Nothing is
+    transformed until "Run transform" is pressed.
 
     Parameters
     ----------
@@ -46,16 +106,67 @@ def transform_page(request: Request, workspace: WorkspaceDependency) -> HTMLResp
         Full page, or its main part for an htmx request
         (see ``render_view_page``).
     """
-    choice = current_view_choice(workspace)
+    model_run = current_model_run(workspace)
+    model_run_id = None if model_run is None else str(model_run["run_id"])
+    use_same_data = workspace.transform_settings.use_same_data
+    fit_targets = [] if model_run is None else run_target_stems(model_run)
     return render_view_page(
         request,
         "pages/transform.html",
         {
-            "choice": choice,
-            "selected": workspace.transform_selection.stems,
+            "model_runs": model_runs(workspace, model_run_id),
+            "model_run_id": model_run_id,
+            "use_same_data": use_same_data,
+            "fit_targets": fit_targets,
+            "selected": fit_targets if use_same_data else workspace.transform_selection.stems,
             "status": run_status(latest_run(workspace.database, TRANSFORM_JOB)),
         },
     )
+
+
+@router.post("/settings")
+def update_settings(
+    workspace: WorkspaceDependency,
+    model: Annotated[str, Form()],
+    use_same_data: Annotated[bool, Form()] = False,
+    stems: Annotated[str, Form()] = "[]",
+) -> Response:
+    """Choose the model and whether the transform targets are its fit targets.
+
+    Parameters
+    ----------
+    workspace : Workspace
+        Application workspace.
+    model : str
+        Succeeded fit run whose model transforms the targets.
+    use_same_data : bool, default False
+        Whether the transform targets are the model's fit targets (the
+        ``use same data for fit`` checkbox).
+    stems : str, default "[]"
+        JSON array of the stems chosen in the table. While the checkbox was
+        unchecked, they are the user's own choice and are saved (as
+        ``POST /transform`` does), so they survive the change; otherwise
+        they are the locked fit targets and are ignored.
+
+    Returns
+    -------
+    Response
+        Empty response announcing the change (see ``selection_changed``).
+
+    Raises
+    ------
+    HTTPException
+        With status 400 if ``model`` is not a succeeded fit run or ``stems``
+        is not a JSON array of strings.
+    """
+    requested = _parse_stems(stems)
+    if all(run["run_id"] != model for run in model_runs(workspace, model)):
+        raise HTTPException(status_code=400, detail=f"succeeded fit run not found: {model}")
+    settings = workspace.transform_settings
+    if not settings.use_same_data:
+        workspace.transform_selection.replace(workspace.database, requested)
+    settings.update(model, use_same_data)
+    return selection_changed("model")
 
 
 @router.post("", response_class=HTMLResponse)
@@ -64,7 +175,13 @@ def submit_transform(
     workspace: WorkspaceDependency,
     stems: Annotated[str, Form()] = "[]",
 ) -> HTMLResponse:
-    """Save the transform targets and queue a transform job.
+    """Transform the targets with the chosen model, or show an earlier result.
+
+    With ``use same data for fit`` checked, the targets are the model's fit
+    targets and ``stems`` is ignored. Unchecked, the chosen stems are saved
+    and the cataloged files among them are the targets. If a succeeded
+    transform run already transformed the same set of targets with the same
+    model, no job is queued and that run is shown instead.
 
     Parameters
     ----------
@@ -80,49 +197,83 @@ def submit_transform(
     -------
     HTMLResponse
         Submit message partial: an error when no fit run succeeded or no
-        target is chosen. When a job is queued, the response also replaces
-        the run status out of band and triggers ``transform-started``.
+        target is chosen. A reused run is chosen as the shown run and
+        announced with ``view-selection-changed`` (``{"changed": "run"}``).
+        A queued run is chosen as the shown run, so it is shown once it
+        succeeds; the response also replaces the run status out of band and
+        triggers ``transform-started``.
 
     Raises
     ------
     HTTPException
         With status 400 if ``stems`` is not a JSON array of strings.
     """
-    try:
-        requested = parse_stems_json(stems)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    selected = workspace.transform_selection.replace(workspace.database, requested)
-    fit_run_id = current_view_choice(workspace).fit_run_id
-    fit_run = None if fit_run_id is None else get_run(workspace.database, fit_run_id)
-    if fit_run is None or not selected:
+    requested = _parse_stems(stems)
+    model_run = current_model_run(workspace)
+    if workspace.transform_settings.use_same_data:
+        files = [] if model_run is None else run_target_files(model_run)
+    else:
+        wanted = set(workspace.transform_selection.replace(workspace.database, requested))
+        files = [
+            file for file in list_files(workspace.database, FileQuery()) if file["stem"] in wanted
+        ]
+    if model_run is None or not files:
         error = (
             "No succeeded fit run. Run a fit on Preprocess / PCA first."
-            if fit_run is None
+            if model_run is None
             else "Choose the files to transform."
         )
-        return templates.TemplateResponse(
-            request, "partials/transform_submit.html", {"error": error}
-        )
-    wanted = set(selected)
-    files = [
-        file for file in list_files(workspace.database, FileQuery()) if file["stem"] in wanted
-    ]
-    run_id = workspace.submit_transform(
-        build_transform_config(workspace.settings, files, fit_run)
+        return _submit_message(request, {"error": error})
+    fit_run_id = str(model_run["run_id"])
+    reused = find_transform_run(
+        list_runs(workspace.database, TRANSFORM_JOB, limit=None, status="succeeded"),
+        fit_run_id,
+        [str(file["stem"]) for file in files],
     )
-    response = templates.TemplateResponse(
+    if reused is not None:
+        workspace.view_selection.choose_run(str(reused["run_id"]))
+        return _submit_message(request, {"reused": reused}, selection_changed_trigger("run"))
+    run_id = workspace.submit_transform(build_transform_config(workspace.settings, files, model_run))
+    workspace.view_selection.choose_run(run_id)
+    return _submit_message(
         request,
-        "partials/transform_submit.html",
         {"queued": run_status(get_run(workspace.database, run_id))},
+        "transform-started",
     )
-    response.headers["HX-Trigger"] = "transform-started"
-    return response
+
+
+@router.post("/show")
+def show_run(workspace: WorkspaceDependency, run: Annotated[str, Form()]) -> Response:
+    """Choose the transform run shown by the display screens.
+
+    The shown files are cleared if the run changes.
+
+    Parameters
+    ----------
+    workspace : Workspace
+        Application workspace.
+    run : str
+        Succeeded transform run.
+
+    Returns
+    -------
+    Response
+        Empty response announcing the change (see ``selection_changed``).
+
+    Raises
+    ------
+    HTTPException
+        With status 400 if ``run`` is not a succeeded transform run.
+    """
+    if all(candidate["run_id"] != run for candidate in view_runs(workspace, run)):
+        raise HTTPException(status_code=400, detail=f"succeeded transform run not found: {run}")
+    workspace.view_selection.choose_run(run)
+    return selection_changed("run")
 
 
 @router.get("/runs", response_class=HTMLResponse)
 def transform_runs(request: Request, workspace: WorkspaceDependency) -> HTMLResponse:
-    """Render the list of transform runs.
+    """Render the list of transform runs with the shown one.
 
     Parameters
     ----------
@@ -134,7 +285,8 @@ def transform_runs(request: Request, workspace: WorkspaceDependency) -> HTMLResp
     Returns
     -------
     HTMLResponse
-        Run list partial, newest first, with each run's fit run.
+        Run list partial, newest first, with each run's fit run, and the
+        shown run with its number of transform targets.
     """
     rows = [
         (run, reference[0] if (reference := fit_run_reference(run)) else None)
@@ -143,7 +295,7 @@ def transform_runs(request: Request, workspace: WorkspaceDependency) -> HTMLResp
     return templates.TemplateResponse(
         request,
         "partials/transform_runs.html",
-        {"rows": rows, "shown_run_id": current_view_choice(workspace).run_id},
+        {"rows": rows, "choice": current_view_choice(workspace)},
     )
 
 
@@ -186,4 +338,3 @@ def transform_run_status(
     if polling and not status["active"]:
         response.headers["HX-Trigger"] = "transform-updated"
     return response
-

@@ -1,4 +1,4 @@
-"""Browser tests of the sidebar's run and file choices and the transform page."""
+"""Browser tests of the shown run and files and of the transform page's choices."""
 
 from __future__ import annotations
 
@@ -43,39 +43,39 @@ def test_chosen_files_follow_every_screen_and_reload(
 
 
 def test_changing_the_run_clears_the_files(page: Page, two_fits_server_url: str) -> None:
-    """The newest run is used by default; choosing another run clears the files."""
-    page.goto(f"{two_fits_server_url}/model")
+    """The newest transform run is shown by default; showing another clears the files."""
+    page.goto(f"{two_fits_server_url}/transform")
     wait_for_sidebar(page)
-    run = page.locator("#view-selection select[name=run]")
-    expect(run).to_have_value("fit-2")
-    expect(page.locator("main")).to_contain_text("run: fit-2")
+    expect(page.locator("#view-selection select")).to_have_count(0)
+    shown = page.locator("[data-transform-shown]")
+    expect(shown).to_have_attribute("data-transform-shown", "tr-2")
     mark_page(page)
     page.locator('#view-selection input[value="s-00"]').check()
     wait_for_view_refresh(page)
     expect(page.locator('#view-selection input[value="s-00"]')).to_be_checked()
 
-    run.select_option("fit-1")
+    page.locator('[data-run-id="tr-1"]').get_by_role("button", name="Show").click()
 
     wait_for_view_refresh(page)
-    expect(run).to_have_value("fit-1")
-    expect(page.locator("main")).to_contain_text("run: fit-1")
+    expect(shown).to_have_attribute("data-transform-shown", "tr-1")
     expect(page.locator("#view-selection input[name=file]")).to_have_count(12)
     expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(0)
 
 
-def test_transform_page_uses_the_fit_data_by_default(
-    page: Page, fitted_server_url: str
-) -> None:
-    """The transform page follows the preprocessing page and starts on the fit data."""
-    page.goto(f"{fitted_server_url}/fit")
+def test_model_choice_replaces_the_transform_page(page: Page, two_fits_server_url: str) -> None:
+    """The model is chosen on the transform page; the model page follows it."""
+    page.goto(f"{two_fits_server_url}/transform")
+    wait_for_sidebar(page)
+    model = page.locator("[data-transform-model]")
+    expect(model).to_have_value("fit-2")
+    mark_page(page)
 
-    page.locator('a.nav-item[href="/transform"]').click()
+    model.select_option("fit-1")
 
-    checkbox = page.get_by_label("use same data for fit")
-    expect(checkbox).to_be_checked()
-    expect(checkbox).to_be_enabled()
-    expect(page.locator("[data-transform-targets]")).to_be_hidden()
-    expect(page.locator("[data-transform-shown]")).to_contain_text("12 files")
+    wait_for_view_refresh(page)
+    expect(model).to_have_value("fit-1")
+    page.locator('a.nav-item[href="/model"]').click()
+    expect(page.locator("[data-model-run]")).to_have_attribute("data-model-run", "fit-1")
 
 
 def test_choosing_a_file_keeps_the_list_scroll(page: Page, fitted_server_url: str) -> None:
@@ -150,13 +150,13 @@ def test_screens_without_the_choice_keep_their_main_part(
 
 def test_a_stale_sidebar_shows_the_run_in_use(page: Page, two_fits_server_url: str) -> None:
     """A file chosen in a sidebar drawn before the run changed elsewhere shows the new run."""
-    page.goto(f"{two_fits_server_url}/model")
+    page.goto(f"{two_fits_server_url}/explore")
     wait_for_sidebar(page)
-    expect(page.locator("main")).to_contain_text("run: fit-2")
-    # Another tab chooses the other run.
+    expect(page.locator("[data-shown-files]")).to_contain_text("run tr-2")
+    # Another tab shows the other run.
     response = page.request.post(
-        f"{two_fits_server_url}/sidebar/selection/run",
-        form={"run": "fit-1"},
+        f"{two_fits_server_url}/transform/show",
+        form={"run": "tr-1"},
     )
     assert response.ok
     mark_page(page)
@@ -164,6 +164,5 @@ def test_a_stale_sidebar_shows_the_run_in_use(page: Page, two_fits_server_url: s
     page.locator('#view-selection input[value="s-00"]').check()
 
     wait_for_view_refresh(page)
-    expect(page.locator("#view-selection select[name=run]")).to_have_value("fit-1")
-    expect(page.locator("main")).to_contain_text("run: fit-1")
+    expect(page.locator("[data-shown-files]")).to_contain_text("run tr-1")
     expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(0)

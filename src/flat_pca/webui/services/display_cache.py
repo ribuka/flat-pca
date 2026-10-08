@@ -14,7 +14,13 @@ from flat_pca.feature_engineering.flatten_pca.input import read_parquet
 from flat_pca.feature_engineering.pca import PcaModel, PreparedRows, prepare_rows
 from flat_pca.feature_engineering.preprocess import add_step_time_columns
 
-from .fit_artifacts import DisplayArtifacts, load_display_artifacts, load_pca_model
+from .fit_artifacts import (
+    DisplayArtifacts,
+    ModelArtifacts,
+    load_display_artifacts,
+    load_model_artifacts,
+    load_pca_model,
+)
 from .run_dirs import RunDirs
 from .spectral_matrix import SpectralMatrix
 
@@ -221,6 +227,7 @@ class DisplayCache:
             RAW_SPECTRA_ENTRIES
         )
         self._runs: LruCache[RunDirs, DisplayArtifacts] = LruCache(FIT_ARTIFACT_ENTRIES)
+        self._model_artifacts: LruCache[str, ModelArtifacts] = LruCache(FIT_ARTIFACT_ENTRIES)
         self._models: LruCache[str, PcaModel] = LruCache(PCA_MODEL_ENTRIES)
         self._prepared: LruCache[tuple[RunDirs, int], PreparedRows] = LruCache(
             prepared_row_entries
@@ -258,8 +265,30 @@ class DisplayCache:
         key = (str(path), stat.st_size, stat.st_mtime_ns)
         return self._raw.get_or_load(key, lambda: read_raw_spectra(path))
 
+    def model_artifacts(self, run_dir: Path) -> ModelArtifacts:
+        """Return the features and the components of one fit run.
+
+        Parameters
+        ----------
+        run_dir : Path
+            Fit run directory written by ``run_fit``.
+
+        Returns
+        -------
+        ModelArtifacts
+            See ``load_model_artifacts``.
+
+        Raises
+        ------
+        RunArtifactError
+            If the artifacts cannot be read.
+        """
+        return self._model_artifacts.get_or_load(
+            str(run_dir), lambda: load_model_artifacts(run_dir)
+        )
+
     def display_artifacts(self, dirs: RunDirs) -> DisplayArtifacts:
-        """Return the artifacts of one fit or transform run.
+        """Return the artifacts of one transform run.
 
         Parameters
         ----------

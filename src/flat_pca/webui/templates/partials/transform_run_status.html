@@ -33,7 +33,7 @@
     {% elif run.status == "succeeded" %}
       <p data-run-summary>
         {{ run.n_files }} files, {{ run.n_features }} features, {{ run.n_components }} components
-        ({{ "%.1f"|format(run.duration_s or 0) }} s). Show it in the sidebar with "Show" in the run list.
+        ({{ "%.1f"|format(run.duration_s or 0) }} s). A run is shown once it succeeds; choose another with "Show" in the run list.
       </p>
     {% elif run.status == "cancelled" %}
       <p class="muted">Cancelled.</p>

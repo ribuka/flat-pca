@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Model - flat-pca{% endblock %}
-{% block view_swap %}run{% endblock %}
+{% block view_swap %}model{% endblock %}
 {% block scripts %}
   <script src="{{ url_for('static', path='vendor/plotly.min.js') }}" defer></script>
 {% endblock %}
@@ -8,7 +8,7 @@
 <details class="card" data-group="model" open>
   <summary><h2>Model</h2></summary>
   <div class="card-body">
-    <p class="muted">サイドバーで選んだ run だけで決まる図です（表示ファイルの選択によらない）。{% if shown.run_id %}run: {{ shown.run_id }}{% endif %}</p>
+    <p class="muted">Figures fixed by the model chosen on <a href="/transform">Transform</a> alone (independent of the shown files).{% if shown.run_id %} Fit run: <span class="mono" data-model-run="{{ shown.run_id }}">{{ shown.run_id }}</span>{% endif %}</p>
     {% if shown.error %}
       <p class="error" data-model-error>{{ shown.error }}</p>
     {% endif %}

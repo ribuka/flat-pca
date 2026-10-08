@@ -18,6 +18,7 @@ from .services.fit_artifacts import register_fit_result
 from .services.runs import ACTIVE_STATUSES, fail_interrupted_runs, latest_run
 from .services.selection import FileSelection
 from .services.transform_artifacts import register_transform_result
+from .services.transform_settings import TransformSettings
 from .services.view_selection import ViewSelection
 from .settings import Settings
 
@@ -27,7 +28,7 @@ TRANSFORM_JOB = "transform"
 
 
 class Workspace:
-    """Database connection, display cache, file selections, and job executor.
+    """Database connection, display cache, choices, and job executor.
 
     All Web UI state lives in one ``Workspace`` instead of module globals.
     Opening a workspace marks runs left ``queued`` or ``running`` by a
@@ -49,6 +50,7 @@ class Workspace:
         self.cache = DisplayCache(settings.ui.explore_max_files)
         self.selection = FileSelection()
         self.transform_selection = FileSelection()
+        self.transform_settings = TransformSettings()
         self.view_selection = ViewSelection()
         self._submit_lock = threading.Lock()
         self.executor = JobExecutor(

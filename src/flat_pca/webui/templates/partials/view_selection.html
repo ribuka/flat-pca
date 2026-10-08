@@ -1,15 +1,3 @@
-<form id="view-run-form" class="view-selection-field" hx-post="/sidebar/selection/run" hx-trigger="change" hx-swap="none" data-view-choice>
-  <label for="view-run">run</label>
-  {% if choice.runs %}
-    <select id="view-run" name="run">
-      {% for run in choice.runs %}
-        <option value="{{ run.run_id }}" data-run-kind="{{ run.kind }}"{% if run.run_id == choice.run_id %} selected{% endif %}>{% if run.kind == "transform" %}└ transform {% endif %}{{ run.run_id }}（{{ run.created_at|cell }}）</option>
-      {% endfor %}
-    </select>
-  {% else %}
-    <p class="muted" data-no-run>No succeeded fit run</p>
-  {% endif %}
-</form>
 <div class="view-selection-field">
   <span class="view-selection-label">Shown files
     <span class="muted" data-view-file-count>{{ choice.files|length }} / {{ max_files }}</span>

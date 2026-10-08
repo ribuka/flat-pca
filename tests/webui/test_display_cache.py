@@ -11,11 +11,19 @@ import numpy as np
 import polars as pl
 import pytest
 
-from flat_pca.webui.jobs.fit_run import COMPONENTS_FILE, build_fit_config, run_fit
+from flat_pca.webui.jobs.executor import CONFIG_FILE
+from flat_pca.webui.jobs.fit_run import (
+    COMPONENTS_FILE,
+    SCORES_FILE,
+    build_fit_config,
+    run_fit,
+)
+from flat_pca.webui.jobs.transform_run import build_transform_config, run_transform
 from flat_pca.webui.services.display_cache import DisplayCache, LruCache, ShownMatrices
 from flat_pca.webui.services.fit_artifacts import (
     RunArtifactError,
     load_display_artifacts,
+    load_model_artifacts,
 )
 from flat_pca.webui.services.run_dirs import RunDirs
 from flat_pca.webui.services.spectral_matrix import SpectralMatrix
@@ -128,15 +136,39 @@ def test_display_artifacts_keep_matrices_memory_mapped(
     settings: Settings, spectra_paths: list[Path]
 ) -> None:
     """Display artifacts restore no model, so the components stay memory-mapped."""
-    run_dir = _fit_run_dir(settings, spectra_paths)
+    fit_dir = _fit_run_dir(settings, spectra_paths)
+    transform_dir = _transform_run_dir(settings, spectra_paths, fit_dir)
 
     artifacts = DisplayCache(PREPARED_ROW_ENTRIES).display_artifacts(
-        RunDirs(model=run_dir, data=run_dir)
+        RunDirs(model=fit_dir, data=transform_dir)
     )
 
     assert isinstance(artifacts.x, np.memmap)
     assert isinstance(artifacts.components, np.memmap)
     assert artifacts.components.shape == (2, artifacts.features.height)
+    assert artifacts.scores.height == len(spectra_paths)
+
+
+def test_model_artifacts_need_no_scores(settings: Settings, spectra_paths: list[Path]) -> None:
+    """A fit run's model is displayed from its features and memory-mapped components."""
+    fit_dir = _fit_run_dir(settings, spectra_paths)
+
+    artifacts = DisplayCache(PREPARED_ROW_ENTRIES).model_artifacts(fit_dir)
+
+    assert not (fit_dir / SCORES_FILE).exists()
+    assert isinstance(artifacts.components, np.memmap)
+    assert artifacts.components.shape == (2, artifacts.features.height)
+
+
+def test_model_artifacts_reject_inconsistent_components(
+    settings: Settings, spectra_paths: list[Path]
+) -> None:
+    """Components of another feature count are reported as unreadable artifacts."""
+    fit_dir = _fit_run_dir(settings, spectra_paths)
+    np.save(fit_dir / COMPONENTS_FILE, np.zeros((2, 3), dtype=np.float32))
+
+    with pytest.raises(RunArtifactError, match="components.npy"):
+        load_model_artifacts(fit_dir)
 
 
 def test_display_artifacts_reject_inconsistent_components(
@@ -151,7 +183,10 @@ def test_display_artifacts_reject_inconsistent_components(
 
 
 def _fit_run_dir(settings: Settings, paths: list[Path]) -> Path:
-    """Run a two-component fit of the synthetic spectra and return its directory."""
+    """Run a two-component fit of the synthetic spectra and return its directory.
+
+    The configuration is saved as ``config.json``, as the job executor does.
+    """
     config = build_fit_config(
         settings,
         [{"stem": path.stem, "path": str(path)} for path in paths],
@@ -167,5 +202,22 @@ def _fit_run_dir(settings: Settings, paths: list[Path]) -> Path:
     )
     run_dir = settings.runs_dir / "fit"
     run_dir.mkdir(parents=True)
+    (run_dir / CONFIG_FILE).write_text(json.dumps(config), encoding="utf-8")
     run_fit(json.loads(json.dumps(config)), run_dir)
+    return run_dir
+
+
+def _transform_run_dir(settings: Settings, paths: list[Path], fit_dir: Path) -> Path:
+    """Transform the synthetic spectra with a fit run's model and return the run directory."""
+    fit_run = {
+        "run_id": "fit",
+        "artifact_dir": str(fit_dir),
+        "config_json": (fit_dir / CONFIG_FILE).read_text(encoding="utf-8"),
+    }
+    config = build_transform_config(
+        settings, [{"stem": path.stem, "path": str(path)} for path in paths], fit_run
+    )
+    run_dir = settings.runs_dir / "transform"
+    run_dir.mkdir(parents=True)
+    run_transform(json.loads(json.dumps(config)), run_dir)
     return run_dir

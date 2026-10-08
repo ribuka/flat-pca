@@ -139,7 +139,7 @@ def fail_interrupted_runs(database: Database) -> int:
 
 
 def list_runs(
-    database: Database, kind: str, limit: int = 100, status: RunStatus | None = None
+    database: Database, kind: str, limit: int | None = 100, status: RunStatus | None = None
 ) -> list[dict[str, object]]:
     """Return the runs of one kind, newest first.
 
@@ -149,8 +149,8 @@ def list_runs(
         Workspace database.
     kind : str
         Job kind.
-    limit : int, default 100
-        Maximum number of runs.
+    limit : int | None, default 100
+        Maximum number of runs; ``None`` for all.
     status : RunStatus | None, default None
         Only runs in this status, applied before ``limit``; ``None`` for all.
 
@@ -159,11 +159,15 @@ def list_runs(
     list[dict[str, object]]
         Each run's columns.
     """
-    return database.fetch_dicts(
+    sql = (
         "SELECT * FROM runs WHERE kind = ? AND (? IS NULL OR status = ?) "
-        "ORDER BY created_at DESC, run_id DESC LIMIT ?",
-        [kind, status, status, limit],
+        "ORDER BY created_at DESC, run_id DESC"
     )
+    parameters: list[object] = [kind, status, status]
+    if limit is not None:
+        sql += " LIMIT ?"
+        parameters.append(limit)
+    return database.fetch_dicts(sql, parameters)
 
 
 def list_succeeded_runs(

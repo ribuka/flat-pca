@@ -77,7 +77,7 @@ def test_default_page_draws_every_figure_from_the_run(client: TestClient) -> Non
     assert response.status_code == 200
     html = response.text
     assert 'name="run"' not in html
-    assert "run: fit-1" in html
+    assert 'data-model-run="fit-1"' in html
     assert 'name="x" form="model-form" min="1" max="3" value="1"' in html
     assert 'name="y" form="model-form" min="1" max="3" value="2"' in html
     assert '<option value="rms" selected>' in html
@@ -159,6 +159,20 @@ def test_parameter_heatmap_reshapes_the_model_values(
         _decode(trends["by_wavelength"]["data"][0]["y"]),
         grid.drop("StepTime").to_numpy()[0],
     )
+
+
+@pytest.mark.usefixtures("run_dir")
+def test_page_shows_the_model_chosen_on_the_transform_screen(
+    client: TestClient, settings: Settings, spectra_paths: list[Path]
+) -> None:
+    """The newest fit run is shown until another model is chosen on the transform screen."""
+    register_fit_run(_workspace(client).database, settings, spectra_paths, "fit-2", "median")
+    assert 'data-model-run="fit-2"' in client.get("/model").text
+
+    response = client.post("/transform/settings", data={"model": "fit-1", "use_same_data": "true"})
+
+    assert response.status_code == 200
+    assert 'data-model-run="fit-1"' in client.get("/model").text
 
 
 @pytest.mark.parametrize("view", ["scaling_scale", "impute_median", "outlier_lower"])

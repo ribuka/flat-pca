@@ -12,7 +12,7 @@ import numpy as np
 import polars as pl
 import pytest
 from fastapi.testclient import TestClient
-from fit_runs import register_fit_run
+from fit_runs import register_shown_run
 from spectra import SPECTRA_FILE_COUNT, SPECTRA_SHORT_FILE
 from view_choice import choose_view
 
@@ -20,7 +20,7 @@ from flat_pca.webui.app import create_app
 from flat_pca.webui.services.explore import ExploreRequest, resolve_explore
 from flat_pca.webui.services.runs import list_succeeded_runs
 from flat_pca.webui.settings import Settings
-from flat_pca.webui.workspace import FIT_JOB, Workspace
+from flat_pca.webui.workspace import TRANSFORM_JOB, Workspace
 
 SHORT = f"s-{SPECTRA_SHORT_FILE:02d}"
 # Files are dated in reverse index order; this one has no date.
@@ -73,7 +73,7 @@ def _register(
     run_id: str,
     impute_strategy: str,
 ) -> Path:
-    """Register a fit run whose files are dated in reverse index order.
+    """Register a transform run of a fit run whose files are dated in reverse index order.
 
     Returns
     -------
@@ -89,7 +89,7 @@ def _register(
         }
         for index, path in enumerate(spectra_paths)
     }
-    register_fit_run(
+    register_shown_run(
         _workspace(client).database,
         settings,
         spectra_paths,
@@ -102,7 +102,7 @@ def _register(
 
 @pytest.fixture
 def run_dir(client: TestClient, settings: Settings, spectra_paths: list[Path]) -> Path:
-    """Register a succeeded fit run imputing missing values with the median."""
+    """Register a succeeded transform run of a fit run imputing with the median."""
     return _register(client, settings, spectra_paths, "fit-1", "median")
 
 
@@ -115,11 +115,11 @@ def _scores_by_stem(run_dir: Path) -> pl.DataFrame:
 
 
 def test_navigation_links_to_the_page(client: TestClient) -> None:
-    """The sidebar enables the screen, which reports a missing fit run."""
+    """The sidebar enables the screen, which reports a missing transform run."""
     html = client.get("/monitoring").text
 
     assert 'href="/monitoring" aria-current="page"' in html
-    assert "No succeeded fit run" in html
+    assert "No succeeded transform run" in html
 
 
 @pytest.mark.usefixtures("run_dir")
@@ -245,10 +245,10 @@ def test_drop_run_reports_files_without_statistics(
 
 
 @pytest.mark.usefixtures("run_dir")
-def test_page_shows_the_run_chosen_in_the_sidebar(
+def test_page_shows_the_run_chosen_on_the_transform_screen(
     client: TestClient, settings: Settings, spectra_paths: list[Path]
 ) -> None:
-    """The page shows the sidebar's run, not the newest one, once it is chosen."""
+    """The page shows the chosen transform run, not the newest one, once it is chosen."""
     _register(client, settings, spectra_paths, "fit-2", "median")
     assert "run fit-2 の T² と Q です。" in client.get("/monitoring").text
 
@@ -317,7 +317,7 @@ def test_q_contribution_page_warns_when_float32_artifacts_lose_the_saved_q(
     client: TestClient, settings: Settings, tmp_path: Path
 ) -> None:
     """Contributions from float32 artifacts that miss the saved Q are reported."""
-    register_fit_run(
+    register_shown_run(
         _workspace(client).database,
         settings,
         _write_offset_spectra(tmp_path / "offset"),
@@ -345,10 +345,10 @@ def test_q_contributions_add_up_to_the_saved_q(
     ``SHORT`` lacks its last time point, which the median imputation fills.
     """
     workspace = _workspace(client)
-    fit_runs = list_succeeded_runs(workspace.database, FIT_JOB, None)
+    transform_runs = list_succeeded_runs(workspace.database, TRANSFORM_JOB, None)
     first = resolve_explore(
         workspace.cache,
-        fit_runs,
+        transform_runs,
         ExploreRequest(view="q_contribution", files=(stem,)),
         workspace.settings.ui.explore_max_files,
     )
@@ -356,7 +356,7 @@ def test_q_contributions_add_up_to_the_saved_q(
     for step, sequence in first.segment_options:
         shown = resolve_explore(
             workspace.cache,
-            fit_runs,
+            transform_runs,
             ExploreRequest(
                 view="q_contribution", files=(stem,), segment=f"{step}:{sequence}"
             ),

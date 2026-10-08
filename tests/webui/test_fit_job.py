@@ -116,35 +116,28 @@ def test_run_fit_writes_artifacts_in_flatten_order(
     components = np.load(run_dir / COMPONENTS_FILE)
     assert components.dtype == np.float32
     assert components.shape[1] == len(feature_names)
-
-    scores = pl.read_parquet(run_dir / SCORES_FILE)
+    # The fitted files are scored by a transform run, not by the fit run.
+    assert not (run_dir / SCORES_FILE).exists()
     n_component = components.shape[0]
-    assert scores.columns == [
-        "source",
-        *(f"pca-{index}" for index in range(1, n_component + 1)),
-        *MahalanobisConfig().column_names,
-        *SpeConfig().column_names,
-    ]
-    assert scores["source"].to_list() == samples["source"].to_list()
 
     with np.load(run_dir / PCA_STATE_FILE) as state:
         assert int(state["n_component"]) == n_component
         assert state["impute_values"].shape == (len(feature_names),)
     progress = read_progress(run_dir)
     assert progress is not None
-    assert (progress.stage, progress.done, progress.total) == ("save", 4, 4)
+    assert (progress.stage, progress.done, progress.total) == ("save", 3, 3)
 
 
 @pytest.mark.parametrize("impute_strategy", ["drop", "median", "kmeans"])
 @pytest.mark.parametrize("scaling_strategy", ["none", "pareto"])
-def test_restored_model_reproduces_saved_scores(
+def test_restored_model_scores_the_fitted_files(
     settings: Settings,
     spectra_paths: list[Path],
     tmp_path: Path,
     impute_strategy: str,
     scaling_strategy: str,
 ) -> None:
-    """Scores, T², and Q recomputed from the artifacts match ``scores.parquet``."""
+    """The restored model scores every fitted file its imputation keeps."""
     run_dir = _run(
         _fit_config(
             settings,
@@ -167,9 +160,12 @@ def test_restored_model_reproduces_saved_scores(
         spe=SpeConfig(**STATISTICS),
     ).collect()
 
-    expected_rows = SPECTRA_FILE_COUNT - (impute_strategy == "drop")
-    assert artifacts.scores.height == expected_rows
-    assert recomputed["source"].to_list() == artifacts.scores["source"].to_list()
+    kept = [
+        source
+        for index, source in enumerate(artifacts.samples["source"].to_list())
+        if not (impute_strategy == "drop" and index == SPECTRA_SHORT_FILE)
+    ]
+    assert recomputed["source"].to_list() == kept
     columns = [
         *artifacts.model.pca_column_names,
         "mahalanobis_sq",
@@ -177,12 +173,7 @@ def test_restored_model_reproduces_saved_scores(
         "spe",
         "spe_ucl",
     ]
-    np.testing.assert_allclose(
-        recomputed.select(columns).to_numpy(),
-        artifacts.scores.select(columns).to_numpy(),
-        rtol=1e-4,
-        atol=1e-4,
-    )
+    assert np.isfinite(recomputed.select(columns).to_numpy()).all()
     assert artifacts.model.impute_model.strategy == impute_strategy
     assert artifacts.model.scaling_model.strategy == scaling_strategy
 
@@ -242,7 +233,7 @@ def test_register_rejects_missing_artifacts(
     """A missing artifact fails the run with a message asking to rerun it."""
     config = _fit_config(settings, spectra_paths)
     run_dir = _run(config, tmp_path / "run")
-    (run_dir / SCORES_FILE).unlink()
+    (run_dir / X_FILE).unlink()
 
     with pytest.raises(RunArtifactError, match="run the fit again"):
         register_fit_result(config, run_dir)

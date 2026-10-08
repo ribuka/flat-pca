@@ -16,21 +16,40 @@ TRANSFORM_TIMEOUT_MS = 20_000
 
 def _choose_targets(page: Page) -> None:
     """Uncheck "use same data for fit" and choose every catalog file."""
-    targets = page.locator("[data-transform-targets]")
-    expect(targets).to_be_hidden()
+    expect(page.locator("#file-table[data-locked]")).to_have_count(1)
+    mark_page(page)
     page.get_by_label("use same data for fit").uncheck()
-    expect(targets).to_be_visible()
+    wait_for_view_refresh(page)
+    expect(page.locator("#file-table[data-locked]")).to_have_count(0)
     expect(page.locator("#file-table tbody tr")).to_have_count(len(CATALOG_STEMS))
     page.get_by_label("Select all filtered files").check()
 
 
-def test_transform_runs_and_its_targets_are_shown(
+def test_transform_page_locks_the_fit_targets_by_default(
     page: Page, fitted_server_url: str
 ) -> None:
-    """A transform of other files can be run, shown in the sidebar, and switched back."""
+    """Checked, the table and the button show, and the table cannot be edited."""
     page.goto(f"{fitted_server_url}/transform")
     wait_for_sidebar(page)
+
     expect(page.get_by_label("use same data for fit")).to_be_checked()
+    expect(page.locator("[data-transform-model]")).to_have_value("fit-1")
+    expect(page.locator("[data-transform-targets]")).to_be_visible()
+    expect(page.locator("[data-fit-targets]")).to_contain_text("12 files")
+    expect(page.locator("#file-table tbody tr")).to_have_count(len(CATALOG_STEMS))
+    for box in page.locator("#file-table [data-stem-check]").all():
+        expect(box).to_be_disabled()
+    expect(page.get_by_label("Select all filtered files")).to_be_disabled()
+    expect(page.get_by_role("button", name="Run transform")).to_be_enabled()
+    expect(page.locator("[data-transform-shown]")).to_contain_text("tr-1")
+
+
+def test_transform_runs_only_on_demand_and_once_per_data(
+    page: Page, fitted_server_url: str
+) -> None:
+    """A transform of other files runs and is shown; the fit targets reuse ``tr-1``."""
+    page.goto(f"{fitted_server_url}/transform")
+    wait_for_sidebar(page)
     _choose_targets(page)
 
     page.get_by_role("button", name="Run transform").click()
@@ -40,32 +59,28 @@ def test_transform_runs_and_its_targets_are_shown(
     )
     expect(page.locator("#busy-overlay")).to_be_hidden()
     rows = page.locator("[data-transform-runs] tbody tr")
-    expect(rows).to_have_count(1)
+    expect(rows).to_have_count(2)
     expect(rows.first.locator("td").nth(1)).to_have_text("fit-1")
-    # The finished run is offered in the sidebar right away.
-    expect(page.locator('#view-run option[data-run-kind="transform"]')).to_have_count(1)
+    # The finished run is shown right away.
+    expect(rows.first.locator("[data-shown-run]")).to_have_count(1)
+    expect(page.locator("#view-selection li[data-stem]")).to_have_count(len(CATALOG_STEMS))
 
     mark_page(page)
-    rows.first.get_by_role("button", name="Show").click()
+    rows.nth(1).get_by_role("button", name="Show").click()
 
     wait_for_view_refresh(page)
-    expect(page.locator("#view-run option:checked")).to_have_attribute(
-        "data-run-kind", "transform"
-    )
-    expect(page.locator("#view-selection li[data-stem]")).to_have_count(
-        len(CATALOG_STEMS)
-    )
-    expect(page.get_by_label("use same data for fit")).not_to_be_checked()
-    expect(page.locator("[data-transform-targets]")).to_be_visible()
-    expect(page.locator("[data-shown-run]")).to_have_count(1)
+    expect(page.locator("[data-transform-shown]")).to_contain_text("tr-1")
+    expect(page.locator("#view-selection li[data-stem]")).to_have_count(12)
 
-    # Checking the box shows the fit run's own data again.
+    # Checked again, the fit targets were already transformed by tr-1.
+    mark_page(page)
     page.get_by_label("use same data for fit").check()
-
     wait_for_view_refresh(page)
-    expect(page.locator("#view-run option:checked")).to_have_attribute("value", "fit-1")
-    expect(page.get_by_label("use same data for fit")).to_be_checked()
-    expect(page.locator("[data-transform-targets]")).to_be_hidden()
+    page.get_by_role("button", name="Run transform").click()
+
+    expect(page.locator('[data-transform-reused="tr-1"]')).to_be_visible()
+    expect(rows).to_have_count(2)
+    expect(page.locator("#view-selection li[data-stem]")).to_have_count(12)
 
     page.goto(f"{fitted_server_url}/monitoring")
     expect(page.locator("body")).not_to_contain_text("run-10")
@@ -76,6 +91,7 @@ def test_running_transform_covers_the_page_and_can_be_cancelled(
 ) -> None:
     """While a transform runs, the overlay shows it; cancelling ends the run."""
     page.goto(f"{slow_transform_server_url}/transform")
+    wait_for_sidebar(page)
     _choose_targets(page)
 
     page.get_by_role("button", name="Run transform").click()

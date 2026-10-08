@@ -1,4 +1,4 @@
-"""Fit job: preprocess, flatten, fit PCA, and score the selected files.
+"""Fit job: preprocess, flatten, and fit PCA to the selected files.
 
 The job runs in a child process and never touches the database. It writes
 the run artifacts (see ``docs/spec/webui.md``) to the run directory; the
@@ -45,7 +45,7 @@ SCORES_FILE = "scores.parquet"
 # cumulative explained-variance ratio, fitting at most AUTO_COMPONENT_CAP.
 AUTO_COMPONENT_CUMULATIVE = 0.99
 AUTO_COMPONENT_CAP = 1000
-STAGES = ("preprocess", "fit", "score", "save")
+STAGES = ("preprocess", "fit", "save")
 
 _METADATA_DTYPES: dict[MetadataColumnType, pl.DataType] = {
     "category": pl.String(),
@@ -315,7 +315,10 @@ def score_frame(
 
 
 def run_fit(config: dict[str, object], run_dir: Path) -> None:
-    """Preprocess, flatten, fit PCA, score, and save the run artifacts.
+    """Preprocess, flatten, fit PCA, and save the run artifacts.
+
+    The fitted files are not scored: their scores, T², and Q belong to a
+    transform run (``jobs.transform_run.run_transform``).
 
     Parameters
     ----------
@@ -354,9 +357,6 @@ def run_fit(config: dict[str, object], run_dir: Path) -> None:
     logger.info(f"fitted {model.n_component} components")
 
     _stage(2)
-    scores = score_frame(flattened.lazy(), model, config)
-
-    _stage(3)
     feature_frame(features).write_parquet(run_dir / FEATURES_FILE)
     sample_frame(flattened[SOURCE_COLUMN].to_list(), config).write_parquet(
         run_dir / SAMPLES_FILE
@@ -368,5 +368,4 @@ def run_fit(config: dict[str, object], run_dir: Path) -> None:
     del flattened
     np.save(run_dir / COMPONENTS_FILE, model.pca.components_.astype(dtype))
     np.savez(run_dir / PCA_STATE_FILE, **model.to_pca_state())
-    scores.write_parquet(run_dir / SCORES_FILE)
     write_progress(run_dir, STAGES[-1], len(STAGES), len(STAGES))

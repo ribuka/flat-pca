@@ -21,24 +21,28 @@ function matchingStems(root) {
 
 // Shows the selection in the row checkboxes, and in the header checkbox
 // whether all, some, or none of the files matching the filters are selected.
+// A locked table (data-locked: the fit targets of the transform page) shows
+// the selection with every checkbox disabled; its filters and pages work.
 function syncFileChecks(root) {
   const stems = selectedStems();
+  const locked = root.hasAttribute("data-locked");
   for (const box of root.querySelectorAll("[data-stem-check]")) {
     box.checked = stems.has(box.value);
+    box.disabled = locked;
   }
   const matching = matchingStems(root);
   const checked = matching.filter((stem) => stems.has(stem)).length;
   const header = root.querySelector("[data-check-all]");
   header.checked = matching.length > 0 && checked === matching.length;
   header.indeterminate = checked > 0 && checked < matching.length;
-  header.disabled = matching.length === 0;
+  header.disabled = locked || matching.length === 0;
 }
 
 // A row checkbox selects its file; the header checkbox selects or clears
 // every file matching the filters, shown on this page or not.
 document.addEventListener("change", (event) => {
   const root = event.target.closest("#file-table");
-  if (!root || !event.target.matches("[data-check-all], [data-stem-check]")) {
+  if (!root || root.hasAttribute("data-locked") || !event.target.matches("[data-check-all], [data-stem-check]")) {
     return;
   }
   const stems = selectedStems();
@@ -260,22 +264,6 @@ function syncJobOverlay() {
 
 document.addEventListener("htmx:afterSettle", syncJobOverlay);
 
-// The transform page's "use same data for fit" checkbox: unchecked, it shows
-// the choice of the transform targets and the button that transforms them.
-function syncTransformTargets() {
-  const box = document.querySelector("[data-use-same-data]");
-  const targets = document.querySelector("[data-transform-targets]");
-  if (box && targets) {
-    targets.hidden = box.checked;
-  }
-}
-
-document.addEventListener("change", (event) => {
-  if (event.target.matches("[data-use-same-data]")) {
-    syncTransformTargets();
-  }
-});
-
 // A control that fails the browser's validation inside a collapsed group
 // opens the group, so the browser can focus it and show the message.
 document.addEventListener(
@@ -312,14 +300,13 @@ document.addEventListener("submit", (event) => {
 
 // The controls of the main part that are not drawn by the server: the
 // conditions of a page restored by "back" (from the bfcache or with restored
-// form state) that were never shown, the overlay of an active fit or
-// transform run, and the transform targets of the transform page.
+// form state) that were never shown, and the overlay of an active fit or
+// transform run.
 function syncMainControls() {
   for (const form of document.querySelectorAll("form[data-auto-submit]")) {
     form.reset();
   }
   syncJobOverlay();
-  syncTransformTargets();
 }
 
 // Functions that stop the work of the shown main part, such as pending trend
@@ -368,11 +355,11 @@ window.addEventListener("pageshow", (event) => {
   htmx.ajax("GET", "/sidebar/selection", { target: "#view-selection", swap: "innerHTML" });
 });
 
-// The sidebar's choices of the run and the shown files. A change (in the
-// sidebar, on the transform page, or by a click on a score point) refreshes
-// the sidebar's choices and, when the main element names the changed choice
-// in data-view-swap, the main part from the current URL; the page is not
-// reloaded. The overlay covers the page meanwhile; cancelling stops the
+// The display screens' choices: the shown transform run and the model (chosen
+// on the transform page) and the shown files (in the sidebar or by a click on
+// a score point). A change refreshes the sidebar's choices and, when the main
+// element names the changed choice in data-view-swap, the main part from the
+// current URL; the page is not reloaded. The overlay covers the page meanwhile; cancelling stops the
 // requests and shows the choices the server holds.
 const VIEW_OWNER = "view-selection";
 // The pending refresh, aborted by a newer one or by cancelling.
@@ -405,7 +392,7 @@ async function fetchPart(url, signal, headers = {}) {
   return response.text();
 }
 
-// Refreshes the page after the choice `changed` ("run" or "files") changed.
+// Refreshes the page after the choice `changed` ("run", "files", or "model") changed.
 // Both parts are replaced together once both have arrived; if either fails,
 // nothing is replaced and the overlay closes. `pointStems` is passed to
 // initMain.
