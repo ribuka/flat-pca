@@ -176,7 +176,8 @@ def flatten_pca(
         raise ValueError("exactly one of paths or flattened must be specified")
     if flattened is None:
         assert paths is not None
-        config = PreprocessConfig(
+        flattened = preprocess_and_flatten(
+            paths,
             target_steps=target_steps,
             edge_trim=edge_trim,
             wavelength_range=wavelength_range,
@@ -192,9 +193,8 @@ def flatten_pca(
             stem_uniqueness=stem_uniqueness,
             validate_metadata_uniqueness=validate_metadata_uniqueness,
             validate_metadata_alignment=validate_metadata_alignment,
-        )
-        flattened = _preprocess_and_flatten(
-            paths, config, materialize_once=materialize_once, workers=workers
+            materialize_once=materialize_once,
+            workers=workers,
         )
     return fit_flattened_pca(
         flattened,
@@ -390,9 +390,9 @@ def _preprocess_and_flatten(
 ) -> pl.LazyFrame:
     """Build the preprocessing and flattening query from a validated config.
 
-    Shared by ``flatten_pca`` and ``preprocess_and_flatten``, which build
-    ``config`` from their keyword arguments, so every preprocessing argument
-    is validated before any input file is read.
+    ``preprocess_and_flatten`` builds ``config`` from its keyword arguments
+    before calling this, so every preprocessing argument is validated before
+    any input file is read.
 
     Parameters
     ----------
