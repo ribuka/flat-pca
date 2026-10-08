@@ -277,6 +277,19 @@ def test_flatten_and_prune_rejects_invalid_arguments(
         _flatten_and_prune_inputs(inputs, 1.5)
 
 
+def test_flatten_and_prune_names_max_null_ratio_for_integer_spectra(
+    real_fixture_paths: list[Path],
+) -> None:
+    """The dtype-preserving path of integer spectra names the threshold too."""
+    inputs = [
+        (path, frame.with_columns(pl.exclude(*METADATA_COLUMNS).cast(pl.Int64, strict=False)))
+        for path, frame in _build_shared_grid_inputs(real_fixture_paths)
+    ]
+
+    with pytest.raises(ValueError, match="max_null_ratio must be between"):
+        _flatten_and_prune_inputs(inputs, 1.5)
+
+
 def _row_oriented_reference(
     matrix: np.ndarray, sources: list[str], feature_names: list[str]
 ) -> pl.DataFrame:
