@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, cast
 
@@ -22,6 +22,7 @@ from .fit_artifacts import DisplayArtifacts, RunArtifactError
 from .monitoring import statistic_configs
 from .q_consistency import QMismatch, q_mismatch, saved_q_by_stem
 from .reconstruction import ReconstructionKind, reconstruction_values
+from .run_choice import choose_run
 from .run_dirs import RunDirs, run_dirs
 from .segment_choice import (
     choose_segment,
@@ -426,28 +427,27 @@ def _run_view(
     assert segment is not None  # a fit run always has features
     component_count = artifacts.components.shape[0]
     component = choose_component(request.component, 1, component_count)
-    common = {
-        "runs": runs,
-        "run_id": str(run["run_id"]),
-        "segment_options": segment_options,
-        "segment": segment,
-        "component_count": component_count,
-        "value_name": VALUE_NAMES.get(view, "intensity"),
-    }
     stems = artifacts.samples["stem"].to_list()
     options = sorted(stems, key=natural_keys)
     files, omitted = _choose_files(options, request.files, max_files)
     order = _heatmap_first(files, request.heatmap_file)
-    preprocess =cast(dict[str, object], json.loads(str(run["config_json"]))["preprocess"])
-    common |= {
-        "file_options": options,
-        "files": files,
-        "omitted": omitted,
-        "intensity_transform": {
+    preprocess = cast(dict[str, object], json.loads(str(run["config_json"]))["preprocess"])
+    base = ExploreView(
+        view=view,
+        runs=runs,
+        run_id=str(run["run_id"]),
+        file_options=options,
+        files=files,
+        segment_options=segment_options,
+        segment=segment,
+        component_count=component_count,
+        value_name=VALUE_NAMES.get(view, "intensity"),
+        intensity_transform={
             "name": preprocess.get("intensity_transform", "none"),
             "scale": preprocess.get("intensity_transform_scale", 1.0),
         },
-    }
+        omitted=omitted,
+    )
     if view == "preprocessed":
         matrices = {
             stem: feature_segment_matrix(
@@ -458,9 +458,8 @@ def _run_view(
             )
             for stem in order
         }
-        return ExploreView(
-            view=view,
-            **common,  # type: ignore[arg-type]
+        return replace(
+            base,
             heatmap_options=files,
             heatmap_file=_heatmap_file(files, request.heatmap_file),
             matrices=matrices,
@@ -505,9 +504,8 @@ def _run_view(
             cast(PreparedViewKind, view), dirs, artifacts, cache, order, segment, values_of
         )
     except RunArtifactError as error:
-        return ExploreView(
-            view=view,
-            **common,  # type: ignore[arg-type]
+        return replace(
+            base,
             component=shown_component,
             error=str(error),
         )
@@ -515,9 +513,8 @@ def _run_view(
     if not matrices:
         error = "Cannot show the chosen files: all of them contain missing values and are dropped by the imputation strategy drop."
     shown = [stem for stem in files if stem not in dropped]
-    return ExploreView(
-        view=view,
-        **common,  # type: ignore[arg-type]
+    return replace(
+        base,
         heatmap_options=shown,
         heatmap_file=_heatmap_file(shown, request.heatmap_file),
         component=shown_component,
@@ -531,7 +528,7 @@ def _run_view(
 
 def resolve_explore(
     cache: DisplayCache,
-    fit_runs: list[dict[str, object]],
+    runs: list[dict[str, object]],
     request: ExploreRequest,
     max_files: int,
 ) -> ExploreView:
@@ -546,8 +543,8 @@ def resolve_explore(
     ----------
     cache : DisplayCache
         Display cache of the workspace.
-    fit_runs : list[dict[str, object]]
-        Transform runs, newest first; only succeeded ones are used.
+    runs : list[dict[str, object]]
+        Succeeded transform runs to choose from, newest first.
     request : ExploreRequest
         Requested choices.
     max_files : int
@@ -568,11 +565,7 @@ def resolve_explore(
         raise ValueError(f"unknown view: {request.view!r}")
     view = cast(ExploreViewKind, request.view)
     parse_segment(request.segment)
-    runs = [run for run in fit_runs if run["status"] == "succeeded"]
-    by_id = {str(run["run_id"]): run for run in runs}
-    if request.run is not None and request.run not in by_id:
-        raise ValueError(f"succeeded transform run not found: {request.run}")
-    run = by_id[request.run] if request.run is not None else (runs[0] if runs else None)
+    run = choose_run(runs, request.run, "transform")
     if run is None:
         return ExploreView(
             view=view,
