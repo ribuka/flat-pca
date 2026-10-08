@@ -146,3 +146,24 @@ def test_screens_without_the_choice_keep_their_main_part(
         expect(page.locator("main .card").first).to_have_attribute("data-kept", "true")
         page.locator('#view-selection input[value="s-03"]').uncheck()
         wait_for_view_refresh(page)
+
+
+def test_a_stale_sidebar_shows_the_run_in_use(page: Page, two_fits_server_url: str) -> None:
+    """A file chosen in a sidebar drawn before the run changed elsewhere shows the new run."""
+    page.goto(f"{two_fits_server_url}/model")
+    wait_for_sidebar(page)
+    expect(page.locator("main")).to_contain_text("run: fit-2")
+    # Another tab chooses the other run.
+    response = page.request.post(
+        f"{two_fits_server_url}/sidebar/selection/run",
+        form={"run": "fit-1"},
+    )
+    assert response.ok
+    mark_page(page)
+
+    page.locator('#view-selection input[value="s-00"]').check()
+
+    wait_for_view_refresh(page)
+    expect(page.locator("#view-selection select[name=run]")).to_have_value("fit-1")
+    expect(page.locator("main")).to_contain_text("run: fit-1")
+    expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(0)

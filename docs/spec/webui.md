@@ -202,7 +202,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - transform run を選んだときは、モデル（寄与率・ローディング・PCA成分・前処理の状態）は元の fit run のものを、ファイル（元データ・前処理済み・再構成・スコア・T² / Q）は transform run のものを使う。T² / Q の UCL は fit run のもの（`MahalanobisConfig`・`SpeConfig`）とする。
   - 表示ファイルの選択肢は、使う run の transform 対象（`samples.parquet`の`stem`）を`natural_keys`の順に並べたもの。run がなければ空とする。検索ボックスで絞り込めるチェックボックスのリストとし、複数選べる。上限は`ui.explore_max_files`件（既定 20）で、上限に達したらほかのチェックボックスを無効にしてその旨を表示する。サーバーも上限を超えた分（選択肢の順で後ろのもの）と選択肢にないファイルを捨てる。
   - run を変えると、表示ファイルの選択をすべて解除する。
-  - 表示ファイルの変更は、サイドバーを描いたときの run も送る。その後に run が変わっていれば（別のタブなど）、選択を変えずにサイドバーを取得し直す。使う run の解決・一致の確認・選択の更新は、`ViewSelection.transaction()`のロックの中でまとめて行い、ほかの要求による変更が途中に入らないようにする。
+  - 表示ファイルの変更は、サイドバーを描いたときの run も送る。その後に run が変わっていれば（別のタブなど）、選択を変えずに run の変更（`{"changed": "run"}`）を知らせ、サイドバーとメイン部分を今の run で取得し直させる。使う run の解決・一致の確認・選択の更新は、`ViewSelection.transaction()`のロックの中でまとめて行い、ほかの要求による変更が途中に入らないようにする。
   - 選択はデータ選択の選択（`services/selection.py::FileSelection`）と同じく、サーバー側の workspace（`services/view_selection.py::ViewSelection`）に持つ。画面を移っても、ブラウザで再読み込みしても残り、ブラウザのタブ間で共有される。
   - 選択を変えると、サーバーは`HX-Trigger`で`view-selection-changed`イベント（`{"changed": "run"}`または`{"changed": "files"}`）を返し、ページは読み直さない。ブラウザ（`app.js`の`refreshView`）は、サイドバーの選択（`#view-selection`）と、今の画面がその選択を使うときはメイン部分（`<main class="content">`の中身）を今の URL（クエリを含む）で取得し直し、両方が届いてからまとめて差し替える。URL と履歴は変えない。
     - メイン部分を差し替える選択は、`base.html`の`<main>`の`data-view-swap`に画面ごとに書く（`view_swap`ブロック）。スペクトル探索・スコアは run と表示ファイル（`run files`）、transform・モデル・T² / Q は run だけ（`run`。表示ファイルを使わないため。transform 画面では作業中の transform 対象の選択を失わない）、データ選択と前処理・PCA は差し替えない（編集中のフォームを失わないため）。

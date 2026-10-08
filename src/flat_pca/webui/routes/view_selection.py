@@ -163,8 +163,9 @@ def choose_files(
         Application workspace.
     run : str
         Run in use when the sidebar was drawn. If the run in use has changed
-        since (in another tab, for example), the choice is left unchanged
-        and the refreshed sidebar shows the current one.
+        since (in another tab, for example), the choice is left unchanged,
+        and the change of the run is announced instead, so the browser
+        shows the run in use in the sidebar and the main part.
     file : list[str] | None, default None
         Checked stems. Stems that are not transform targets of the run in
         use are ignored, and only the first ``ui.explore_max_files`` of the
@@ -179,10 +180,11 @@ def choose_files(
     # Resolving the run in use and replacing its files is one step.
     with selection.transaction():
         choice = current_view_choice(workspace)
-        if run == choice.run_id:
-            wanted = set(file or ())
-            stems = [stem for stem in choice.file_options if stem in wanted]
-            selection.replace_stems(stems[: workspace.settings.ui.explore_max_files])
+        if run != choice.run_id:
+            return _selection_changed("run")
+        wanted = set(file or ())
+        stems = [stem for stem in choice.file_options if stem in wanted]
+        selection.replace_stems(stems[: workspace.settings.ui.explore_max_files])
     return _selection_changed("files")
 
 

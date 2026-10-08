@@ -260,7 +260,11 @@ def test_a_figure_of_another_run_adds_nothing(
 def test_a_sidebar_of_another_run_changes_nothing(
     client: TestClient, settings: Settings, spectra_paths: list[Path]
 ) -> None:
-    """Checkboxes drawn before the run changed (in another tab) keep the choice."""
+    """Checkboxes drawn before the run changed (in another tab) keep the choice.
+
+    The response announces a change of the run, so the browser also replaces
+    the main part drawn with the previous run.
+    """
     _register(client, settings, spectra_paths, "fit-1")
     _register(client, settings, spectra_paths, "fit-2")
     choose_view(client, run="fit-2", files=["s-02"])
@@ -270,7 +274,7 @@ def test_a_sidebar_of_another_run_changes_nothing(
         "/sidebar/selection/files", data={"run": "fit-1", "file": ["s-01"]}
     )
 
-    assert _trigger(response.headers) == {"view-selection-changed": {"changed": "files"}}
+    assert _trigger(response.headers) == {"view-selection-changed": {"changed": "run"}}
     assert _workspace(client).view_selection.stems == ["s-02"]
 
 
