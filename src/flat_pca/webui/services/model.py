@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import cast
 
 import numpy as np
@@ -26,6 +25,7 @@ from .preprocess_parameters import (
     parameter_options,
     parameter_values,
 )
+from .run_dirs import run_dirs
 from .segment_choice import (
     choose_segment,
     feature_segments,
@@ -52,7 +52,7 @@ class ModelRequest:
     Attributes
     ----------
     run : str | None
-        Fit run shown; ``None`` for the latest succeeded fit run.
+        Fit or transform run shown; ``None`` for the latest succeeded fit run.
     x : int | None
         1-based component number m of the loading plot's horizontal axis.
     y : int | None
@@ -109,9 +109,9 @@ class ModelView:
     Attributes
     ----------
     runs : list[dict[str, object]]
-        Succeeded fit runs, newest first.
+        Succeeded runs to choose from (see ``order_view_runs``).
     run_id : str | None
-        Fit run in use, or ``None`` when no fit run succeeded.
+        Fit or transform run in use, or ``None`` when no fit run succeeded.
     component_count : int
         Number of components of the run.
     x : int
@@ -323,7 +323,7 @@ def _run_view(
     Parameters
     ----------
     run : dict[str, object]
-        The fit run's ``runs`` row.
+        The fit or transform run's ``runs`` row.
     artifacts : DisplayArtifacts
         The run's artifacts.
     cache : DisplayCache
@@ -331,7 +331,7 @@ def _run_view(
     request : ModelRequest
         Requested choices.
     runs : list[dict[str, object]]
-        Succeeded fit runs, newest first.
+        Succeeded runs to choose from (see ``order_view_runs``).
 
     Returns
     -------
@@ -363,7 +363,7 @@ def _run_view(
         "segment": segment,
     }
     try:
-        model = cache.pca_model(Path(str(run["artifact_dir"])))
+        model = cache.pca_model(run_dirs(run).model)
     except RunArtifactError as error:
         return ModelView(**common, error=str(error))  # type: ignore[arg-type]
     view_options = {COMPONENT_VIEW: COMPONENT_VIEW_LABEL} | parameter_options(model)
@@ -399,7 +399,7 @@ def resolve_model(
     cache : DisplayCache
         Display cache of the workspace.
     fit_runs : list[dict[str, object]]
-        Fit runs, newest first; only succeeded ones are used.
+        Runs ordered by ``order_view_runs``; only succeeded ones are used.
     request : ModelRequest
         Requested choices.
 
@@ -428,7 +428,7 @@ def resolve_model(
     if run is None:
         return ModelView(runs=runs, error="No succeeded fit run.")
     try:
-        artifacts = cache.fit_artifacts(Path(str(run["artifact_dir"])))
+        artifacts = cache.display_artifacts(run_dirs(run))
     except RunArtifactError as error:
         return ModelView(runs=runs, run_id=str(run["run_id"]), error=str(error))
     return _run_view(run, artifacts, cache, request, runs)

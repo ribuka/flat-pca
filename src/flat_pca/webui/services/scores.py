@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import numpy as np
 import polars as pl
@@ -15,6 +14,7 @@ from flat_pca.utils import natural_keys
 from .component_choice import choose_component
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError, artifact_error
+from .run_dirs import RunDirs, run_dirs
 from .scored_samples import choose_metadata_column, metadata_columns, scored_samples
 
 
@@ -25,7 +25,7 @@ class ScoresRequest:
     Attributes
     ----------
     run : str | None
-        Fit run shown; ``None`` for the latest succeeded fit run.
+        Fit or transform run shown; ``None`` for the latest succeeded fit run.
     x : int | None
         1-based component number m of the horizontal axis.
     y : int | None
@@ -91,9 +91,9 @@ class ScoresView:
     Attributes
     ----------
     runs : list[dict[str, object]]
-        Succeeded fit runs, newest first.
+        Succeeded runs to choose from (see ``order_view_runs``).
     run_id : str | None
-        Fit run in use, or ``None`` when no fit run succeeded.
+        Fit or transform run in use, or ``None`` when no fit run succeeded.
     component_count : int
         Number of components of the run.
     x : int
@@ -183,7 +183,7 @@ def score_table(
 
 
 def score_trajectories(
-    run_dir: Path,
+    dirs: RunDirs,
     artifacts: DisplayArtifacts,
     cache: DisplayCache,
     files: list[str],
@@ -194,8 +194,8 @@ def score_trajectories(
 
     Parameters
     ----------
-    run_dir : Path
-        Run directory of the fit run.
+    dirs : RunDirs
+        Directories of the run's model and data.
     artifacts : DisplayArtifacts
         The run's artifacts.
     cache : DisplayCache
@@ -216,7 +216,7 @@ def score_trajectories(
     RunArtifactError
         If the model cannot be read.
     """
-    model = cache.pca_model(run_dir)
+    model = cache.pca_model(dirs.model)
     order = time_point_order(model.columns)
     points = [
         f"({step}, {sequence}, {step_time:g})"
@@ -232,7 +232,7 @@ def score_trajectories(
     dropped: list[str] = []
     # One file at a time, so only its time-point sums outlive the iteration.
     for stem in files:
-        prepared = cache.prepared_row(run_dir, stems.index(stem))
+        prepared = cache.prepared_row(dirs, stems.index(stem))
         if prepared.kept.size == 0:
             dropped.append(stem)
             continue
@@ -256,7 +256,7 @@ def _run_view(
     Parameters
     ----------
     run : dict[str, object]
-        The fit run's ``runs`` row.
+        The fit or transform run's ``runs`` row.
     artifacts : DisplayArtifacts
         The run's artifacts.
     cache : DisplayCache
@@ -264,7 +264,7 @@ def _run_view(
     request : ScoresRequest
         Requested choices.
     runs : list[dict[str, object]]
-        Succeeded fit runs, newest first.
+        Succeeded runs to choose from (see ``order_view_runs``).
     default_color : str | None
         Default coloring column.
 
@@ -273,7 +273,7 @@ def _run_view(
     ScoresView
         Scores and trajectories of the run.
     """
-    run_dir = Path(str(run["artifact_dir"]))
+    dirs = run_dirs(run)
     component_count = artifacts.components.shape[0]
     x = choose_component(request.x, 1, component_count)
     y = choose_component(request.y, 2, component_count)
@@ -293,9 +293,9 @@ def _run_view(
         "files": files,
     }
     try:
-        model = cache.pca_model(run_dir)
+        model = cache.pca_model(dirs.model)
         scores = score_table(artifacts, model.pca_column_names, x, y)
-        trajectories, dropped = score_trajectories(run_dir, artifacts, cache, files, x, y)
+        trajectories, dropped = score_trajectories(dirs, artifacts, cache, files, x, y)
     except RunArtifactError as error:
         return ScoresView(**common, error=str(error))  # type: ignore[arg-type]
     return ScoresView(
@@ -322,7 +322,7 @@ def resolve_scores(
     cache : DisplayCache
         Display cache of the workspace.
     fit_runs : list[dict[str, object]]
-        Fit runs, newest first; only succeeded ones are used.
+        Runs ordered by ``order_view_runs``; only succeeded ones are used.
     request : ScoresRequest
         Requested choices.
     default_color : str | None
@@ -346,7 +346,7 @@ def resolve_scores(
     if run is None:
         return ScoresView(runs=runs, error="No succeeded fit run.")
     try:
-        artifacts = cache.fit_artifacts(Path(str(run["artifact_dir"])))
+        artifacts = cache.display_artifacts(run_dirs(run))
     except RunArtifactError as error:
         return ScoresView(runs=runs, run_id=str(run["run_id"]), error=str(error))
     return _run_view(run, artifacts, cache, request, runs, default_color)

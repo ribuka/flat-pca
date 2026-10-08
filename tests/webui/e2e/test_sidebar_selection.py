@@ -64,13 +64,16 @@ def test_changing_the_run_clears_the_files(page: Page, two_fits_server_url: str)
     expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(0)
 
 
-def test_transform_page_fixes_the_fit_data(page: Page, fitted_server_url: str) -> None:
-    """The transform page follows the preprocessing page with a fixed checkbox."""
+def test_transform_page_uses_the_fit_data_by_default(
+    page: Page, fitted_server_url: str
+) -> None:
+    """The transform page follows the preprocessing page and starts on the fit data."""
     page.goto(f"{fitted_server_url}/fit")
 
     page.locator('a.nav-item[href="/transform"]').click()
 
     checkbox = page.get_by_label("use same data for fit")
     expect(checkbox).to_be_checked()
-    expect(checkbox).to_be_disabled()
-    expect(page.locator("[data-transform-targets]")).to_contain_text("12 files")
+    expect(checkbox).to_be_enabled()
+    expect(page.locator("[data-transform-targets]")).to_be_hidden()
+    expect(page.locator("[data-transform-shown]")).to_contain_text("12 files")

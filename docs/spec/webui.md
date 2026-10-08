@@ -8,7 +8,6 @@
 - 対象外（将来検討）：
   - ブラウザからのファイルアップロード（Parquetのlazy読み込みにはランダムアクセス可能なストレージが必要なため、サーバーから見えるパスまたはURIを指定する方式とする）
   - `Time`で区間をつなげたヒートマップ（v1は`(Step, Sequence)`ごとの`StepTime`のみ）
-  - 学習済みモデルによる未知データの判定
 
 ## 構成
 
@@ -111,14 +110,14 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 ## Workspace と DB
 
 - 状態は1つの`Workspace`オブジェクト（DuckDB接続、表示用キャッシュ、ジョブ実行器）に集約し、グローバル変数に分散させない。
-- 表示用キャッシュ（`services/display_cache.py`）は、読み込んだ元データ（`StepTime`列を付けたファイル全体。パス・サイズ・更新時刻をキーとする）と、fit runの成果物（`X.npy`はmemmapのまま）をそれぞれLRUで保持する。
+- 表示用キャッシュ（`services/display_cache.py`）は、読み込んだ元データ（`StepTime`列を付けたファイル全体。パス・サイズ・更新時刻をキーとする）と、fit run・transform runの成果物（`X.npy`はmemmapのまま。モデル側とデータ側のrunディレクトリの組`RunDirs`をキーとする）をそれぞれLRUで保持する。
 - DuckDBファイルは`{workspace.dir}/flatpca.duckdb`とする。書き込みは親プロセスのみが行う。
 - スキーマに版管理・マイグレーションは持たない。スキーマを変えたときはWorkspaceを作り直す。`file_metadata`だけは、settings.tomlの列定義（列名・順序・SQL型）と食い違う場合に起動時に空で作り直す（次のcatalog更新で埋まる）。
 - テーブル：
   - `files`：`stem`、`path`、`size`、`mtime_ns`、波長数・最小・最大、`Time`の最小・最大、行数
   - `segments`：`stem`、`Step`、`Sequence`、行数、StepTime最大値
   - `file_metadata`：`stem` + settings.tomlで定義した列
-  - `runs`：`run_id`、ジョブ種別（`catalog`等）、作成日時、状態（`queued`/`running`/`succeeded`/`failed`/`cancelled`）、設定JSON、対象ファイル数、特徴量数、成分数、所要時間、エラーメッセージ、成果物ディレクトリ
+  - `runs`：`run_id`、ジョブ種別（`catalog`・`fit`・`transform`）、作成日時、状態（`queued`/`running`/`succeeded`/`failed`/`cancelled`）、設定JSON、対象ファイル数、特徴量数、成分数、所要時間、エラーメッセージ、成果物ディレクトリ
 - catalogは`path`・`mtime`・`size`のいずれかが変化したファイルのみを再走査する差分更新とする。走査は`Time`・`Step`・`Sequence`列とスキーマのみを読む。
 
 ## ジョブ実行
@@ -126,6 +125,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - ピークメモリが大きくなり得る処理はサブプロセスで実行する。対象は次のとおり。
   - catalogの構築・更新
   - 前処理・flatten・PCA fit・スコア付与（1つのfitジョブ）
+  - 学習済みモデルによる前処理・flatten・transform・スコア付与（1つのtransformジョブ）
 - 実行器はアプリ側で保持するFIFOキューと、ジョブごとに起動する子プロセス（`multiprocessing.get_context("spawn").Process`）からなる。ジョブ終了ごとに子プロセスが終了し、メモリを確実に解放する。同時に実行するジョブは1つとし、後続はキューで待つ。
   - `ProcessPoolExecutor`は使わない。ワーカーを強制終了するとプール全体が`BrokenProcessPool`となり、待機中のジョブと以後のsubmitがすべて失敗するため、キャンセルと両立しない。
   - 親プロセスの監視スレッド1本が、子の終了（`join`）を確認してから、キューの次のジョブを起動する。
@@ -137,7 +137,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - 待機中のジョブ：キューから取り除き、runを`cancelled`にする。子プロセスは起動しない。
   - キャンセルは他のジョブの状態と、以後のジョブの投入に影響しない。
 - アプリ起動時に`running`または`queued`のまま残っているrunは、前回のプロセスが異常終了したものとして`failed`にする。
-- ジョブ本体は通常の関数（例：`jobs/fit_run.py::run_fit(config, run_dir)`）とし、サブプロセスを介さず単体テストできるようにする。
+- ジョブ本体は通常の関数（例：`jobs/fit_run.py::run_fit(config, run_dir)`・`jobs/transform_run.py::run_transform(config, run_dir)`）とし、サブプロセスを介さず単体テストできるようにする。
 
 ## run 成果物
 
@@ -164,6 +164,23 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - スケーリング：`scaling_strategy`、`scaling_centers`、`scaling_scales`（`"none"`の場合は空）
 - 成果物に形式の版は持たせない。読み込めない成果物（形式が古い・壊れている）はエラーとして表示し、再実行を促す。
 
+### transform run の成果物
+
+学習済みの fit run のモデルで、fit に使っていないファイルを transform した結果を`{workspace.dir}/runs/{run_id}/`に保存する。モデル（`features.parquet`・`components.npy`・`pca_state.npz`）は複製せず、元の fit run のものを使う。
+
+| ファイル | 内容 | 形式 |
+| --- | --- | --- |
+| `config.json` | 元の fit run の`fit_run_id`・`fit_run_dir`、対象ファイル一覧（ファイルごとのメタデータを含む）、fit run の前処理・T²/Q設定、`artifact_dtype` | JSON |
+| `samples.parquet` | fit run と同じ形式 | Parquet |
+| `X.npy` | 前処理・flatten 後、補完前の行列。列は fit run の`features.parquet`の順（欠損はNaN） | `.npy` |
+| `scores.parquet` | fit run と同じ形式。T²・QのUCLは fit run のモデルから求めるため、fit run と同じ値になる | Parquet |
+| `progress.json`・`log.txt` | 進捗（`preprocess`・`transform`・`save`の3段階）・ログ | JSON・テキスト |
+
+- 前処理は fit run の設定（`config.json`の`preprocess`）で行う。ただし、列は fit run の特徴量で決まるため、transform 対象の格子での間引き（`t_downsampling_stride`・`w_downsampling_stride`）と、transform 対象の欠損率による列の除去（`max_null_ratio`）は行わない。間引きは格子点を選ぶだけで、平滑化・正規化の後に行うため、間引かずに fit run の特徴量を選べば、格子が同じときは fit と同じ値になる。要素ごとの強度変換（`intensity_transform`）は、fit run の特徴量を選んだ後に行う（`jobs/transform_run.py::transform_target_intensity`）。fit で間引いて使わなかった値が`log1p`の定義域外でも、transform は失敗しない。
+- flatten 後の列を fit run の特徴量にそろえる（`jobs/transform_run.py::align_features`）。transform 対象の`(Step, Sequence, StepTime)`の格子や波長が fit と違い、fit の特徴量に足りない列は欠損値とし、fit run の補完で埋める。fit run にない列は捨てる。fit run の特徴量が1つもない場合はエラーとする。
+- `impute_strategy="drop"`の fit run では、欠損を含む transform 対象の行は`X.npy`・`samples.parquet`に残し、`scores.parquet`には含めない（fit run と同じ扱い）。すべての行が除かれる場合はエラーとする。
+- 表示側は`services/run_dirs.py::run_dirs`で、モデル側（fit run）とデータ側（fit run 自身、または transform run）のディレクトリを解決し、同じ読み込み処理（`services/fit_artifacts.py::load_display_artifacts`）で読む。transform run の検証は`services/transform_artifacts.py::register_transform_result`で行う。
+
 ## 画面
 
 ### 共通レイアウト
@@ -181,7 +198,8 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - 表示条件の入力欄は、それが変える図のカードに置く。ページを読み直すフォームは1つだけとし、ほかのカードの入力欄はHTMLの`form`属性でそのフォームに属させる（自動送信・リセットも同じフォームで行う）。
 - サイドバーの run と表示ファイル（`/sidebar/selection`。どの画面でも常に表示する）：
   - モデル・T² / Q・スペクトル探索・スコアは、ここで選んだ run と表示ファイルを使う。各画面のメインには run とファイルの選択欄を置かない。
-  - run の選択肢は、成功した fit run（新しい順。表示は`run_id（作成日時）`）。何も選んでいないとき、または選んでいた run がなくなったときは、最新の run を使う。fit が終わったら（`fit-updated`イベント）選択肢を取得し直し、選んでいる run は変えない。
+  - run の選択肢は、成功した fit run（新しい順。表示は`run_id（作成日時）`）と、その直後に並べたその fit run の成功した transform run（新しい順。表示は`└ transform run_id（作成日時）`）。何も選んでいないとき、または選んでいた run がなくなったときは、最新の fit run を使う。fit・transform が終わったら（`fit-updated`・`transform-updated`イベント）選択肢を取得し直し、選んでいる run は変えない。
+  - transform run を選んだときは、モデル（寄与率・ローディング・PCA成分・前処理の状態）は元の fit run のものを、ファイル（元データ・前処理済み・再構成・スコア・T² / Q）は transform run のものを使う。T² / Q の UCL は fit run のもの（`MahalanobisConfig`・`SpeConfig`）とする。
   - 表示ファイルの選択肢は、使う run の transform 対象（`samples.parquet`の`stem`）を`natural_keys`の順に並べたもの。run がなければ空とする。検索ボックスで絞り込めるチェックボックスのリストとし、複数選べる。上限は`ui.explore_max_files`件（既定 20）で、上限に達したらほかのチェックボックスを無効にしてその旨を表示する。サーバーも上限を超えた分（選択肢の順で後ろのもの）と選択肢にないファイルを捨てる。
   - run を変えると、表示ファイルの選択をすべて解除する。
   - 表示ファイルの変更は、サイドバーを描いたときの run も送る。その後に run が変わっていれば（別のタブなど）、選択を変えずに読み直す。使う run の解決・一致の確認・選択の更新は、`ViewSelection.transaction()`のロックの中でまとめて行い、ほかの要求による変更が途中に入らないようにする。
@@ -229,9 +247,14 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 ### 3. transform
 
-- `/transform`。`use same data for fit`のチェックボックスを、チェックした状態で固定して表示する（グレーアウトして変えられない）。
-- transform の対象は、fit の対象と同じファイル（その run の`samples.parquet`）とする。サイドバーの表示ファイルの選択肢、スペクトル探索の各ビュー、スコアは、この transform 対象を表示する。サイドバーで選んだ run の transform 対象のファイル数を表示する。
-- transform の対象を fit と別に選ぶ機能は持たない。
+- `/transform`。`use same data for fit`のチェックボックスを置く。既定はチェックあり（サイドバーで transform run を選んでいるときだけチェックなし）。
+- チェックありのときは、transform の対象を fit の対象と同じファイル（その fit run の`samples.parquet`）とし、fit run の成果物をそのまま表示する（実行は不要）。サイドバーで transform run を選んでいるときにチェックすると、サイドバーの run をその fit run に変えて読み直す。
+- チェックを外すと、transform の対象を catalog から選ぶ表と「Run transform」ボタンを表示する。
+  - 表はデータ選択と同じもの（`/catalog/files`の絞り込み・ソート・ページング、ページやフィルタをまたいだ選択、ヘッダのチェックボックスでの一括選択）とする。選択は送信時に workspace（`Workspace.transform_selection`）へ保存し、画面を開き直しても残す。
+  - 実行（`POST /transform`）は、サイドバーで選んだ run の fit run（transform run を選んでいるときはその元の fit run）のモデルで、transformジョブ（種別`transform`）を投入する。fit run がない・対象がないときは、ボタンの横にエラーを表示する。
+- 実行中は前処理・PCA画面と同じオーバーレイ（「Running the transform…」、経過時間、段階と進捗、残り時間、キャンセル）と実行状況を表示し、`/transform/runs/{run_id}/status`をポーリングする。終わったら`transform-updated`で transform run 一覧とサイドバーの run の選択肢を取得し直す。
+- transform run 一覧（`/transform/runs`）は、run・元の fit run・作成日時・状態・ファイル数・所要時間を新しい順に表示し、成功した run の「Show」でサイドバーの run をその transform run に変える。
+- 画面には、使うモデル（fit run）と、サイドバーで選んだ run の transform 対象のファイル数を表示する。サイドバーの表示ファイルの選択肢、スペクトル探索の各ビュー、スコア、T² / Q は、サイドバーで選んだ run の transform 対象を表示する。
 
 ### 4. モデル
 

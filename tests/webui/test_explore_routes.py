@@ -360,7 +360,7 @@ def test_old_succeeded_run_can_be_chosen(
 
     assert f"run {fit_run} の表示ファイル" in html
     assert 'data-heatmap-label="s-00"' in html
-    assert f'<option value="{fit_run}" selected>' in sidebar
+    assert f'<option value="{fit_run}" data-run-kind="fit" selected>' in sidebar
 
 
 def _trend_values(

@@ -15,6 +15,7 @@ from flat_pca.feature_engineering.pca import PcaModel, PreparedRows, prepare_row
 from flat_pca.feature_engineering.preprocess import add_step_time_columns
 
 from .fit_artifacts import DisplayArtifacts, load_display_artifacts, load_pca_model
+from .run_dirs import RunDirs
 from .spectral_matrix import SpectralMatrix
 
 RAW_SPECTRA_ENTRIES = 8
@@ -197,12 +198,13 @@ def read_raw_spectra(path: Path) -> pl.DataFrame:
 
 
 class DisplayCache:
-    """Raw spectra and fit-run artifacts kept for the exploration screens.
+    """Raw spectra and run artifacts kept for the exploration screens.
 
     Raw files are keyed by path, size, and modification time, so a changed
-    file is read again. Run artifacts are keyed by run directory; their
-    matrices (``X.npy`` and ``components.npy``) stay memory-mapped, so only
-    the rows a view needs are read. The PCA models and the prepared rows of
+    file is read again. Run artifacts are keyed by their model and data
+    directories (``RunDirs``); their matrices (``X.npy`` and
+    ``components.npy``) stay memory-mapped, so only the rows a view needs
+    are read. The PCA models and the prepared rows of
     the reconstruction views are kept separately, so the other views never
     restore a model. The matrices of shown views are kept by their choices,
     up to ``SHOWN_MATRIX_ENTRIES`` views and ``SHOWN_MATRIX_BYTES`` in all.
@@ -218,9 +220,9 @@ class DisplayCache:
         self._raw: LruCache[tuple[str, int, int], pl.DataFrame] = LruCache(
             RAW_SPECTRA_ENTRIES
         )
-        self._runs: LruCache[str, DisplayArtifacts] = LruCache(FIT_ARTIFACT_ENTRIES)
+        self._runs: LruCache[RunDirs, DisplayArtifacts] = LruCache(FIT_ARTIFACT_ENTRIES)
         self._models: LruCache[str, PcaModel] = LruCache(PCA_MODEL_ENTRIES)
-        self._prepared: LruCache[tuple[str, int], PreparedRows] = LruCache(
+        self._prepared: LruCache[tuple[RunDirs, int], PreparedRows] = LruCache(
             prepared_row_entries
         )
         self._shown: LruCache[Hashable, ShownMatrices] = LruCache(
@@ -256,13 +258,13 @@ class DisplayCache:
         key = (str(path), stat.st_size, stat.st_mtime_ns)
         return self._raw.get_or_load(key, lambda: read_raw_spectra(path))
 
-    def fit_artifacts(self, run_dir: Path) -> DisplayArtifacts:
-        """Return the artifacts of one fit run.
+    def display_artifacts(self, dirs: RunDirs) -> DisplayArtifacts:
+        """Return the artifacts of one fit or transform run.
 
         Parameters
         ----------
-        run_dir : Path
-            Run directory written by ``run_fit``.
+        dirs : RunDirs
+            Directories of the run's model and data (see ``run_dirs``).
 
         Returns
         -------
@@ -274,7 +276,7 @@ class DisplayCache:
         RunArtifactError
             If the artifacts cannot be read.
         """
-        return self._runs.get_or_load(str(run_dir), lambda: load_display_artifacts(run_dir))
+        return self._runs.get_or_load(dirs, lambda: load_display_artifacts(dirs))
 
     def pca_model(self, run_dir: Path) -> PcaModel:
         """Return the PCA pipeline of one fit run.
@@ -282,7 +284,7 @@ class DisplayCache:
         Parameters
         ----------
         run_dir : Path
-            Run directory written by ``run_fit``.
+            Fit run directory written by ``run_fit`` (``RunDirs.model``).
 
         Returns
         -------
@@ -296,15 +298,15 @@ class DisplayCache:
         """
         return self._models.get_or_load(str(run_dir), lambda: load_pca_model(run_dir))
 
-    def prepared_row(self, run_dir: Path, row: int) -> PreparedRows:
-        """Return one ``X.npy`` row after the run's imputation and outlier handling.
+    def prepared_row(self, dirs: RunDirs, row: int) -> PreparedRows:
+        """Return one ``X.npy`` row after the fit run's imputation and outlier handling.
 
         Parameters
         ----------
-        run_dir : Path
-            Run directory written by ``run_fit``.
+        dirs : RunDirs
+            Directories of the run's model and data (see ``run_dirs``).
         row : int
-            Zero-based row of ``X.npy``.
+            Zero-based row of the data's ``X.npy``.
 
         Returns
         -------
@@ -320,10 +322,10 @@ class DisplayCache:
 
         def load() -> PreparedRows:
             # Read only this row of the memory-mapped matrix.
-            values = self.fit_artifacts(run_dir).x[row : row + 1]
-            return prepare_rows(values, self.pca_model(run_dir))
+            values = self.display_artifacts(dirs).x[row : row + 1]
+            return prepare_rows(values, self.pca_model(dirs.model))
 
-        return self._prepared.get_or_load((str(run_dir), row), load)
+        return self._prepared.get_or_load((dirs, row), load)
 
     def keep_shown_matrices(self, key: Hashable, shown: ShownMatrices) -> None:
         """Keep the matrices of a shown view, replacing those of the same key.

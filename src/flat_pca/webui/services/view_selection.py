@@ -1,4 +1,4 @@
-"""The fit run and the files chosen in the sidebar for the display screens."""
+"""The run and the files chosen in the sidebar for the display screens."""
 
 from __future__ import annotations
 
@@ -6,16 +6,16 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from flat_pca.utils import natural_keys
 
 from .display_cache import DisplayCache
 from .fit_artifacts import RunArtifactError
+from .run_dirs import fit_run_reference, run_dirs
 
 
 class ViewSelection:
-    """Thread-safe holder of the fit run and the files chosen in the sidebar.
+    """Thread-safe holder of the run and the files chosen in the sidebar.
 
     The choice is shared by every display screen and every browser tab, and
     lives for the lifetime of the workspace. It is distinct from the file
@@ -43,7 +43,7 @@ class ViewSelection:
 
     @property
     def run_id(self) -> str | None:
-        """Return the chosen fit run.
+        """Return the chosen fit or transform run.
 
         Returns
         -------
@@ -66,12 +66,12 @@ class ViewSelection:
             return list(self._stems)
 
     def choose_run(self, run_id: str) -> None:
-        """Choose a fit run, clearing the chosen files if the run changes.
+        """Choose a fit or transform run, clearing the chosen files if the run changes.
 
         Parameters
         ----------
         run_id : str
-            Chosen fit run.
+            Chosen fit or transform run.
         """
         with self._lock:
             if run_id != self._run_id:
@@ -125,15 +125,20 @@ class ViewSelection:
 
 @dataclass(frozen=True)
 class ViewChoice:
-    """Resolved fit run and files of the sidebar.
+    """Resolved run and files of the sidebar.
 
     Attributes
     ----------
     runs : list[dict[str, object]]
-        Succeeded fit runs to choose from, newest first.
+        Succeeded runs to choose from: fit runs, newest first, each followed
+        by its transform runs, newest first (see ``order_view_runs``).
     run_id : str | None
-        Fit run in use: the chosen one, or the latest succeeded one when
-        none is chosen or the chosen one is gone. ``None`` without runs.
+        Fit or transform run in use: the chosen one, or the latest succeeded
+        fit run when none is chosen or the chosen one is gone. ``None``
+        without runs.
+    fit_run_id : str | None
+        Fit run whose model the run in use transforms with: the run itself
+        for a fit run. ``None`` without runs.
     file_options : list[str]
         Transform targets of the run (the stems of its ``samples.parquet``)
         in natural order; empty without a run or when its artifacts cannot
@@ -144,21 +149,59 @@ class ViewChoice:
 
     runs: list[dict[str, object]] = field(default_factory=list)
     run_id: str | None = None
+    fit_run_id: str | None = None
     file_options: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
 
+    @property
+    def is_transform_run(self) -> bool:
+        """Return whether the run in use is a transform run."""
+        return self.run_id is not None and self.run_id != self.fit_run_id
+
+
+def order_view_runs(
+    fit_runs: list[dict[str, object]], transform_runs: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    """Order the succeeded runs the sidebar chooses from.
+
+    Parameters
+    ----------
+    fit_runs : list[dict[str, object]]
+        Fit runs, newest first; only succeeded ones are used.
+    transform_runs : list[dict[str, object]]
+        Transform runs, newest first; only succeeded ones whose fit run is
+        among ``fit_runs`` are used.
+
+    Returns
+    -------
+    list[dict[str, object]]
+        Each succeeded fit run followed by its transform runs, in the given
+        orders.
+    """
+    by_fit_run: dict[str, list[dict[str, object]]] = {}
+    for run in transform_runs:
+        reference = fit_run_reference(run)
+        if run["status"] == "succeeded" and reference is not None:
+            by_fit_run.setdefault(reference[0], []).append(run)
+    ordered: list[dict[str, object]] = []
+    for run in fit_runs:
+        if run["status"] == "succeeded":
+            ordered.append(run)
+            ordered.extend(by_fit_run.get(str(run["run_id"]), []))
+    return ordered
+
 
 def transform_stems(cache: DisplayCache, run: dict[str, object]) -> list[str]:
-    """Return the transform targets of a fit run in natural order.
+    """Return the transform targets of a fit or transform run in natural order.
 
-    The transform targets are the files the run was fitted on.
+    The transform targets of a fit run are the files it was fitted on.
 
     Parameters
     ----------
     cache : DisplayCache
         Display cache holding the run's artifacts.
     run : dict[str, object]
-        The fit run's ``runs`` row.
+        The fit or transform run's ``runs`` row.
 
     Returns
     -------
@@ -167,7 +210,7 @@ def transform_stems(cache: DisplayCache, run: dict[str, object]) -> list[str]:
         cannot be read.
     """
     try:
-        artifacts = cache.fit_artifacts(Path(str(run["artifact_dir"])))
+        artifacts = cache.display_artifacts(run_dirs(run))
     except RunArtifactError:
         return []
     return sorted(artifacts.samples["stem"].to_list(), key=natural_keys)
@@ -175,7 +218,7 @@ def transform_stems(cache: DisplayCache, run: dict[str, object]) -> list[str]:
 
 def resolve_view_choice(
     cache: DisplayCache,
-    fit_runs: list[dict[str, object]],
+    view_runs: list[dict[str, object]],
     run_id: str | None,
     stems: list[str],
 ) -> ViewChoice:
@@ -185,8 +228,8 @@ def resolve_view_choice(
     ----------
     cache : DisplayCache
         Display cache of the workspace.
-    fit_runs : list[dict[str, object]]
-        Fit runs, newest first; only succeeded ones are used.
+    view_runs : list[dict[str, object]]
+        Runs ordered by ``order_view_runs``; only succeeded ones are used.
     run_id : str | None
         Chosen run; ``None`` or a run that is gone falls back to the latest.
     stems : list[str]
@@ -198,15 +241,17 @@ def resolve_view_choice(
     ViewChoice
         Run in use, its transform targets, and the chosen ones.
     """
-    runs = [run for run in fit_runs if run["status"] == "succeeded"]
+    runs = [run for run in view_runs if run["status"] == "succeeded"]
     if not runs:
         return ViewChoice()
     run = next((run for run in runs if run["run_id"] == run_id), runs[0])
     options = transform_stems(cache, run)
     wanted = set(stems)
+    reference = fit_run_reference(run)
     return ViewChoice(
         runs=runs,
         run_id=str(run["run_id"]),
+        fit_run_id=str(run["run_id"]) if reference is None else reference[0],
         file_options=options,
         files=[stem for stem in options if stem in wanted],
     )

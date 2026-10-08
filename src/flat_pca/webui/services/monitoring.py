@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import cast
 
 import numpy as np
@@ -15,6 +14,7 @@ from flat_pca.utils import natural_keys
 
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError, artifact_error
+from .run_dirs import run_dirs
 from .scored_samples import choose_metadata_column, metadata_columns, scored_samples
 
 _ROW = "row"
@@ -29,7 +29,7 @@ class MonitoringRequest:
     Attributes
     ----------
     run : str | None
-        Fit run shown; ``None`` for the latest succeeded fit run.
+        Fit or transform run shown; ``None`` for the latest succeeded fit run.
     order : str | None
         Metadata column ordering the control charts; ``None`` for the
         default column and ``""`` for the natural order of the stems.
@@ -86,9 +86,9 @@ class MonitoringView:
     Attributes
     ----------
     runs : list[dict[str, object]]
-        Succeeded fit runs, newest first.
+        Succeeded runs to choose from (see ``order_view_runs``).
     run_id : str | None
-        Fit run in use, or ``None`` when no fit run succeeded.
+        Fit or transform run in use, or ``None`` when no fit run succeeded.
     order_options : list[str]
         Metadata columns of the run's samples.
     order : str | None
@@ -152,7 +152,7 @@ def statistic_configs(run: dict[str, object]) -> tuple[MahalanobisConfig, SpeCon
     Parameters
     ----------
     run : dict[str, object]
-        The fit run's ``runs`` row.
+        The fit or transform run's ``runs`` row.
 
     Returns
     -------
@@ -239,7 +239,7 @@ def resolve_monitoring(
     cache : DisplayCache
         Display cache of the workspace.
     fit_runs : list[dict[str, object]]
-        Fit runs, newest first; only succeeded ones are used.
+        Runs ordered by ``order_view_runs``; only succeeded ones are used.
     request : MonitoringRequest
         Requested choices.
     default_order : str | None
@@ -266,7 +266,7 @@ def resolve_monitoring(
         return MonitoringView(runs=runs, error="No succeeded fit run.")
     run_id = str(run["run_id"])
     try:
-        artifacts = cache.fit_artifacts(Path(str(run["artifact_dir"])))
+        artifacts = cache.display_artifacts(run_dirs(run))
     except RunArtifactError as error:
         return MonitoringView(runs=runs, run_id=run_id, error=str(error))
     order_options = metadata_columns(artifacts.samples)

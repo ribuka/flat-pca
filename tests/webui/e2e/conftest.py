@@ -163,6 +163,29 @@ def fitted_server_url(
 
 
 @pytest.fixture
+def slow_transform_server_url(
+    cataloged_settings: Settings,
+    spectra_paths: list[Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[str]:
+    """Serve the Web UI with the fit run ``fit-1`` and a slow, failing transform job.
+
+    The transform job is ``executor_jobs.fit_in_slow_stages``, so the browser
+    can watch an active transform run.
+
+    Yields
+    ------
+    str
+        Base URL of the running server.
+    """
+    register_fit_runs(cataloged_settings, spectra_paths, ("fit-1",))
+    monkeypatch.setattr(
+        "flat_pca.webui.workspace.run_transform", executor_jobs.fit_in_slow_stages
+    )
+    yield from serve(cataloged_settings)
+
+
+@pytest.fixture
 def two_fits_server_url(settings: Settings, spectra_paths: list[Path]) -> Iterator[str]:
     """Serve the Web UI on a workspace holding the fit runs ``fit-1`` and ``fit-2``.
 

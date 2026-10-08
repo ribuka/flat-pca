@@ -22,6 +22,7 @@ from .fit_artifacts import DisplayArtifacts, RunArtifactError
 from .monitoring import statistic_configs
 from .q_consistency import QMismatch, q_mismatch, saved_q_by_stem
 from .reconstruction import ReconstructionKind, reconstruction_values
+from .run_dirs import RunDirs, run_dirs
 from .segment_choice import (
     choose_segment,
     feature_segments,
@@ -102,9 +103,9 @@ class ExploreView:
     view : ExploreViewKind
         Shown data kind.
     runs : list[dict[str, object]]
-        Succeeded fit runs, newest first.
+        Succeeded runs to choose from (see ``order_view_runs``).
     run_id : str | None
-        Fit run in use, or ``None`` when no fit run succeeded.
+        Fit or transform run in use, or ``None`` when no fit run succeeded.
     file_options : list[str]
         Transform targets of the run that can be chosen, in natural order.
     files : list[str]
@@ -256,9 +257,9 @@ def _raw_view(
     request : ExploreRequest
         Requested choices.
     runs : list[dict[str, object]]
-        Succeeded fit runs, newest first.
+        Succeeded runs to choose from (see ``order_view_runs``).
     run_id : str
-        Fit run in use.
+        Fit or transform run in use.
     artifacts : DisplayArtifacts
         The run's artifacts, whose ``samples.parquet`` lists the transform
         targets and their paths (``source``).
@@ -319,7 +320,7 @@ def _raw_view(
 
 def _reconstruction_matrices(
     view: PreparedViewKind,
-    run_dir: Path,
+    dirs: RunDirs,
     artifacts: DisplayArtifacts,
     cache: DisplayCache,
     files: list[str],
@@ -333,8 +334,8 @@ def _reconstruction_matrices(
     view : PreparedViewKind
         ``"contribution"``, ``"reconstruction"``, ``"residual"``, or
         ``"q_contribution"``.
-    run_dir : Path
-        Run directory of the fit run.
+    dirs : RunDirs
+        Directories of the run's model and data.
     artifacts : DisplayArtifacts
         The run's artifacts.
     cache : DisplayCache
@@ -358,13 +359,13 @@ def _reconstruction_matrices(
     RunArtifactError
         If the model cannot be read.
     """
-    model = cache.pca_model(run_dir)
+    model = cache.pca_model(dirs.model)
     stems = artifacts.samples["stem"].to_list()
     matrices: dict[str, SpectralMatrix] = {}
     dropped: list[str] = []
     for stem in files:
         row = stems.index(stem)
-        prepared = cache.prepared_row(run_dir, row)
+        prepared = cache.prepared_row(dirs, row)
         if prepared.kept.size == 0:
             dropped.append(stem)
             continue
@@ -400,7 +401,7 @@ def _run_view(
     view : ExploreViewKind
         Any view but ``"raw"``.
     run : dict[str, object]
-        The fit run's ``runs`` row.
+        The fit or transform run's ``runs`` row.
     artifacts : DisplayArtifacts
         The run's artifacts.
     cache : DisplayCache
@@ -408,7 +409,7 @@ def _run_view(
     request : ExploreRequest
         Requested choices.
     runs : list[dict[str, object]]
-        Succeeded fit runs, newest first.
+        Succeeded runs to choose from (see ``order_view_runs``).
     max_files : int
         Maximum number of shown files.
 
@@ -463,7 +464,7 @@ def _run_view(
             heatmap_file=_heatmap_file(files, request.heatmap_file),
             matrices=matrices,
         )
-    run_dir = Path(str(run["artifact_dir"]))
+    dirs = run_dirs(run)
     shown_component: int | None = component
     q_components: int | None = None
     q_mismatches: list[QMismatch] = []
@@ -474,7 +475,7 @@ def _run_view(
             spe = statistic_configs(run)[1]
             selector = spe.cumulative_explained_variance
             q_components = resolve_mahalanobis_components(
-                cache.pca_model(run_dir).pca, selector
+                cache.pca_model(dirs.model).pca, selector
             )
             saved_q = saved_q_by_stem(artifacts, spe.spe_column)
 
@@ -500,7 +501,7 @@ def _run_view(
                 )
 
         matrices, dropped = _reconstruction_matrices(
-            cast(PreparedViewKind, view), run_dir, artifacts, cache, order, segment, values_of
+            cast(PreparedViewKind, view), dirs, artifacts, cache, order, segment, values_of
         )
     except RunArtifactError as error:
         return ExploreView(
@@ -545,7 +546,7 @@ def resolve_explore(
     cache : DisplayCache
         Display cache of the workspace.
     fit_runs : list[dict[str, object]]
-        Fit runs, newest first; only succeeded ones are used.
+        Runs ordered by ``order_view_runs``; only succeeded ones are used.
     request : ExploreRequest
         Requested choices.
     max_files : int
@@ -579,7 +580,7 @@ def resolve_explore(
         )
     run_id = str(run["run_id"])
     try:
-        artifacts = cache.fit_artifacts(Path(str(run["artifact_dir"])))
+        artifacts = cache.display_artifacts(run_dirs(run))
     except RunArtifactError as error:
         return ExploreView(view=view, runs=runs, run_id=run_id, error=str(error))
     if view == "raw":

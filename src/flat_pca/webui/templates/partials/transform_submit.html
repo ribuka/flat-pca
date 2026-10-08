@@ -1,0 +1,8 @@
+{% from "macros/icon.html" import icon %}
+<span id="transform-submit-message" class="selection-summary">
+  {%- if error %}<span class="error" data-transform-error>{{ error }}</span>{% endif -%}
+  {%- if queued %}{{ icon("check_circle", class="icon-success", label="The transform started") }}The transform started{% endif -%}
+</span>
+{% if queued %}
+<div id="transform-run-status" hx-swap-oob="innerHTML">{% with status = queued %}{% include "partials/transform_run_status.html" %}{% endwith %}</div>
+{% endif %}

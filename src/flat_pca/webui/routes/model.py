@@ -19,12 +19,11 @@ from ..services.model import (
     heatmap_request,
     resolve_model,
 )
-from ..services.runs import list_succeeded_runs
 from ..templating import templates
-from ..workspace import FIT_JOB, Workspace
+from ..workspace import Workspace
 from .dependencies import get_workspace
 from .heatmap_trend import heatmap_context, script_json, trend_response
-from .view_selection import current_view_choice
+from .view_selection import current_view_choice, view_runs
 
 router = APIRouter(prefix="/model")
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
@@ -53,7 +52,7 @@ def _resolve(workspace: Workspace, request: ModelRequest) -> ModelView:
     try:
         return resolve_model(
             workspace.cache,
-            list_succeeded_runs(workspace.database, FIT_JOB, request.run),
+            view_runs(workspace, request.run),
             request,
         )
     except ValueError as error:

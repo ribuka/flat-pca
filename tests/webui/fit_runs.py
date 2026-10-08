@@ -1,4 +1,4 @@
-"""Succeeded fit runs of the synthetic spectra for the exploration tests."""
+"""Succeeded fit and transform runs of the synthetic spectra for the exploration tests."""
 
 from __future__ import annotations
 
@@ -8,9 +8,11 @@ from pathlib import Path
 
 from flat_pca.webui.database import Database
 from flat_pca.webui.jobs.fit_run import build_fit_config, run_fit
-from flat_pca.webui.services.runs import insert_run, update_run
+from flat_pca.webui.jobs.transform_run import build_transform_config, run_transform
+from flat_pca.webui.services.runs import get_run, insert_run, update_run
+from flat_pca.webui.services.transform_artifacts import register_transform_result
 from flat_pca.webui.settings import Settings
-from flat_pca.webui.workspace import FIT_JOB
+from flat_pca.webui.workspace import FIT_JOB, TRANSFORM_JOB
 
 STATISTICS = {"cumulative_explained_variance": 2, "alpha": 0.01}
 
@@ -79,4 +81,59 @@ def register_fit_run(
     run_fit(json.loads(json.dumps(config)), run_dir)
     insert_run(database, run_id, FIT_JOB, config, run_dir)
     update_run(database, run_id, status="succeeded")
+    return run_id
+
+
+def register_transform_run(
+    database: Database,
+    settings: Settings,
+    fit_run_id: str,
+    paths: list[Path],
+    run_id: str,
+    metadata: Mapping[str, Mapping[str, object]] | None = None,
+) -> str:
+    """Execute and register a succeeded transform run with a fit run's model.
+
+    Parameters
+    ----------
+    database : Database
+        Workspace database holding the fit run.
+    settings : Settings
+        Application settings.
+    fit_run_id : str
+        Succeeded fit run whose model transforms the files.
+    paths : list[Path]
+        Spectra files to transform.
+    run_id : str
+        Identifier of the run.
+    metadata : Mapping[str, Mapping[str, object]] | None, default None
+        Metadata column values keyed by stem; without them every metadata
+        value is missing.
+
+    Returns
+    -------
+    str
+        The run's identifier.
+    """
+    fit_run = get_run(database, fit_run_id)
+    assert fit_run is not None
+    config = build_transform_config(
+        settings,
+        [
+            {"stem": path.stem, "path": str(path), **(metadata or {}).get(path.stem, {})}
+            for path in paths
+        ],
+        fit_run,
+    )
+    run_dir = settings.runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    config = json.loads(json.dumps(config))
+    run_transform(config, run_dir)
+    insert_run(database, run_id, TRANSFORM_JOB, config, run_dir)
+    update_run(
+        database,
+        run_id,
+        status="succeeded",
+        **register_transform_result(config, run_dir),
+    )
     return run_id

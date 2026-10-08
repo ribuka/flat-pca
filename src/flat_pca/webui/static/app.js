@@ -222,17 +222,17 @@ const busyOverlay = (() => {
   return { start, update, stop, owner };
 })();
 
-// The fit status panel: while its run is queued or running, the overlay
-// covers the page with the run's elapsed time and its progress and remaining
-// time, and its cancel button cancels the run. A poll of the panel that finds
-// the run finished closes the overlay and opens the panel's group to show the
-// result.
-function syncFitOverlay() {
-  const panel = document.querySelector("[data-fit-status]");
+// The job status panel (of a fit or transform run): while its run is queued
+// or running, the overlay covers the page with the panel's message, the run's
+// elapsed time, and its progress and remaining time, and its cancel button
+// cancels the run. A poll of the panel that finds the run finished closes the
+// overlay and opens the panel's group to show the result.
+function syncJobOverlay() {
+  const panel = document.querySelector("[data-job-status]");
   const owner = busyOverlay.owner();
-  const fitOwned = owner !== null && owner.startsWith("fit:");
-  if (!panel || panel.dataset.fitActive === undefined) {
-    if (fitOwned) {
+  const jobOwned = owner !== null && owner.startsWith("job:");
+  if (!panel || panel.dataset.jobActive === undefined) {
+    if (jobOwned) {
       busyOverlay.stop();
       const group = panel?.closest("details");
       if (group) {
@@ -241,7 +241,7 @@ function syncFitOverlay() {
     }
     return;
   }
-  const key = `fit:${panel.dataset.runId}`;
+  const key = `job:${panel.dataset.runId}`;
   if (owner !== key) {
     const cancelUrl = panel.dataset.cancelUrl;
     // A run that is no longer active (409) is closed by the next poll.
@@ -251,14 +251,30 @@ function syncFitOverlay() {
     };
     busyOverlay.start(cancelRun, {
       owner: key,
-      message: "Running the fit…",
+      message: panel.dataset.busyMessage,
       keepOnCancel: true,
     });
   }
-  busyOverlay.update(Number(panel.dataset.elapsedS), panel.querySelector("[data-fit-progress]"));
+  busyOverlay.update(Number(panel.dataset.elapsedS), panel.querySelector("[data-job-progress]"));
 }
 
-document.addEventListener("htmx:afterSettle", syncFitOverlay);
+document.addEventListener("htmx:afterSettle", syncJobOverlay);
+
+// The transform page's "use same data for fit" checkbox: unchecked, it shows
+// the choice of the transform targets and the button that transforms them.
+function syncTransformTargets() {
+  const box = document.querySelector("[data-use-same-data]");
+  const targets = document.querySelector("[data-transform-targets]");
+  if (box && targets) {
+    targets.hidden = box.checked;
+  }
+}
+
+document.addEventListener("change", (event) => {
+  if (event.target.matches("[data-use-same-data]")) {
+    syncTransformTargets();
+  }
+});
 
 // A control that fails the browser's validation inside a collapsed group
 // opens the group, so the browser can focus it and show the message.
@@ -297,13 +313,15 @@ document.addEventListener("submit", (event) => {
 // A page restored by "back" (from the bfcache or with restored form state)
 // keeps neither the overlay nor the conditions that were never shown.
 // A page from the bfcache also shows the sidebar choices the server holds now.
-// A page showing an active fit run, loaded or restored, covers itself again.
+// A page showing an active fit or transform run, loaded or restored, covers
+// itself again.
 window.addEventListener("pageshow", (event) => {
   busyOverlay.stop();
   for (const form of document.querySelectorAll("form[data-auto-submit]")) {
     form.reset();
   }
-  syncFitOverlay();
+  syncJobOverlay();
+  syncTransformTargets();
   if (event.persisted && document.getElementById("view-selection")) {
     htmx.ajax("GET", "/sidebar/selection", { target: "#view-selection", swap: "innerHTML" });
   }

@@ -3,7 +3,7 @@
   {% if choice.runs %}
     <select id="view-run" name="run">
       {% for run in choice.runs %}
-        <option value="{{ run.run_id }}" {% if run.run_id == choice.run_id %}selected{% endif %}>{{ run.run_id }}（{{ run.created_at|cell }}）</option>
+        <option value="{{ run.run_id }}" data-run-kind="{{ run.kind }}"{% if run.run_id == choice.run_id %} selected{% endif %}>{% if run.kind == "transform" %}└ transform {% endif %}{{ run.run_id }}（{{ run.created_at|cell }}）</option>
       {% endfor %}
     </select>
   {% else %}
