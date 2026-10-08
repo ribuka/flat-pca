@@ -37,6 +37,7 @@ tests/webui/
 - UI固有の依存（`fastapi`、`uvicorn`、`jinja2`、`duckdb`、`pydantic`）はoptional dependency `webui`とし、ライブラリ本体の依存に加えない。
 - htmxは`static/vendor/`に同梱する。Plotly.jsはPythonの`plotly`パッケージに同梱された`plotly.min.js`を`/static/vendor/plotly.min.js`で配信し、Python側とバージョンを揃える。いずれもCDNに依存しない。
 - アイコンはMaterial Symbols（Outlined）のうち使うアイコンだけを含むサブセットのwoff2を`static/vendor/`に同梱し、`templates/macros/icon.html`の`icon`マクロで表示する。アイコンを増やすときは`scripts/fetch_material_symbols.py`で取得し直す（手順は`static/vendor/README.md`）。
+- テンプレートから読む static ファイルの URL には、ファイルの更新時刻を版として付ける（`?v={{ static_version(path) }}`。`templating.py::static_version`。plotlyパッケージから配信する`plotly.min.js`には、plotly の版`plotly_version`を付ける）。`app.js`などを変えたあと、ブラウザがキャッシュした古いファイルを新しいページに使わないようにするため。
 - フォーム送信の解析に使う`python-multipart`も`webui`に含める。
 - `--reload`のファイル監視に使う`watchfiles`も`webui`に含める。`uvicorn[standard]`にはしない（`httptools`などが入ると、`--reload`なしのHTTP実装やイベントループまで変わるため）。
 

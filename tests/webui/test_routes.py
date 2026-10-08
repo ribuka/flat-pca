@@ -13,6 +13,7 @@ from flat_pca.webui.app import create_app
 from flat_pca.webui.routes import catalog as catalog_routes
 from flat_pca.webui.services.runs import latest_run
 from flat_pca.webui.settings import Settings
+from flat_pca.webui.templating import STATIC_DIR
 from flat_pca.webui.workspace import CATALOG_JOB, Workspace
 
 Wait = Callable[..., dict[str, object]]
@@ -68,6 +69,18 @@ def test_data_selection_groups_are_collapsible(client: TestClient) -> None:
     assert 'data-group="filters"' not in text
     assert '<button type="button" data-check-all' not in text
     assert "data-uncheck-all" not in text
+
+
+def test_static_urls_change_with_the_file(client: TestClient) -> None:
+    """Static URLs carry the file's version, so a changed file is not taken from a cache."""
+    html = client.get("/").text
+    script = re.search(r'<script src="[^"]*(/static/app\.js\?v=(\d+))" defer>', html)
+
+    assert script is not None
+    assert script.group(2) == str((STATIC_DIR / "app.js").stat().st_mtime_ns)
+    assert re.search(r'href="[^"]*/static/app\.css\?v=\d+"', html)
+    assert re.search(r'src="[^"]*/static/vendor/htmx\.min\.js\?v=\d+"', html)
+    assert client.get(script.group(1)).status_code == 200
 
 
 def test_static_scripts_are_served_locally(client: TestClient) -> None:
