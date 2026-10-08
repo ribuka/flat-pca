@@ -120,7 +120,7 @@ class FeatureArrays:
     scaling: ScalingArrays
 
 
-def _ordered(values: Mapping[str, float], columns: Sequence[str], name: str) -> np.ndarray:
+def ordered_values(values: Mapping[str, float], columns: Sequence[str], name: str) -> np.ndarray:
     """Lay out a column-keyed mapping as an array in ``columns`` order.
 
     Parameters
@@ -181,8 +181,8 @@ def build_scaling_arrays(
         )
     return ScalingArrays(
         identity=False,
-        centers=_ordered(scaling_model.centers, columns, "scaling model centers"),
-        scales=_ordered(scaling_model.scales, columns, "scaling model scales"),
+        centers=ordered_values(scaling_model.centers, columns, "scaling model centers"),
+        scales=ordered_values(scaling_model.scales, columns, "scaling model scales"),
     )
 
 
@@ -218,14 +218,14 @@ def build_feature_arrays(
     """
     empty = np.empty(0, dtype=np.float64)
     impute_values = (
-        _ordered(impute_model.values, columns, "median imputation")
+        ordered_values(impute_model.values, columns, "median imputation")
         if impute_model.strategy == "median"
         else empty
     )
     kmeans_centroids = (
         np.stack(
             [
-                _ordered(centroid, columns, "kmeans centroid")
+                ordered_values(centroid, columns, "kmeans centroid")
                 for centroid in impute_model.kmeans_centroids
             ]
         )
@@ -240,22 +240,22 @@ def build_feature_arrays(
         kmeans_centroids=kmeans_centroids,
         outlier_strategy=outlier_model.strategy,
         outlier_lower=(
-            _ordered(bounds.outlier_lower, columns, "outlier lower bounds")
+            ordered_values(bounds.outlier_lower, columns, "outlier lower bounds")
             if handles_outliers
             else empty
         ),
         outlier_upper=(
-            _ordered(bounds.outlier_upper, columns, "outlier upper bounds")
+            ordered_values(bounds.outlier_upper, columns, "outlier upper bounds")
             if handles_outliers
             else empty
         ),
         winsor_lower=(
-            _ordered(bounds.winsor_lower, columns, "winsor lower bounds")
+            ordered_values(bounds.winsor_lower, columns, "winsor lower bounds")
             if handles_outliers
             else empty
         ),
         winsor_upper=(
-            _ordered(bounds.winsor_upper, columns, "winsor upper bounds")
+            ordered_values(bounds.winsor_upper, columns, "winsor upper bounds")
             if handles_outliers
             else empty
         ),

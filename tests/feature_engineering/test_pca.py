@@ -1,5 +1,7 @@
 """Tests for PCA feature engineering."""
 
+from typing import cast
+
 import numpy as np
 import polars as pl
 import polars.testing
@@ -183,6 +185,31 @@ class TestTransformPayloadRoundTrip:
         actual = transform_pca(frame.lazy(), restored).collect()
 
         assert actual.equals(expected)
+
+    @pytest.mark.parametrize(
+        ("key", "match"),
+        [
+            ("components", "components must be shaped"),
+            ("mean", "pca mean must hold one value per feature"),
+            ("explained_variance", "pca explained_variance must hold one value per component"),
+        ],
+    )
+    def test_from_transform_payload_rejects_misshaped_pca(
+        self, fitted_model: PcaModel, key: str, match: str
+    ) -> None:
+        """Reject a payload whose PCA attributes do not fit the column count."""
+        payload = fitted_model.to_transform_payload()
+        pca = cast(dict[str, object], payload["pca"])
+        values = cast(list[object], pca[key])
+        # Drop a feature from the components, or the last entry elsewhere.
+        pca[key] = (
+            [cast(list[float], row)[:-1] for row in values]
+            if key == "components"
+            else values[:-1]
+        )
+
+        with pytest.raises(ValueError, match=match):
+            PcaModel.from_transform_payload(payload)
 
     def test_restored_model_preserves_analysis_methods(
         self, fitted_model: PcaModel
