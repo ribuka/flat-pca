@@ -118,6 +118,10 @@ def _split_traces(
     if color.dtype.is_numeric():
         within = np.flatnonzero(~exceeds)
         above = np.flatnonzero(exceeds)
+        # The one color bar goes on a trace holding a finite color value, as
+        # Plotly.js cannot draw the bar of a trace whose values are all missing.
+        finite = np.isfinite(color.cast(pl.Float64).to_numpy())
+        within_scale = bool(finite[within].any())
         return [
             _marker_trace(
                 within,
@@ -127,7 +131,7 @@ def _split_traces(
                 hover,
                 text,
                 name=WITHIN_UCL_NAME,
-                marker=WITHIN_MARKER | continuous_marker(color, within, showscale=within.size > 0),
+                marker=WITHIN_MARKER | continuous_marker(color, within, showscale=within_scale),
             ),
             _marker_trace(
                 above,
@@ -138,7 +142,7 @@ def _split_traces(
                 text,
                 name=EXCEEDS_UCL_NAME,
                 marker=EXCEEDS_MARKER
-                | continuous_marker(color, above, showscale=within.size == 0)
+                | continuous_marker(color, above, showscale=not within_scale)
                 | EXCEEDS_OUTLINE,
             ),
         ]

@@ -139,3 +139,18 @@ def test_numeric_color_without_values_draws_no_scale() -> None:
         assert trace.marker.color == MISSING_COLOR
         assert trace.marker.showscale is False
         assert trace.marker.colorbar.title.text is None
+
+
+def test_numeric_color_scale_goes_on_the_trace_with_values() -> None:
+    """When only points above the limit have color values, their trace draws the color bar."""
+    figure = create_control_chart(
+        [1.0, 7.0, 2.0],
+        ucl=4.0,
+        labels=["a", "b", "c"],
+        y_name="Q",
+        color=pl.Series("yield_pct", [None, 70.0, None], dtype=pl.Float64),
+    )
+
+    within, exceeds = figure.data
+    assert within.marker.showscale is False
+    assert exceeds.marker.showscale is True
