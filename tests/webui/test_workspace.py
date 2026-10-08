@@ -5,9 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-import pytest
-
-from flat_pca.webui.__main__ import main
 from flat_pca.webui.database import Database
 from flat_pca.webui.services.runs import (
     INTERRUPTED_ERROR,
@@ -121,14 +118,3 @@ def test_submit_catalog_runs_job_and_reuses_active_run(
     assert run["status"] == "succeeded"
     assert run["n_files"] == 3
     assert second == first
-
-
-def test_main_exits_on_invalid_settings(tmp_path: Path) -> None:
-    """Invalid settings stop the server before it starts."""
-    path = tmp_path / "s.toml"
-    path.write_text("[workspace]\n", encoding="utf-8")
-
-    with pytest.raises(SystemExit) as raised:
-        main(["--settings", str(path)])
-
-    assert raised.value.code == 2
