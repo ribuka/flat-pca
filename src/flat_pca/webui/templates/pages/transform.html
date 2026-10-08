@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}transform - flat-pca{% endblock %}
+{% block view_swap %}run{% endblock %}
 {% block content %}
 <details class="card" data-group="target" open>
   <summary><h2>transform</h2></summary>
@@ -13,7 +14,7 @@
     {#- While the sidebar shows a transform run, checking the box shows its fit
         run's own data again by choosing the fit run in the sidebar. -#}
     <form id="use-same-data-form" class="use-same-data"
-          {% if choice.is_transform_run %}hx-post="/sidebar/selection/run" hx-trigger="change[target.checked]" hx-swap="none" data-busy-reload{% endif %}>
+          {% if choice.is_transform_run %}hx-post="/sidebar/selection/run" hx-trigger="change[target.checked]" hx-swap="none" data-view-choice{% endif %}>
       {% if choice.is_transform_run %}<input type="hidden" name="run" value="{{ choice.fit_run_id }}">{% endif %}
       <label>
         <input type="checkbox" name="use_same_data_for_fit" data-use-same-data {% if not choice.is_transform_run %}checked{% endif %}>

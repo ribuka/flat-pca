@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+import json
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -75,15 +76,24 @@ def current_view_choice(workspace: Workspace) -> ViewChoice:
     )
 
 
-def _reload() -> Response:
-    """Return an empty response that makes htmx reload the current page.
+def _selection_changed(changed: Literal["run", "files"]) -> Response:
+    """Return an empty response announcing a change of the sidebar's choice.
+
+    Parameters
+    ----------
+    changed : {"run", "files"}
+        Choice that was submitted. The browser refreshes the sidebar's
+        choices and, on a screen that depends on this choice, the main part
+        of the screen.
 
     Returns
     -------
     Response
-        Response with ``HX-Refresh: true``.
+        Response triggering ``view-selection-changed`` with
+        ``{"changed": changed}`` as its detail.
     """
-    return Response(headers={"HX-Refresh": "true"})
+    trigger = {"view-selection-changed": {"changed": changed}}
+    return Response(headers={"HX-Trigger": json.dumps(trigger)})
 
 
 @router.get("", response_class=HTMLResponse)
@@ -126,7 +136,7 @@ def choose_run(workspace: WorkspaceDependency, run: Annotated[str, Form()]) -> R
     Returns
     -------
     Response
-        Empty response reloading the page.
+        Empty response announcing the change (see ``_selection_changed``).
 
     Raises
     ------
@@ -136,7 +146,7 @@ def choose_run(workspace: WorkspaceDependency, run: Annotated[str, Form()]) -> R
     if all(candidate["run_id"] != run for candidate in view_runs(workspace, run)):
         raise HTTPException(status_code=400, detail=f"succeeded run not found: {run}")
     workspace.view_selection.choose_run(run)
-    return _reload()
+    return _selection_changed("run")
 
 
 @router.post("/files")
@@ -154,7 +164,7 @@ def choose_files(
     run : str
         Run in use when the sidebar was drawn. If the run in use has changed
         since (in another tab, for example), the choice is left unchanged
-        and the reload shows the current one.
+        and the refreshed sidebar shows the current one.
     file : list[str] | None, default None
         Checked stems. Stems that are not transform targets of the run in
         use are ignored, and only the first ``ui.explore_max_files`` of the
@@ -163,7 +173,7 @@ def choose_files(
     Returns
     -------
     Response
-        Empty response reloading the page.
+        Empty response announcing the change (see ``_selection_changed``).
     """
     selection = workspace.view_selection
     # Resolving the run in use and replacing its files is one step.
@@ -173,7 +183,7 @@ def choose_files(
             wanted = set(file or ())
             stems = [stem for stem in choice.file_options if stem in wanted]
             selection.replace_stems(stems[: workspace.settings.ui.explore_max_files])
-    return _reload()
+    return _selection_changed("files")
 
 
 @router.post("/files/add")

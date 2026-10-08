@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import re
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -42,6 +43,11 @@ def _checked(sidebar: str) -> list[str]:
 def _options(sidebar: str) -> list[str]:
     """Return the stems of the sidebar partial's file choices."""
     return re.findall(r'<li data-stem="([^"]+)">', sidebar)
+
+
+def _trigger(headers: Mapping[str, str]) -> object:
+    """Return the events of a response's ``HX-Trigger`` header."""
+    return json.loads(headers["HX-Trigger"])
 
 
 @pytest.fixture
@@ -115,10 +121,10 @@ def test_files_are_listed_in_natural_order(
     ]
 
 
-def test_choosing_files_keeps_transform_targets_and_reloads(
+def test_choosing_files_keeps_transform_targets_and_announces_the_change(
     client: TestClient, settings: Settings, spectra_paths: list[Path]
 ) -> None:
-    """Unknown stems are ignored, and the page is reloaded."""
+    """Unknown stems are ignored, and the change of the files is announced."""
     _register(client, settings, spectra_paths, "fit-1")
 
     response = client.post(
@@ -127,7 +133,7 @@ def test_choosing_files_keeps_transform_targets_and_reloads(
     )
 
     assert response.status_code == 200
-    assert response.headers["HX-Refresh"] == "true"
+    assert _trigger(response.headers) == {"view-selection-changed": {"changed": "files"}}
     assert _workspace(client).view_selection.stems == ["s-02", "s-10"]
     sidebar = client.get("/sidebar/selection").text
     assert _checked(sidebar) == ["s-02", "s-10"]
@@ -147,7 +153,7 @@ def test_choosing_another_run_clears_the_files(
 
     response = client.post("/sidebar/selection/run", data={"run": "fit-1"})
 
-    assert response.headers["HX-Refresh"] == "true"
+    assert _trigger(response.headers) == {"view-selection-changed": {"changed": "run"}}
     assert _workspace(client).view_selection.run_id == "fit-1"
     assert _workspace(client).view_selection.stems == []
     assert '<option value="fit-1" data-run-kind="fit" selected>' in client.get("/sidebar/selection").text
@@ -264,7 +270,7 @@ def test_a_sidebar_of_another_run_changes_nothing(
         "/sidebar/selection/files", data={"run": "fit-1", "file": ["s-01"]}
     )
 
-    assert response.headers["HX-Refresh"] == "true"
+    assert _trigger(response.headers) == {"view-selection-changed": {"changed": "files"}}
     assert _workspace(client).view_selection.stems == ["s-02"]
 
 

@@ -1,4 +1,6 @@
-{% from "macros/icon.html" import icon %}<!doctype html>
+{% from "macros/icon.html" import icon %}
+{#- An htmx request gets only the contents of <main> (see routes/view_page.py). -#}
+{% if main_only %}{{ self.content() }}{% else %}<!doctype html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
@@ -69,7 +71,9 @@
         <p class="app-version" data-sidebar="version">{{ app_version }}</p>
       </div>
     </aside>
-    <main class="content">
+    {#- The sidebar choices that replace the contents of <main> when they change
+        ("run", "files"), separated by spaces; see app.js. -#}
+    <main class="content" data-view-swap="{% block view_swap %}{% endblock %}">
       {% block content %}{% endblock %}
     </main>
   </div>
@@ -84,3 +88,4 @@
   </div>
 </body>
 </html>
+{% endif %}

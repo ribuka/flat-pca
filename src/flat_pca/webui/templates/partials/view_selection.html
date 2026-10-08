@@ -1,4 +1,4 @@
-<form id="view-run-form" class="view-selection-field" hx-post="/sidebar/selection/run" hx-trigger="change" hx-swap="none" data-busy-reload>
+<form id="view-run-form" class="view-selection-field" hx-post="/sidebar/selection/run" hx-trigger="change" hx-swap="none" data-view-choice>
   <label for="view-run">run</label>
   {% if choice.runs %}
     <select id="view-run" name="run">
@@ -16,7 +16,7 @@
   </span>
   {% if choice.file_options %}
     <input type="search" class="view-file-search" placeholder="Filter by file name" aria-label="Filter the shown files" data-view-file-search>
-    <form id="view-files-form" hx-post="/sidebar/selection/files" hx-trigger="change" hx-swap="none" data-busy-reload>
+    <form id="view-files-form" hx-post="/sidebar/selection/files" hx-trigger="change" hx-swap="none" data-view-choice>
       <input type="hidden" name="run" value="{{ choice.run_id }}">
       <ul class="view-file-list">
         {% set full = choice.files|length >= max_files %}

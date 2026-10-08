@@ -16,10 +16,10 @@ from ..services.explore import (
     resolve_explore,
     shown_request,
 )
-from ..templating import templates
 from ..workspace import Workspace
 from .dependencies import get_workspace
 from .heatmap_trend import heatmap_context, trend_response
+from .view_page import render_view_page
 from .view_selection import current_view_choice, view_runs
 
 router = APIRouter(prefix="/explore")
@@ -157,7 +157,8 @@ def explore_page(
     Returns
     -------
     HTMLResponse
-        Full page with the heatmap figure and its unbinned axes.
+        Full page with the heatmap figure and its unbinned axes, or its main
+        part for an htmx request (see ``render_view_page``).
     """
     choice = current_view_choice(workspace)
     explore_request = ExploreRequest(
@@ -185,7 +186,7 @@ def explore_page(
             workspace.settings.ui.heatmap_max_cells,
             f"/explore/trend?{_query_string(shown)}",
         )
-    return templates.TemplateResponse(request, "pages/explore.html", context)
+    return render_view_page(request, "pages/explore.html", context)
 
 
 @router.get("/trend")

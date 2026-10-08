@@ -15,6 +15,7 @@ from ..services.selection import parse_stems_json
 from ..templating import templates
 from ..workspace import TRANSFORM_JOB, Workspace
 from .dependencies import get_workspace
+from .view_page import render_view_page
 from .view_selection import current_view_choice
 
 router = APIRouter(prefix="/transform")
@@ -42,10 +43,11 @@ def transform_page(request: Request, workspace: WorkspaceDependency) -> HTMLResp
     Returns
     -------
     HTMLResponse
-        Full page.
+        Full page, or its main part for an htmx request
+        (see ``render_view_page``).
     """
     choice = current_view_choice(workspace)
-    return templates.TemplateResponse(
+    return render_view_page(
         request,
         "pages/transform.html",
         {

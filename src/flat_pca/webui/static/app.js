@@ -310,42 +310,169 @@ document.addEventListener("submit", (event) => {
   }
 });
 
-// A page restored by "back" (from the bfcache or with restored form state)
-// keeps neither the overlay nor the conditions that were never shown.
-// A page from the bfcache also shows the sidebar choices the server holds now.
-// A page showing an active fit or transform run, loaded or restored, covers
-// itself again.
-window.addEventListener("pageshow", (event) => {
-  busyOverlay.stop();
+// The controls of the main part that are not drawn by the server: the
+// conditions of a page restored by "back" (from the bfcache or with restored
+// form state) that were never shown, the overlay of an active fit or
+// transform run, and the transform targets of the transform page.
+function syncMainControls() {
   for (const form of document.querySelectorAll("form[data-auto-submit]")) {
     form.reset();
   }
   syncJobOverlay();
   syncTransformTargets();
-  if (event.persisted && document.getElementById("view-selection")) {
-    htmx.ajax("GET", "/sidebar/selection", { target: "#view-selection", swap: "innerHTML" });
+}
+
+// Functions that stop the work of the shown main part, such as pending trend
+// requests, before it is replaced.
+let mainDisposers = [];
+
+// Sets up the main part of a loaded page or of a replaced one: the heatmaps
+// with their sliders and trends, the point tables, the figures, and the
+// controls of syncMainControls. `pointStems` maps the id of a point table to
+// the stems it shows at first.
+function initMain(main, pointStems = {}) {
+  for (const root of main.querySelectorAll("[data-explore]")) {
+    mainDisposers.push(initExplore(root));
+  }
+  pointTables.clear();
+  for (const root of main.querySelectorAll(".point-table")) {
+    pointTables.set(root.id, initPointTable(root, pointStems[root.id] ?? []));
+  }
+  for (const target of main.querySelectorAll("[data-plot]")) {
+    initPlot(target);
+  }
+  syncMainControls();
+}
+
+// Stops the work of the main part and frees its figures, whose responsive
+// resizing listens on the window.
+function disposeMain(main) {
+  for (const dispose of mainDisposers) {
+    dispose();
+  }
+  mainDisposers = [];
+  for (const plot of main.querySelectorAll(".js-plotly-plot")) {
+    Plotly.purge(plot);
+  }
+}
+
+// A loaded page sets up its main part. A page restored from the bfcache
+// keeps its figures and shows the sidebar choices the server holds now.
+window.addEventListener("pageshow", (event) => {
+  busyOverlay.stop();
+  if (!event.persisted) {
+    initMain(document.querySelector("main.content"));
+    return;
+  }
+  syncMainControls();
+  htmx.ajax("GET", "/sidebar/selection", { target: "#view-selection", swap: "innerHTML" });
+});
+
+// The sidebar's choices of the run and the shown files. A change (in the
+// sidebar, on the transform page, or by a click on a score point) refreshes
+// the sidebar's choices and, when the main element names the changed choice
+// in data-view-swap, the main part from the current URL; the page is not
+// reloaded. The overlay covers the page meanwhile; cancelling stops the
+// requests and shows the choices the server holds.
+const VIEW_OWNER = "view-selection";
+// The pending refresh, aborted by a newer one or by cancelling.
+let viewRefresh = null;
+// The scroll position of the shown-file list kept over the next refresh of
+// the sidebar, or null to start at the top.
+let keptFileListScroll = null;
+// The stems shown by each point table (by id) after the next replacement of
+// the main part.
+let keptPointStems = {};
+
+function stopViewOverlay() {
+  if (busyOverlay.owner() === VIEW_OWNER) {
+    busyOverlay.stop();
+  }
+}
+
+function cancelViewChange() {
+  viewRefresh?.abort();
+  viewRefresh = null;
+  htmx.ajax("GET", "/sidebar/selection", { target: "#view-selection", swap: "innerHTML" });
+}
+
+// Returns the HTML of a part of the page; throws if the request fails.
+async function fetchPart(url, signal, headers = {}) {
+  const response = await fetch(url, { signal, headers, cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`${response.status} ${url}`);
+  }
+  return response.text();
+}
+
+// Refreshes the page after the choice `changed` ("run" or "files") changed.
+// Both parts are replaced together once both have arrived; if either fails,
+// nothing is replaced and the overlay closes. `pointStems` is passed to
+// initMain.
+async function refreshView(changed, pointStems = {}) {
+  viewRefresh?.abort();
+  const controller = new AbortController();
+  viewRefresh = controller;
+  const main = document.querySelector("main.content");
+  const swapMain = main.dataset.viewSwap.split(" ").includes(changed);
+  try {
+    const [sidebar, content] = await Promise.all([
+      fetchPart("/sidebar/selection", controller.signal),
+      swapMain ? fetchPart(window.location.href, controller.signal, { "HX-Request": "true" }) : null,
+    ]);
+    if (viewRefresh !== controller) {
+      return;
+    }
+    // A changed run lists other files, so their list starts at the top.
+    const list = document.querySelector("#view-selection .view-file-list");
+    keptFileListScroll = changed === "files" && list ? list.scrollTop : null;
+    htmx.swap("#view-selection", sidebar, { swapStyle: "innerHTML" });
+    if (content !== null) {
+      disposeMain(main);
+      keptPointStems = pointStems;
+      htmx.swap(main, content, { swapStyle: "innerHTML" });
+    }
+  } catch {
+    // A failed request closes the overlay below; an aborted one is handled
+    // by whoever aborted it.
+  }
+  if (viewRefresh === controller) {
+    viewRefresh = null;
+    stopViewOverlay();
+  }
+}
+
+document.addEventListener("htmx:afterSettle", (event) => {
+  if (event.detail.elt.matches("main.content")) {
+    const pointStems = keptPointStems;
+    keptPointStems = {};
+    initMain(event.detail.elt, pointStems);
   }
 });
 
-// The sidebar's run and shown-file choices: the server answers a change with
-// HX-Refresh, so the overlay covers the page until it is reloaded. Cancelling
-// stops the request or the reload and shows the choices the server holds.
 document.addEventListener("htmx:beforeRequest", (event) => {
-  const form = event.detail.elt.closest("[data-busy-reload]");
+  const form = event.detail.elt.closest("[data-view-choice]");
   if (!form) {
     return;
   }
-  busyOverlay.start(() => {
-    htmx.trigger(form, "htmx:abort");
-    window.stop();
-    htmx.ajax("GET", "/sidebar/selection", { target: "#view-selection", swap: "innerHTML" });
-  });
+  busyOverlay.start(
+    () => {
+      htmx.trigger(form, "htmx:abort");
+      cancelViewChange();
+    },
+    { owner: VIEW_OWNER },
+  );
 });
 
 document.addEventListener("htmx:afterRequest", (event) => {
-  if (event.detail.elt.closest("[data-busy-reload]") && !event.detail.successful) {
-    busyOverlay.stop();
+  if (event.detail.elt.closest("[data-view-choice]") && !event.detail.successful) {
+    stopViewOverlay();
   }
+});
+
+// The server announces an accepted choice with this event (HX-Trigger).
+document.addEventListener("view-selection-changed", (event) => {
+  refreshView(event.detail.changed);
 });
 
 const VIEW_FILE_SEARCH_KEY = "flat-pca:view-file-search";
@@ -358,7 +485,8 @@ function filterViewFiles(input) {
   }
 }
 
-// The search text survives the reload that follows each choice in this tab.
+// The search text survives each refresh of the sidebar and, in this tab, the
+// reload of a page.
 document.addEventListener("input", (event) => {
   if (!event.target.matches("[data-view-file-search]")) {
     return;
@@ -372,10 +500,14 @@ document.addEventListener("input", (event) => {
 });
 
 // Once settled, the sidebar's choices are processed by htmx and marked ready.
+// The search text filters them again, and then the list scrolls back to
+// where it was before a refresh after a change of the shown files.
 document.addEventListener("htmx:afterSettle", (event) => {
   if (event.detail.elt.id !== "view-selection") {
     return;
   }
+  const scroll = keptFileListScroll;
+  keptFileListScroll = null;
   event.detail.elt.dataset.ready = "true";
   const input = event.detail.elt.querySelector("[data-view-file-search]");
   if (!input) {
@@ -387,32 +519,47 @@ document.addEventListener("htmx:afterSettle", (event) => {
     input.value = "";
   }
   filterViewFiles(input);
+  const list = event.detail.elt.querySelector(".view-file-list");
+  if (scroll !== null && list) {
+    list.scrollTop = scroll;
+  }
 });
 
-// Adds a clicked file to the sidebar's shown files, then calls `onAdded` and
-// reloads the page. The request names the run of the figure, so a figure
-// drawn before the sidebar's run changed adds nothing. At the limit of shown
-// files, or for such a stale figure, a warning is shown instead.
-async function selectClickedFile(target, stem, onAdded) {
+// Adds a clicked file to the sidebar's shown files, then refreshes the page
+// with `shownStems` in the point table of the figure. The request names the
+// run of the figure, so a figure drawn before the sidebar's run changed adds
+// nothing. At the limit of shown files, or for such a stale figure, a warning
+// is shown instead.
+async function selectClickedFile(target, stem, shownStems) {
   const warning = document.getElementById("plot-select-warning");
-  // The overlay blocks further clicks until the page is replaced.
-  busyOverlay.start(() => window.stop());
+  const controller = new AbortController();
+  // The overlay blocks further clicks until the page is refreshed.
+  busyOverlay.start(
+    () => {
+      controller.abort();
+      cancelViewChange();
+    },
+    { owner: VIEW_OWNER },
+  );
   let result = {};
   try {
     const response = await fetch(target.dataset.selectUrl, {
       method: "POST",
       body: new URLSearchParams({ run: target.dataset.runId, stem }),
+      signal: controller.signal,
     });
     result = response.ok ? await response.json() : {};
   } catch {
     // A failed request or response is reported below like a refusal.
   }
-  if (result.added) {
-    onAdded();
-    window.location.reload();
+  if (controller.signal.aborted) {
     return;
   }
-  busyOverlay.stop();
+  if (result.added) {
+    refreshView("files", { [target.dataset.pointTable]: shownStems });
+    return;
+  }
+  stopViewOverlay();
   const message = result.message ?? `Could not add ${stem} to the shown files.`;
   if (warning) {
     warning.textContent = message;
@@ -540,7 +687,8 @@ function alignSliders(heatmap, wavelengthSlider, stepTimeSlider, axes) {
 
 // Spectral exploration and the model screen's component heatmap: the heatmap
 // click and the two sliders choose one point; the trends at that point are
-// fetched from the server.
+// fetched from the server. Returns a function that stops the pending and later
+// trend requests from drawing, for when the main part is replaced.
 function initExplore(root) {
   const heatmap = root.querySelector("#explore-heatmap");
   const figure = JSON.parse(root.querySelector("#explore-heatmap-figure").textContent);
@@ -551,6 +699,7 @@ function initExplore(root) {
   const byWavelength = root.querySelector("#explore-trend-wavelength");
   let timer = null;
   let latest = 0;
+  let disposed = false;
 
   async function fetchTrends(wavelength, stepTime) {
     const request = ++latest;
@@ -577,6 +726,9 @@ function initExplore(root) {
   }
 
   function update() {
+    if (disposed) {
+      return;
+    }
     const wavelength = axes.wavelengths[sliderIndex(wavelengthSlider, axes.wavelengths)];
     const stepTime = axes.step_times[sliderIndex(stepTimeSlider, axes.step_times)];
     root.querySelector("#explore-wavelength-value").textContent = `${wavelength}`;
@@ -592,6 +744,9 @@ function initExplore(root) {
   initAxisSlider(wavelengthSlider, axes.wavelengths, update);
   initAxisSlider(stepTimeSlider, axes.step_times, update);
   Plotly.newPlot(heatmap, figure.data, figure.layout, { responsive: true }).then(() => {
+    if (disposed) {
+      return;
+    }
     // Every redraw, including a resize or a zoom, may move the rows and
     // columns. A zoom that hides the selected point moves it into the shown
     // range.
@@ -609,24 +764,23 @@ function initExplore(root) {
     });
     update();
   });
-}
 
-for (const root of document.querySelectorAll("[data-explore]")) {
-  initExplore(root);
+  return () => {
+    disposed = true;
+    latest += 1;
+    clearTimeout(timer);
+  };
 }
-
-const POINT_TABLE_KEY = "flat-pca:point-table:";
 
 // The score and T²/Q screens' table of the files of the chosen points. The
 // page embeds the rows of every file, first cell the stem; `show` replaces
-// the shown rows with those of the given stems, in the embedded order.
-// `keep` holds the stems over the next load of this page in this tab, such
-// as the reload after a clicked file is added to the shown files.
-function initPointTable(root) {
+// the shown rows with those of the given stems, in the embedded order. The
+// table starts with the rows of `stems`, such as the clicked file after the
+// main part is replaced.
+function initPointTable(root, stems) {
   const rows = JSON.parse(root.querySelector("[data-point-rows]").textContent);
   const positions = new Map(rows.map((row, position) => [row[0], position]));
   const body = root.querySelector("tbody");
-  const key = POINT_TABLE_KEY + window.location.pathname;
 
   function show(stems) {
     const shown = [...new Set(stems)]
@@ -649,29 +803,12 @@ function initPointTable(root) {
     root.dataset.shownCount = `${shown.length}`;
   }
 
-  function keep(stems) {
-    try {
-      sessionStorage.setItem(key, JSON.stringify(stems));
-    } catch {
-      // Without storage the table starts empty after the reload.
-    }
-  }
-
-  let kept = [];
-  try {
-    kept = JSON.parse(sessionStorage.getItem(key) ?? "[]");
-    sessionStorage.removeItem(key);
-  } catch {
-    // Without storage, or with a broken value, the table starts empty.
-  }
-  show(kept);
-  return { show, keep };
+  show(stems);
+  return { show };
 }
 
+// The point tables of the shown main part by id (see initMain).
 const pointTables = new Map();
-for (const root of document.querySelectorAll(".point-table")) {
-  pointTables.set(root.id, initPointTable(root));
-}
 
 // Returns the stems named by the points of a Plotly event.
 function eventStems(event) {
@@ -703,14 +840,10 @@ function initPlot(target) {
       }
       table?.show(stems);
       if (target.dataset.selectUrl) {
-        selectClickedFile(target, stems[0], () => table?.keep(stems));
+        selectClickedFile(target, stems[0], stems);
       }
     });
   });
-}
-
-for (const target of document.querySelectorAll("[data-plot]")) {
-  initPlot(target);
 }
 
 const SIDEBAR_KEY = "flat-pca:sidebar";
