@@ -92,7 +92,7 @@ def test_preprocess_config_rejects_invalid_arguments(
     argument_name: str, value: object
 ) -> None:
     """Reject each invalid argument at construction."""
-    match = "threshold must be between" if argument_name == "max_null_ratio" else argument_name
+    match = "max_null_ratio must be between" if argument_name == "max_null_ratio" else argument_name
     with pytest.raises(ValueError, match=match):
         PreprocessConfig(**{argument_name: value})  # type: ignore[arg-type]
 
@@ -104,7 +104,7 @@ def test_preprocess_and_flatten_rejects_invalid_arguments_before_reading_input(
 ) -> None:
     """Report an invalid argument before touching a missing input path."""
     missing_path = tmp_path / "missing.parquet"
-    match = "threshold must be between" if argument_name == "max_null_ratio" else argument_name
+    match = "max_null_ratio must be between" if argument_name == "max_null_ratio" else argument_name
 
     with pytest.raises(ValueError, match=match):
         preprocess_and_flatten(  # type: ignore[arg-type]

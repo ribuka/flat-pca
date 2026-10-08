@@ -9,7 +9,7 @@ import polars as pl
 
 from flat_pca.spectral.schema import SOURCE_COLUMN
 
-from ...utils.pl_snippets import validate_missing_ratio_threshold
+from ..preprocess.sparse_columns import validate_max_null_ratio
 
 MetadataKey = tuple[int, int, float]
 
@@ -104,7 +104,7 @@ def select_dense_features(
     ValueError
         If ``max_null_ratio`` is not between 0.0 and 1.0.
     """
-    validate_missing_ratio_threshold(max_null_ratio)
+    validate_max_null_ratio(max_null_ratio)
     if matrix.shape[0] == 0:
         return matrix, feature_names
     keep = np.isnan(matrix).mean(axis=0) <= max_null_ratio

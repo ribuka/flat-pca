@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import polars as pl
+import pytest
 
 from flat_pca.feature_engineering.flatten_pca.flatten import (
     flatten_inputs as _flatten_inputs,
@@ -153,3 +154,12 @@ def test_drop_sparse_feature_columns_always_keeps_source(
     result = _drop_sparse_feature_columns(flattened, max_null_ratio=0.0).collect()
 
     assert "source" in result.columns
+
+
+@pytest.mark.parametrize("lazy", [False, True])
+def test_drop_sparse_feature_columns_names_max_null_ratio(lazy: bool) -> None:
+    """Report an out-of-range threshold by the argument's name."""
+    frame = pl.DataFrame({"source": ["a"], "feature": [1.0]})
+
+    with pytest.raises(ValueError, match="max_null_ratio must be between"):
+        _drop_sparse_feature_columns(frame.lazy() if lazy else frame, max_null_ratio=1.5)
