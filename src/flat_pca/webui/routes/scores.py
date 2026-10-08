@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Annotated
 
-import plotly.graph_objects as go
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
@@ -12,6 +11,7 @@ from flat_pca.visualize import create_partial_score_trajectories, create_score_s
 
 from ..services.point_table import SELECT_TOOLS, PointTable, point_table
 from ..services.scores import ScoresRequest, ScoresView, resolve_scores
+from ..templating import script_json
 from ..workspace import Workspace
 from .dependencies import get_workspace
 from .view_page import render_view_page
@@ -19,22 +19,6 @@ from .view_selection import current_view_choice
 
 router = APIRouter(prefix="/scores")
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
-
-
-def _figure_json(figure: go.Figure) -> str:
-    """Serialize a figure for a ``<script type="application/json">`` element.
-
-    Parameters
-    ----------
-    figure : go.Figure
-        Figure to embed.
-
-    Returns
-    -------
-    str
-        Figure JSON with ``</`` escaped so it cannot close the element.
-    """
-    return figure.to_json().replace("</", "<\\/")
 
 
 def _figures(shown: ScoresView) -> dict[str, str]:
@@ -71,7 +55,7 @@ def _figures(shown: ScoresView) -> dict[str, str]:
             x_name=shown.x_name,
             y_name=shown.y_name,
         ).update_layout(title="Partial score trajectories")
-    return {name: _figure_json(figure) for name, figure in figures.items()}
+    return {name: script_json(figure.to_json()) for name, figure in figures.items()}
 
 
 def _point_table(shown: ScoresView) -> PointTable:

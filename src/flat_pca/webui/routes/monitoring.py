@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Annotated
 
-import plotly.graph_objects as go
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
@@ -12,7 +11,7 @@ from flat_pca.visualize import create_control_chart, create_t2_q_scatter
 
 from ..services.monitoring import MonitoringRequest, MonitoringView, resolve_monitoring
 from ..services.point_table import SELECT_TOOLS, PointTable, point_table
-from ..templating import format_value
+from ..templating import format_value, script_json
 from ..workspace import Workspace
 from .dependencies import get_workspace
 from .view_page import render_view_page
@@ -20,22 +19,6 @@ from .view_selection import current_view_choice
 
 router = APIRouter(prefix="/monitoring")
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
-
-
-def _figure_json(figure: go.Figure) -> str:
-    """Serialize a figure for a ``<script type="application/json">`` element.
-
-    Parameters
-    ----------
-    figure : go.Figure
-        Figure to embed.
-
-    Returns
-    -------
-    str
-        Figure JSON with ``</`` escaped so it cannot close the element.
-    """
-    return figure.to_json().replace("</", "<\\/")
 
 
 def _figures(shown: MonitoringView) -> dict[str, str]:
@@ -89,7 +72,7 @@ def _figures(shown: MonitoringView) -> dict[str, str]:
         ).update_layout(title="T² × Q"),
     }
     return {
-        name: _figure_json(figure.update_layout(modebar_add=SELECT_TOOLS))
+        name: script_json(figure.update_layout(modebar_add=SELECT_TOOLS).to_json())
         for name, figure in figures.items()
     }
 

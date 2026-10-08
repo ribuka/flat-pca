@@ -8,9 +8,9 @@ from fastapi.responses import Response
 
 from flat_pca.visualize import create_heatmap, create_trend
 
-from ..services.explore import explore_trends
 from ..services.heatmap_binning import bin_step_times
-from ..services.spectral_matrix import SpectralMatrix
+from ..services.spectral_matrix import SpectralMatrix, trends_at
+from ..templating import script_json
 
 # Fixed top margin of the heatmap, leaving room for the selection marker
 # above the plot area.
@@ -18,22 +18,6 @@ HEATMAP_MARGIN_TOP = 32
 # Gap between the plot area and the StepTime tick labels, where the selection
 # marker on the left is drawn.
 MARKER_GAP = 16
-
-
-def script_json(text: str) -> str:
-    """Make JSON text safe to embed in a ``<script>`` element.
-
-    Parameters
-    ----------
-    text : str
-        JSON text.
-
-    Returns
-    -------
-    str
-        ``text`` with ``</`` escaped so it cannot close the element.
-    """
-    return text.replace("</", "<\\/")
 
 
 def heatmap_context(
@@ -110,7 +94,7 @@ def trend_response(
         the wavelength), and ``by_wavelength`` (figure of the values over
         wavelength at the ``StepTime``).
     """
-    by_time, by_wavelength = explore_trends(matrices, wavelength, step_time)
+    by_time, by_wavelength = trends_at(matrices, wavelength, step_time)
     first_time = next(iter(by_time.values()))
     first_wavelength = next(iter(by_wavelength.values()))
     time_figure = create_trend(

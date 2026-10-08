@@ -58,6 +58,22 @@ def static_version(path: str) -> str:
     return str((STATIC_DIR / path).stat().st_mtime_ns)
 
 
+def script_json(text: str) -> str:
+    """Make JSON text safe to embed in a ``<script>`` element.
+
+    Parameters
+    ----------
+    text : str
+        JSON text.
+
+    Returns
+    -------
+    str
+        ``text`` with ``</`` escaped so it cannot close the element.
+    """
+    return text.replace("</", "<\\/")
+
+
 @dataclass(frozen=True)
 class NavItem:
     """One screen in the sidebar navigation.
