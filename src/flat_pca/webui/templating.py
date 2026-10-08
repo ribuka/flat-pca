@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import plotly
 from fastapi.templating import Jinja2Templates
 
 from .services.system_status import app_version, format_gib
@@ -35,6 +36,26 @@ def format_value(value: object) -> str:
     if isinstance(value, float):
         return f"{value:.6g}"
     return str(value)
+
+
+def static_version(path: str) -> str:
+    """Return a version of a static file for its URL's query string.
+
+    Static URLs carry ``?v={static_version(path)}``, so a browser that kept
+    an older copy of a changed file (``app.js``, for example) loads the new
+    one instead of running the old code against the new pages.
+
+    Parameters
+    ----------
+    path : str
+        Path of the file under ``STATIC_DIR``.
+
+    Returns
+    -------
+    str
+        The file's modification time in nanoseconds.
+    """
+    return str((STATIC_DIR / path).stat().st_mtime_ns)
 
 
 @dataclass(frozen=True)
@@ -68,3 +89,7 @@ templates.env.filters["cell"] = format_value
 templates.env.filters["gib"] = format_gib
 templates.env.globals["nav_items"] = NAV_ITEMS
 templates.env.globals["app_version"] = app_version()
+templates.env.globals["static_version"] = static_version
+# plotly.min.js is served from the plotly package (see ``app.plotly_js``), so
+# its URL carries the package version instead of a ``static_version``.
+templates.env.globals["plotly_version"] = plotly.__version__

@@ -2,7 +2,7 @@
 {% block title %}Model - flat-pca{% endblock %}
 {% block view_swap %}model{% endblock %}
 {% block scripts %}
-  <script src="{{ url_for('static', path='vendor/plotly.min.js') }}" defer></script>
+  <script src="{{ url_for('static', path='vendor/plotly.min.js') }}?v={{ plotly_version }}" defer></script>
 {% endblock %}
 {% block content %}
 <details class="card" data-group="model" open>
