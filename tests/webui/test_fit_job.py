@@ -9,22 +9,25 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import pytest
+from preprocess_settings import preprocess_settings
 from spectra import SPECTRA_FILE_COUNT, SPECTRA_SHORT_FILE, SPECTRA_WAVELENGTHS
 
 from flat_pca.feature_engineering.flatten_pca import preprocess_and_flatten
 from flat_pca.feature_engineering.pca import MahalanobisConfig, SpeConfig, transform_pca
 from flat_pca.webui.jobs.fit_run import (
     AUTO_COMPONENT_CUMULATIVE,
+    build_fit_config,
+    run_fit,
+)
+from flat_pca.webui.jobs.progress import read_progress
+from flat_pca.webui.run_layout import (
     COMPONENTS_FILE,
     FEATURES_FILE,
     PCA_STATE_FILE,
     SAMPLES_FILE,
     SCORES_FILE,
     X_FILE,
-    build_fit_config,
-    run_fit,
 )
-from flat_pca.webui.jobs.progress import read_progress
 from flat_pca.webui.services.fit_artifacts import (
     RunArtifactError,
     load_fit_artifacts,
@@ -62,7 +65,7 @@ def _fit_config(
     return build_fit_config(
         settings,
         files,
-        {"target_steps": [1, 2], "max_null_ratio": 0.1, **(preprocess or {})},
+        preprocess_settings(**(preprocess or {})),
         {
             "n_component": None,
             "impute_strategy": "median",

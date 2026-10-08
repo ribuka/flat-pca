@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable, Mapping
 from typing import cast
 
-from .run_dirs import FIT_RUN_ID_KEY, fit_run_reference
+from ..run_config import run_config
+from ..run_layout import FIT_RUN_ID_KEY
+from .run_dirs import fit_run_reference
 
 
 def run_target_files(run: Mapping[str, object]) -> list[dict[str, object]]:
@@ -23,14 +24,9 @@ def run_target_files(run: Mapping[str, object]) -> list[dict[str, object]]:
         Each target file's ``stem``, ``path``, and metadata columns, in the
         form of a catalog row accepted by ``file_entries``.
     """
-    config = cast(dict[str, object], json.loads(str(run["config_json"])))
     return [
-        {
-            "stem": file["stem"],
-            "path": file["path"],
-            **cast(dict[str, object], file.get("metadata") or {}),
-        }
-        for file in cast(list[dict[str, object]], config["files"])
+        {"stem": file["stem"], "path": file["path"], **file["metadata"]}
+        for file in run_config(run)["files"]
     ]
 
 
@@ -106,7 +102,6 @@ def find_transform_run(
         reference = fit_run_reference(run)
         if run["status"] != "succeeded" or reference is None or reference[0] != fit_run_id:
             continue
-        saved = cast(dict[str, object], json.loads(str(run["config_json"])))
-        if file_identities(cast(list[dict[str, object]], saved["files"])) == wanted:
+        if file_identities(run_config(run)["files"]) == wanted:
             return run
     return None

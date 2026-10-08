@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+from preprocess_settings import preprocess_settings
 from spectra import write_spectra
 
 from flat_pca.webui.compare_artifact_dtypes import compare_run, compare_values
@@ -33,7 +34,7 @@ def _write_config(
     config = build_fit_config(
         settings,
         [{"stem": path.stem, "path": str(path)} for path in paths],
-        {"target_steps": [1, 2]},
+        preprocess_settings(),
         {
             "n_component": None,
             "impute_strategy": "median",

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-FIT_RUN_ID_KEY = "fit_run_id"
-FIT_RUN_DIR_KEY = "fit_run_dir"
+from ..run_config import run_config
+from ..run_layout import FIT_RUN_DIR_KEY, FIT_RUN_ID_KEY
 
 
 @dataclass(frozen=True)
@@ -44,8 +43,8 @@ def fit_run_reference(run: Mapping[str, object]) -> tuple[str, Path] | None:
         The fit run's identifier and directory, saved in a transform run's
         configuration; ``None`` for any other run.
     """
-    config = json.loads(str(run["config_json"]))
-    if not isinstance(config, dict) or FIT_RUN_DIR_KEY not in config:
+    config = run_config(run)
+    if FIT_RUN_DIR_KEY not in config:
         return None
     return str(config[FIT_RUN_ID_KEY]), Path(str(config[FIT_RUN_DIR_KEY]))
 

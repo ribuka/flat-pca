@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 
@@ -134,15 +134,14 @@ def default_form_values(ranges: SelectionRanges) -> FormValues:
     }
 
 
-def form_values_from_config(
-    config: Mapping[str, object], ranges: SelectionRanges
-) -> FormValues:
+def form_values_from_config(config: Mapping[str, Any], ranges: SelectionRanges) -> FormValues:
     """Return the form values that reproduce a fit job's settings.
 
     Parameters
     ----------
-    config : Mapping[str, object]
-        Job configuration built by ``build_fit_config``.
+    config : Mapping[str, Any]
+        Job configuration built by ``build_fit_config``, as read by
+        ``run_config``.
     ranges : SelectionRanges
         Steps and ranges of the selected files, used for disabled ranges.
 
@@ -152,38 +151,32 @@ def form_values_from_config(
         Form values keyed by input name.
     """
     values = default_form_values(ranges)
-    preprocess = cast(dict[str, object], config["preprocess"])
-    pca = cast(dict[str, object], config["pca"])
-    steps = preprocess.get("target_steps")
-    if steps is not None:
-        values["target_steps"] = [str(step) for step in cast(list[int], steps)]
-    edge_trim = cast(list[float] | None, preprocess.get("edge_trim"))
+    preprocess = config["preprocess"]
+    pca = config["pca"]
+    values["target_steps"] = [str(step) for step in preprocess["target_steps"]]
+    edge_trim = preprocess["edge_trim"]
     if edge_trim is not None:
         values["edge_trim_start"], values["edge_trim_end"] = map(_text, edge_trim)
     for name in RANGE_FIELDS:
-        bounds = cast(list[float] | None, preprocess.get(name))
+        bounds = preprocess[name]
         if bounds is not None:
             values[f"{name}_enabled"] = True
             values[f"{name}_lower"], values[f"{name}_upper"] = map(_text, bounds)
-    for name in WINDOW_FIELDS:
-        values[name] = _text(cast(float | None, preprocess.get(name)))
     for name in (
+        *WINDOW_FIELDS,
         "intensity_transform_scale",
         "t_downsampling_stride",
         "w_downsampling_stride",
         "max_null_ratio",
     ):
-        if name in preprocess:
-            values[name] = _text(cast(float, preprocess[name]))
-    values["intensity_transform"] = str(preprocess.get("intensity_transform", "none"))
-    values["n_component"] = _text(cast(int | None, pca["n_component"]))
-    values["impute_strategy"] = str(pca["impute_strategy"])
-    values["impute_kmeans_n_clusters"] = _text(
-        cast(int | None, pca["impute_kmeans_n_clusters"])
-    )
-    values["scaling_strategy"] = str(pca["scaling_strategy"])
+        values[name] = _text(preprocess[name])
+    values["intensity_transform"] = preprocess["intensity_transform"]
+    values["n_component"] = _text(pca["n_component"])
+    values["impute_strategy"] = pca["impute_strategy"]
+    values["impute_kmeans_n_clusters"] = _text(pca["impute_kmeans_n_clusters"])
+    values["scaling_strategy"] = pca["scaling_strategy"]
     for prefix in STATISTIC_FIELDS:
-        statistic = cast(dict[str, float], config[prefix])
+        statistic = config[prefix]
         for key in ("cumulative_explained_variance", "alpha"):
             values[f"{prefix}_{key}"] = _text(statistic[key])
     return values

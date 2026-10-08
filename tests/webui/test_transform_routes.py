@@ -15,8 +15,8 @@ from spectra import SPECTRA_FILE_COUNT, write_spectra
 from view_choice import choose_view
 
 from flat_pca.webui.app import create_app
-from flat_pca.webui.jobs.fit_run import SCORES_FILE
 from flat_pca.webui.routes.view_selection import current_model_run, current_view_choice
+from flat_pca.webui.run_layout import SCORES_FILE
 from flat_pca.webui.services.monitoring import MonitoringRequest, resolve_monitoring
 from flat_pca.webui.services.runs import insert_run, list_runs, update_run
 from flat_pca.webui.settings import Settings

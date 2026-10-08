@@ -16,14 +16,7 @@ import polars as pl
 from loguru import logger
 
 from flat_pca.feature_engineering.flatten_pca import preprocess_and_flatten
-from flat_pca.feature_engineering.pca import (
-    MahalanobisConfig,
-    PcaModel,
-    SpeConfig,
-    fit_pca,
-    transform_pca,
-    truncate_pca_model,
-)
+from flat_pca.feature_engineering.pca import PcaModel, fit_pca, truncate_pca_model
 from flat_pca.feature_engineering.pca.mahalanobis import resolve_mahalanobis_components
 from flat_pca.spectral.schema import (
     SOURCE_COLUMN,
@@ -31,15 +24,15 @@ from flat_pca.spectral.schema import (
     parse_feature_coordinate,
 )
 
+from ..run_layout import (
+    COMPONENTS_FILE,
+    FEATURES_FILE,
+    PCA_STATE_FILE,
+    SAMPLES_FILE,
+    X_FILE,
+)
 from ..settings import MetadataColumnType, Settings
 from .progress import write_progress
-
-FEATURES_FILE = "features.parquet"
-SAMPLES_FILE = "samples.parquet"
-X_FILE = "X.npy"
-COMPONENTS_FILE = "components.npy"
-PCA_STATE_FILE = "pca_state.npz"
-SCORES_FILE = "scores.parquet"
 
 # Without an explicit n_component, keep the components reaching this
 # cumulative explained-variance ratio, fitting at most AUTO_COMPONENT_CAP.
@@ -278,40 +271,6 @@ def sample_frame(sources: Sequence[str], config: Mapping[str, object]) -> pl.Dat
             series = pl.Series(name, values, dtype=_METADATA_DTYPES[column_type])
         columns.append(series)
     return pl.DataFrame(columns)
-
-
-def score_frame(
-    flattened: pl.LazyFrame, model: PcaModel, config: Mapping[str, object]
-) -> pl.DataFrame:
-    """Score the flattened rows with T² and Q statistics.
-
-    Parameters
-    ----------
-    flattened : pl.LazyFrame
-        Flattened features with a ``source`` column.
-    model : PcaModel
-        Fitted PCA pipeline.
-    config : Mapping[str, object]
-        Job configuration with ``mahalanobis`` and ``spe`` settings.
-
-    Returns
-    -------
-    pl.DataFrame
-        ``source``, the score columns, and the Mahalanobis (T²) and SPE (Q)
-        columns. Rows dropped by ``impute_strategy="drop"`` are absent.
-    """
-    mahalanobis = MahalanobisConfig(**cast(dict[str, object], config["mahalanobis"]))  # type: ignore[arg-type]
-    spe = SpeConfig(**cast(dict[str, object], config["spe"]))  # type: ignore[arg-type]
-    return (
-        transform_pca(flattened, model, mahalanobis=mahalanobis, spe=spe)
-        .select(
-            SOURCE_COLUMN,
-            *model.pca_column_names,
-            *mahalanobis.column_names,
-            *spe.column_names,
-        )
-        .collect()
-    )
 
 
 def run_fit(config: dict[str, object], run_dir: Path) -> None:
