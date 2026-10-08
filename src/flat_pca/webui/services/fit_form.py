@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
 from typing import Any, cast
 
 import numpy as np
@@ -86,12 +86,41 @@ def _text(value: float | None) -> str:
     return str(int(number)) if number.is_integer() else repr(number)
 
 
+def _default(config: type[Any], name: str) -> Any:
+    """Return the default value of a settings dataclass field.
+
+    Parameters
+    ----------
+    config : type
+        Settings dataclass, e.g. ``PreprocessConfig``.
+    name : str
+        Field name.
+
+    Returns
+    -------
+    Any
+        The field's default value.
+
+    Raises
+    ------
+    ValueError
+        If the dataclass has no such field or the field has no default.
+    """
+    for config_field in fields(config):
+        if config_field.name == name and config_field.default is not MISSING:
+            return config_field.default
+    raise ValueError(f"{config.__name__} has no default for {name}")
+
+
 def default_form_values(ranges: SelectionRanges) -> FormValues:
     """Return the initial form values.
 
     Every step is selected, the optional ranges are disabled with the
-    catalog ranges as their initial values, and the other settings match
-    the library defaults (no preprocessing, ``n_component`` automatic).
+    catalog ranges as their initial values, and the intensity transform,
+    downsampling, missing ratio, and T² and Q settings take the defaults of
+    ``PreprocessConfig``, ``MahalanobisConfig``, and ``SpeConfig``. The PCA
+    settings are the Web UI's own: ``n_component`` automatic, rows with
+    missing values dropped, and no scaling.
 
     Parameters
     ----------
@@ -118,19 +147,25 @@ def default_form_values(ranges: SelectionRanges) -> FormValues:
         "w_normalization_range_upper": _text(ranges.wavelength_max),
         "t_smoothing_window": "",
         "w_smoothing_window": "",
-        "intensity_transform": "none",
-        "intensity_transform_scale": "1",
-        "t_downsampling_stride": "1",
-        "w_downsampling_stride": "1",
-        "max_null_ratio": "0.1",
+        "intensity_transform": _default(PreprocessConfig, "intensity_transform"),
+        "intensity_transform_scale": _text(
+            _default(PreprocessConfig, "intensity_transform_scale")
+        ),
+        "t_downsampling_stride": _text(_default(PreprocessConfig, "t_downsampling_stride")),
+        "w_downsampling_stride": _text(_default(PreprocessConfig, "w_downsampling_stride")),
+        "max_null_ratio": _text(_default(PreprocessConfig, "max_null_ratio")),
         "n_component": "",
         "impute_strategy": "drop",
         "impute_kmeans_n_clusters": "",
         "scaling_strategy": "none",
-        "mahalanobis_cumulative_explained_variance": "0.9",
-        "mahalanobis_alpha": "0.01",
-        "spe_cumulative_explained_variance": "0.9",
-        "spe_alpha": "0.01",
+        "mahalanobis_cumulative_explained_variance": _text(
+            _default(MahalanobisConfig, "cumulative_explained_variance")
+        ),
+        "mahalanobis_alpha": _text(_default(MahalanobisConfig, "alpha")),
+        "spe_cumulative_explained_variance": _text(
+            _default(SpeConfig, "cumulative_explained_variance")
+        ),
+        "spe_alpha": _text(_default(SpeConfig, "alpha")),
     }
 
 
