@@ -249,11 +249,11 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 - `/transform`。`use same data for fit`のチェックボックスを置く。既定はチェックあり（サイドバーで transform run を選んでいるときだけチェックなし）。
 - チェックありのときは、transform の対象を fit の対象と同じファイル（その fit run の`samples.parquet`）とし、fit run の成果物をそのまま表示する（実行は不要）。サイドバーで transform run を選んでいるときにチェックすると、サイドバーの run をその fit run に変えて読み直す。
-- チェックを外すと、transform の対象を catalog から選ぶ表と「transform を実行」ボタンを表示する。
+- チェックを外すと、transform の対象を catalog から選ぶ表と「Run transform」ボタンを表示する。
   - 表はデータ選択と同じもの（`/catalog/files`の絞り込み・ソート・ページング、ページやフィルタをまたいだ選択、ヘッダのチェックボックスでの一括選択）とする。選択は送信時に workspace（`Workspace.transform_selection`）へ保存し、画面を開き直しても残す。
   - 実行（`POST /transform`）は、サイドバーで選んだ run の fit run（transform run を選んでいるときはその元の fit run）のモデルで、transformジョブ（種別`transform`）を投入する。fit run がない・対象がないときは、ボタンの横にエラーを表示する。
-- 実行中は前処理・PCA画面と同じオーバーレイ（「transform を実行しています…」、経過時間、段階と進捗、残り時間、キャンセル）と実行状況を表示し、`/transform/runs/{run_id}/status`をポーリングする。終わったら`transform-updated`で transform run 一覧とサイドバーの run の選択肢を取得し直す。
-- transform run 一覧（`/transform/runs`）は、run・元の fit run・作成日時・状態・ファイル数・所要時間を新しい順に表示し、成功した run の「表示」でサイドバーの run をその transform run に変える。
+- 実行中は前処理・PCA画面と同じオーバーレイ（「Running the transform…」、経過時間、段階と進捗、残り時間、キャンセル）と実行状況を表示し、`/transform/runs/{run_id}/status`をポーリングする。終わったら`transform-updated`で transform run 一覧とサイドバーの run の選択肢を取得し直す。
+- transform run 一覧（`/transform/runs`）は、run・元の fit run・作成日時・状態・ファイル数・所要時間を新しい順に表示し、成功した run の「Show」でサイドバーの run をその transform run に変える。
 - 画面には、使うモデル（fit run）と、サイドバーで選んだ run の transform 対象のファイル数を表示する。サイドバーの表示ファイルの選択肢、スペクトル探索の各ビュー、スコア、T² / Q は、サイドバーで選んだ run の transform 対象を表示する。
 
 ### 4. モデル

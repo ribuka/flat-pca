@@ -257,7 +257,7 @@ def test_transform_run_uses_the_fit_run_control_limits(
     limits = {}
     for run in ("fit-1", "tr-1"):
         shown = resolve_monitoring(
-            workspace.cache, runs, MonitoringRequest(run=run), None
+            workspace.cache, runs, MonitoringRequest(run=run), None, None
         )
         assert shown.points is not None, shown.error
         limits[run] = (shown.points.t2_ucl, shown.points.q_ucl)
