@@ -6,6 +6,8 @@ import polars as pl
 
 MISSING_LABEL = "(missing)"
 CONTINUOUS_COLOR_SCALE = "Viridis"
+# Points without a numeric color value are drawn grey.
+MISSING_COLOR = "#9e9e9e"
 CATEGORY_COLORS = plotly.colors.qualitative.Plotly
 
 
@@ -46,7 +48,9 @@ def category_color(index: int) -> str:
     return CATEGORY_COLORS[index % len(CATEGORY_COLORS)]
 
 
-def continuous_marker(color: pl.Series, rows: np.ndarray | None = None) -> dict[str, object]:
+def continuous_marker(
+    color: pl.Series, rows: np.ndarray | None = None, *, showscale: bool = True
+) -> dict[str, object]:
     """Return marker settings coloring points by a numeric value.
 
     Parameters
@@ -56,20 +60,27 @@ def continuous_marker(color: pl.Series, rows: np.ndarray | None = None) -> dict[
     rows : np.ndarray | None, optional
         Row positions of the points of one trace. The color range spans all
         of ``color``, so several traces share one scale. All rows by default.
+    showscale : bool, default True
+        Whether this trace draws the color bar. Plotly.js draws one for every
+        trace with a ``colorbar`` unless told otherwise, so traces sharing a
+        scale set it on exactly one of them.
 
     Returns
     -------
     dict[str, object]
-        ``color``, ``colorscale``, ``cmin``, ``cmax``, and ``colorbar`` of a
-        Plotly marker; the trace showing the scale sets ``showscale``.
+        ``color``, ``colorscale``, ``cmin``, ``cmax``, ``colorbar``, and
+        ``showscale`` of a Plotly marker. Without any finite value there is no
+        range to show, so every point gets ``MISSING_COLOR`` and no color bar.
     """
     values = color.cast(pl.Float64).to_numpy()
     finite = values[np.isfinite(values)]
-    marker: dict[str, object] = {
+    if not finite.size:
+        return {"color": MISSING_COLOR, "showscale": False}
+    return {
         "color": values if rows is None else values[rows],
         "colorscale": CONTINUOUS_COLOR_SCALE,
+        "cmin": float(finite.min()),
+        "cmax": float(finite.max()),
         "colorbar": {"title": {"text": color.name}},
+        "showscale": showscale,
     }
-    if finite.size:
-        marker |= {"cmin": float(finite.min()), "cmax": float(finite.max())}
-    return marker

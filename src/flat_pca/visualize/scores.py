@@ -53,7 +53,7 @@ def create_score_scatter(
     if color is None or color.dtype.is_numeric():
         marker: dict[str, object] = {"size": 9}
         if color is not None:
-            marker |= continuous_marker(color) | {"showscale": True}
+            marker |= continuous_marker(color)
         traces = [
             go.Scatter(
                 x=xs,

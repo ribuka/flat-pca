@@ -4,6 +4,7 @@ import numpy as np
 import polars as pl
 
 from flat_pca.visualize import create_control_chart, create_t2_q_scatter
+from flat_pca.visualize.marker_color import MISSING_COLOR
 from flat_pca.visualize.monitoring import (
     EXCEEDS_UCL_COLOR,
     EXCEEDS_UCL_NAME,
@@ -106,7 +107,35 @@ def test_numeric_color_shares_one_scale_across_the_limit() -> None:
     assert list(exceeds.marker.color) == [70.0]
     for trace in (within, exceeds):
         assert (trace.marker.cmin, trace.marker.cmax) == (70.0, 90.0)
-    assert within.marker.showscale
-    assert not exceeds.marker.showscale
+    assert within.marker.showscale is True
+    assert exceeds.marker.showscale is False
     assert exceeds.marker.line.color == EXCEEDS_UCL_COLOR
     assert figure.layout.legend.orientation == "h"
+
+
+def test_numeric_color_keeps_one_scale_when_every_point_exceeds() -> None:
+    """With no point within the limit, the above-limit trace draws the only color bar."""
+    figure = create_control_chart(
+        [5.0, 7.0], ucl=4.0, labels=["a", "b"], y_name="Q", color=pl.Series("yield_pct", [90.0, 70.0])
+    )
+
+    within, exceeds = figure.data
+    assert within.marker.showscale is False
+    assert exceeds.marker.showscale is True
+
+
+def test_numeric_color_without_values_draws_no_scale() -> None:
+    """A numeric column missing everywhere colors the points grey without a color bar."""
+    figure = create_t2_q_scatter(
+        [1.0, 9.0],
+        [1.0, 1.0],
+        t2_ucl=5.0,
+        q_ucl=5.0,
+        labels=["a", "b"],
+        color=pl.Series("yield_pct", [None, None], dtype=pl.Float64),
+    )
+
+    for trace in figure.data:
+        assert trace.marker.color == MISSING_COLOR
+        assert trace.marker.showscale is False
+        assert trace.marker.colorbar.title.text is None

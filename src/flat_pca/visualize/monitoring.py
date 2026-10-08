@@ -127,7 +127,7 @@ def _split_traces(
                 hover,
                 text,
                 name=WITHIN_UCL_NAME,
-                marker=WITHIN_MARKER | continuous_marker(color, within) | {"showscale": True},
+                marker=WITHIN_MARKER | continuous_marker(color, within, showscale=within.size > 0),
             ),
             _marker_trace(
                 above,
@@ -137,7 +137,9 @@ def _split_traces(
                 hover,
                 text,
                 name=EXCEEDS_UCL_NAME,
-                marker=EXCEEDS_MARKER | continuous_marker(color, above) | EXCEEDS_OUTLINE,
+                marker=EXCEEDS_MARKER
+                | continuous_marker(color, above, showscale=within.size == 0)
+                | EXCEEDS_OUTLINE,
             ),
         ]
     traces = []
