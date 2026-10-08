@@ -1,47 +1,6 @@
 {% from "macros/icon.html" import icon %}
-{% set run = status.run %}
-{#- While the run is active, app.js covers the page with the busy overlay and
-    copies [data-job-progress] into it; the overlay's elapsed time starts at
-    data-elapsed-s and its cancel button posts to data-cancel-url. -#}
-<div class="status-panel" data-job-status
-     data-busy-message="Running the fit…"
-     {% if status.active %}data-job-active data-run-id="{{ run.run_id }}"
-     data-elapsed-s="{{ '%.1f'|format(status.elapsed_s) }}" data-cancel-url="/runs/{{ run.run_id }}/cancel"
-     hx-get="/fit/runs/{{ run.run_id }}/status?polling=true" hx-trigger="every 1s" hx-target="this" hx-swap="outerHTML"{% endif %}>
-  {% if run is none %}
-    <p>No fit has run yet.</p>
-  {% else %}
-    <p>
-      run <span class="mono">{{ run.run_id }}</span>:
-      <span class="status status-{{ run.status }}" data-run-status="{{ run.status }}">{{ run.status }}</span>
-    </p>
-    {% if status.active %}
-      <div class="fit-progress" data-job-progress>
-        {% if status.progress %}
-          <p data-job-stage>
-            Stage {{ status.progress.stage }}: {{ status.progress.done }} / {{ status.progress.total }}
-            <progress max="100" value="{{ status.progress.percent }}"></progress>
-          </p>
-          <p data-job-eta>
-            Remaining (all stages): {% if status.remaining_s is none %}estimating{% else %}about {{ status.remaining_s|round|int }} s{% endif %}
-          </p>
-        {% else %}
-          <p data-job-stage>Waiting to start.</p>
-        {% endif %}
-      </div>
-      <button type="button" hx-post="/runs/{{ run.run_id }}/cancel" hx-swap="none">Cancel</button>
-    {% elif run.status == "failed" %}
-      <p class="error" data-run-error>{{ run.error }}</p>
-    {% elif run.status == "succeeded" %}
-      <p data-run-summary>
-        {{ run.n_files }} files, {{ run.n_features }} features, {{ run.n_components }} components
-        ({{ "%.1f"|format(run.duration_s or 0) }} s)
-      </p>
-    {% elif run.status == "cancelled" %}
-      <p class="muted">Cancelled.</p>
-    {% endif %}
-  {% endif %}
-</div>
+{% from "macros/run_status.html" import run_status %}
+{{ run_status(status, "fit") }}
 {% if finished_succeeded %}
 <span id="fit-result" class="fit-result" hx-swap-oob="true">{{ icon("check_circle", class="icon-success", label="The fit succeeded") }}</span>
 {% endif %}
