@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from datetime import datetime
 
 import polars as pl
@@ -123,3 +124,131 @@ def test_fragment_row_checkboxes_use_the_matching_key_text(environment: Environm
     (key,) = view.matching_keys
     assert f'value="{key}"' in html
     assert f'data-dt-key="{key}"' in html
+
+
+def _row_check(html: str, key: str) -> str:
+    """Return the row checkbox of ``key``."""
+    match = re.search(rf'<input type="checkbox" value="{key}"[^>]*>', html)
+    assert match is not None
+    return match[0]
+
+
+def _header_check(html: str) -> str:
+    """Return the header checkbox."""
+    match = re.search(r"<input [^>]*data-dt-check-all[^>]*>", html)
+    assert match is not None
+    return match[0]
+
+
+def _limit_notice(html: str) -> str:
+    """Return the opening tag of the limit notice."""
+    match = re.search(r"<p [^>]*data-dt-limit[^>]*>", html)
+    assert match is not None
+    return match[0]
+
+
+def test_container_carries_the_selection_limit(
+    environment: Environment, config: TableConfig
+) -> None:
+    """The container names the limit only when the table has one."""
+    unlimited = _render(environment, "{{ container(config) }}", config=config)
+    limited = _render(
+        environment, "{{ container(config) }}", config=replace(config, max_selected=2)
+    )
+
+    assert "data-dt-max-selected" not in unlimited
+    assert 'data-dt-max-selected="2"' in limited
+
+
+def test_fragment_without_limit_shows_no_limit_state(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """A table without a limit has no notice and no disabled checkboxes."""
+    view = apply_state(frame, TableState(sort_by="key"), config)
+
+    html = _render(
+        environment, "{{ fragment(config, view, selected) }}", config=config, view=view, selected={"k1"}
+    )
+
+    assert "data-dt-limit" not in html
+    assert "disabled" not in _row_check(html, "k2")
+    assert "disabled" not in _header_check(html)
+
+
+def test_fragment_below_the_limit_allows_selecting(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """Below the limit the rows can be checked and the notice is hidden."""
+    limited = replace(config, max_selected=2)
+    state = parse_state({"t.eq__group": ["b"]}, limited)
+    view = apply_state(frame, state, limited)
+
+    html = _render(
+        environment, "{{ fragment(config, view, selected) }}", config=limited, view=view, selected=["k1"]
+    )
+
+    assert "hidden" in _limit_notice(html)
+    assert "The limit of 2 selected rows is reached" in html
+    assert "disabled" not in _row_check(html, "k2")
+    assert "disabled" not in _header_check(html)
+
+
+def test_fragment_at_the_limit_disables_unselected_rows(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """At the limit unselected rows are disabled, selected ones not, and the notice shows."""
+    limited = replace(config, max_selected=2)
+    view = apply_state(frame, TableState(sort_by="key"), limited)
+
+    html = _render(
+        environment,
+        "{{ fragment(config, view, selected) }}",
+        config=limited,
+        view=view,
+        selected=["k1", "k3"],
+    )
+
+    assert "hidden" not in _limit_notice(html)
+    assert "checked" in _row_check(html, "k1")
+    assert "disabled" not in _row_check(html, "k1")
+    assert "disabled" in _row_check(html, "k2")
+    assert "disabled" in _header_check(html)
+
+
+def test_fragment_header_checkbox_follows_the_limit(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """The header is disabled only when selecting every matching row passes the limit."""
+    limited = replace(config, max_selected=3)
+    every = apply_state(frame, TableState(sort_by="key"), limited)
+    group_a = apply_state(frame, parse_state({"t.eq__group": ["a"]}, limited), limited)
+    call = "{{ fragment(config, view, selected) }}"
+
+    over = _render(environment, call, config=limited, view=every, selected=["k1"])
+    fits = _render(environment, call, config=limited, view=group_a, selected=["k2"])
+    all_selected = _render(
+        environment, call, config=limited, view=group_a, selected=["k1", "k2", "k3", "k4"]
+    )
+
+    assert "disabled" in _header_check(over)
+    assert "disabled" not in _header_check(fits)
+    assert "disabled" not in _header_check(all_selected)
+
+
+def test_fragment_counts_keys_differing_only_in_case(environment: Environment) -> None:
+    """Keys differing only in case count as separate rows against the limit."""
+    frame = pl.DataFrame({"k": ["A", "a", "z"]})
+    config = TableConfig(
+        table_id="c", key="k", columns=(ColumnConfig("k"),), url="/", selectable=True, max_selected=2
+    )
+    view = apply_state(frame, TableState(), config)
+    call = "{{ fragment(config, view, selected) }}"
+
+    full = _render(environment, call, config=config, view=view, selected=["A", "a"])
+    single = replace(config, max_selected=1)
+    pair = apply_state(frame.head(2), TableState(), single)
+    one = _render(environment, call, config=single, view=pair, selected=[])
+
+    assert "hidden" not in _limit_notice(full)
+    assert "disabled" in _row_check(full, "z")
+    assert "disabled" in _header_check(one)

@@ -81,10 +81,14 @@ def test_parse_state_rejects_invalid_parameters(
         ({"page_size": 0}, "page_size"),
         ({"columns": (ColumnConfig("k"), ColumnConfig("k"))}, "unique"),
         ({"default_sort": "missing"}, "default_sort"),
+        ({"selectable": True, "max_selected": 0}, "max_selected must be positive"),
+        ({"selectable": True, "max_selected": 1.5}, "max_selected must be an integer"),
+        ({"selectable": True, "max_selected": True}, "max_selected must be an integer"),
+        ({"max_selected": 2}, "selectable"),
     ],
 )
 def test_table_config_rejects_invalid_settings(kwargs: dict[str, object], message: str) -> None:
-    """The page size, column names, and default sort are checked."""
+    """The page size, column names, default sort, and selection limit are checked."""
     settings: dict[str, object] = {
         "table_id": "t",
         "key": "k",

@@ -97,6 +97,10 @@ class TableConfig:
     default_sort : str | None, default None
         Column sorted by (ascending) when the query names none; ``None``
         keeps the frame's order.
+    max_selected : int | None, default None
+        Most rows that can be selected at once in a selectable table;
+        ``None`` for no limit. At the limit the unselected rows cannot be
+        checked and the table says so.
     """
 
     table_id: str
@@ -109,6 +113,7 @@ class TableConfig:
     selection_form: str | None = None
     select_all_label: str = "Select all filtered rows"
     default_sort: str | None = None
+    max_selected: int | None = None
 
     def __post_init__(self) -> None:
         """Check the settings.
@@ -116,8 +121,10 @@ class TableConfig:
         Raises
         ------
         ValueError
-            If the page size is not positive, a column name repeats, or the
-            default sort column is not a sortable column.
+            If the page size is not positive, a column name repeats, the
+            default sort column is not a sortable column, or the selection
+            limit is not a positive integer or is set on a table without
+            selection.
         """
         if self.page_size < 1:
             raise ValueError(f"page_size must be positive: {self.page_size}")
@@ -126,6 +133,13 @@ class TableConfig:
             raise ValueError(f"column names must be unique: {names}")
         if self.default_sort is not None and self.default_sort not in self.sortable_columns:
             raise ValueError(f"default_sort is not a sortable column: {self.default_sort!r}")
+        if self.max_selected is not None:
+            if isinstance(self.max_selected, bool) or not isinstance(self.max_selected, int):
+                raise ValueError(f"max_selected must be an integer: {self.max_selected!r}")
+            if self.max_selected < 1:
+                raise ValueError(f"max_selected must be positive: {self.max_selected}")
+            if not self.selectable:
+                raise ValueError("max_selected needs a selectable table")
 
     @property
     def prefix(self) -> str:

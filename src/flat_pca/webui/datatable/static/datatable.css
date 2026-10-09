@@ -53,6 +53,12 @@
   color: var(--dt-muted);
 }
 
+.dt-limit {
+  margin: 0 0 0.35rem;
+  color: var(--dt-muted);
+  font-size: var(--dt-font-size);
+}
+
 .dt-scroll {
   align-self: start;
   width: fit-content;

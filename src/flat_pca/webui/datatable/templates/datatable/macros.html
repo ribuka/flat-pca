@@ -16,6 +16,7 @@
      hx-target="this" hx-swap="innerHTML" hx-sync="this:replace"
      hx-trigger="load, dt-reload{% if triggers %}, {{ triggers }}{% endif %}"
      {%- if config.selectable %} data-dt-selection="{{ config.table_id }}-selection"{% endif %}
+     {%- if config.max_selected is not none %} data-dt-max-selected="{{ config.max_selected }}"{% endif %}
      {%- if locked %} data-dt-locked{% endif %}>
   <p class="dt-loading">Loading…</p>
 </div>
@@ -71,7 +72,10 @@
     - config: TableConfig.
     - view: TableView from apply_state.
     - selected: keys shown checked; datatable.js re-checks the rows from the
-      selection input after each swap. -#}
+      selection input after each swap. With `config.max_selected`, the
+      unselected rows are disabled and the limit notice shown when
+      `selected` reaches it, and the header checkbox is disabled when
+      selecting every matching row would pass it. -#}
 {% macro fragment(config, view, selected=[]) -%}
 {#- The query controls carry data-dt-query; datatable.js reloads the table
     when they change. Typed filters are preserved across reloads so that
@@ -82,12 +86,22 @@
 {% if config.selectable %}
 <script type="application/json" data-dt-matching>{{ view.matching_keys|tojson }}</script>
 {% endif %}
+{#- As datatable.js's canChange: at the limit no row can be added, and the
+    header checkbox cannot add the matching rows when they pass it. -#}
+{% set limited = config.max_selected is not none %}
+{% set selected_count = selected|unique(case_sensitive=true)|list|length %}
+{% set with_matching = (selected|list + view.matching_keys)|unique(case_sensitive=true)|list|length %}
+{% set full = limited and selected_count >= config.max_selected %}
+{% set header_blocked = limited and with_matching > config.max_selected and with_matching > selected_count %}
+{% if limited %}
+<p class="dt-limit" role="status" data-dt-limit{% if not full %} hidden{% endif %}>The limit of {{ config.max_selected }} selected rows is reached; clear one to choose another.</p>
+{% endif %}
 <div class="dt-scroll">
 <table class="dt-table">
   <thead>
     <tr>
       {% if config.selectable %}
-        <th class="dt-check"><input type="checkbox" data-dt-check-all aria-label="{{ config.select_all_label }}"></th>
+        <th class="dt-check"><input type="checkbox" data-dt-check-all aria-label="{{ config.select_all_label }}"{% if header_blocked %} disabled{% endif %}></th>
       {% endif %}
       {% for column in config.columns %}
         <th{{ _aria_sort(view, column) }}>
@@ -102,7 +116,7 @@
       {% set key = view.row_keys[loop.index0] %}
       <tr data-dt-key="{{ key }}">
         {% if config.selectable %}
-          <td class="dt-check"><input type="checkbox" value="{{ key }}" aria-label="Select {{ key }}" data-dt-row-check {% if key in selected %}checked{% endif %}></td>
+          <td class="dt-check"><input type="checkbox" value="{{ key }}" aria-label="Select {{ key }}" data-dt-row-check {% if key in selected %}checked{% elif full %}disabled{% endif %}></td>
         {% endif %}
         {% for column in config.columns -%}
           <td{% if column.title_column %} title="{{ row[column.title_column] }}"{% endif %}>{{ row[column.name]|dt_cell }}</td>
