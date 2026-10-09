@@ -104,7 +104,14 @@ def _scale_color(value: float, marker: dict[str, object]) -> str:
         Color of ``value`` on the marker's color scale.
     """
     low, high = float(marker["cmin"]), float(marker["cmax"])  # type: ignore[arg-type]
-    fraction = (value - low) / (high - low) if high > low else 0.5
+    if not high > low:
+        fraction = 0.5
+    elif np.isfinite(high - low):
+        fraction = (value - low) / (high - low)
+    else:
+        # Halve before subtracting only when the finite range overflows; such
+        # values are large enough that halving them is exact.
+        fraction = (value / 2 - low / 2) / (high / 2 - low / 2)
     return plotly.colors.sample_colorscale(str(marker["colorscale"]), [fraction])[0]
 
 
