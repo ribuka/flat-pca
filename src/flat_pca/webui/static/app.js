@@ -435,6 +435,116 @@ async function selectClickedFile(target, stem, shownStems) {
   }
 }
 
+// The settings of the fit form (Preprocess / PCA screen) survive a switch to
+// another screen and back, in this tab. The page of a reopened fit run
+// (?run=) shows that run's settings, which become the kept ones; any other
+// visit shows the kept settings in place of the defaults.
+const FIT_FORM_KEY = "flat-pca:fit-form";
+// The confirmation of a large memory estimate is given anew for each run.
+const FIT_FORM_UNKEPT = new Set(["confirm_memory"]);
+
+// Returns the values of the fit form by name, each a list (as in FormData).
+function fitFormValues(form) {
+  const values = {};
+  for (const [name, value] of new FormData(form)) {
+    if (!FIT_FORM_UNKEPT.has(name) && typeof value === "string") {
+      (values[name] ??= []).push(value);
+    }
+  }
+  return values;
+}
+
+function keepFitForm(form) {
+  try {
+    sessionStorage.setItem(FIT_FORM_KEY, JSON.stringify(fitFormValues(form)));
+  } catch {
+    // Without storage the settings last only for this page.
+  }
+}
+
+// Returns the kept values of the fit form, or null without any.
+function keptFitFormValues() {
+  try {
+    const values = JSON.parse(sessionStorage.getItem(FIT_FORM_KEY) ?? "null");
+    return values !== null && typeof values === "object" && !Array.isArray(values) ? values : null;
+  } catch {
+    return null;
+  }
+}
+
+// Returns whether `name` is a bound of a range ({name}_lower or _upper) that
+// is disabled in `values`. Such a bound keeps what the server drew: the
+// catalog range of the current fit target, which may differ from the kept
+// one and bound the field (min and max).
+function isDisabledFitRangeBound(form, name, values) {
+  const match = /^(.+)_(lower|upper)$/.exec(name);
+  const enabled = match && `${match[1]}_enabled`;
+  return Boolean(enabled && form.elements[enabled] && !Array.isArray(values[enabled]));
+}
+
+// Shows `values` (see fitFormValues) in the fit form. A checkbox is checked
+// only when its value is kept under its name, as FormData leaves out the
+// unchecked ones. A field takes its kept value, a select only one of its
+// options; a field without a kept value, or the bound of a disabled range,
+// keeps what the server drew.
+function showFitFormValues(form, values) {
+  for (const control of form.elements) {
+    if (
+      !control.name ||
+      FIT_FORM_UNKEPT.has(control.name) ||
+      isDisabledFitRangeBound(form, control.name, values)
+    ) {
+      continue;
+    }
+    const kept = Array.isArray(values[control.name]) ? values[control.name].map(String) : [];
+    if (control.type === "checkbox") {
+      control.checked = kept.includes(control.value);
+    } else if (kept.length === 0 || control.type === "submit" || control.type === "button") {
+      continue;
+    } else if (control.tagName === "SELECT") {
+      if ([...control.options].some((option) => option.value === kept[0])) {
+        control.value = kept[0];
+      }
+    } else {
+      control.value = kept[0];
+    }
+  }
+}
+
+// Shows the kept settings on a loaded fit page, or keeps those of a reopened
+// run, and refreshes the memory estimate for the shown settings.
+function initFitForm() {
+  const form = document.getElementById("fit-form");
+  if (!form) {
+    return;
+  }
+  if (new URLSearchParams(window.location.search).has("run")) {
+    keepFitForm(form);
+    return;
+  }
+  const values = keptFitFormValues();
+  if (values === null) {
+    return;
+  }
+  showFitFormValues(form, values);
+  htmx.trigger(form, "change");
+}
+
+window.addEventListener("pageshow", (event) => {
+  if (!event.persisted) {
+    initFitForm();
+  }
+});
+
+for (const type of ["input", "change"]) {
+  document.addEventListener(type, (event) => {
+    const form = event.target.form;
+    if (form?.id === "fit-form") {
+      keepFitForm(form);
+    }
+  });
+}
+
 const TREND_DEBOUNCE_MS = 150;
 
 // Returns the index of the axis value closest to `value`.
