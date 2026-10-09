@@ -178,6 +178,18 @@ def test_trajectories_colored_by_numbers_near_the_float_limit() -> None:
     ]
 
 
+def test_trajectories_colored_by_close_numbers_keep_the_midpoint() -> None:
+    """The exact midpoint of a narrow range takes the middle color of the scale."""
+    figure = create_partial_score_trajectories(
+        {name: _four_trajectories()[name] for name in ("a", "b", "c")},
+        x_name="PC1",
+        y_name="PC2",
+        color=pl.Series("value", [10.0, 10.000000000000002, 10.000000000000004]),
+    )
+
+    assert figure.data[1].line.color == "rgb(34, 144, 140)"
+
+
 def test_trajectories_with_a_missing_number_are_grey() -> None:
     """A trajectory without a value is grey, and the first one with a value draws the bar."""
     figure = create_partial_score_trajectories(

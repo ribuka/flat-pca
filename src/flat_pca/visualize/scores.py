@@ -105,10 +105,13 @@ def _scale_color(value: float, marker: dict[str, object]) -> str:
     """
     low, high = float(marker["cmin"]), float(marker["cmax"])  # type: ignore[arg-type]
     if not high > low:
-        return plotly.colors.sample_colorscale(str(marker["colorscale"]), [0.5])[0]
-    # Shrink to [-1, 1] before subtracting so a wide finite range cannot overflow.
-    scale = max(abs(low), abs(high))
-    fraction = (value / scale - low / scale) / (high / scale - low / scale)
+        fraction = 0.5
+    elif np.isfinite(high - low):
+        fraction = (value - low) / (high - low)
+    else:
+        # Halve before subtracting only when the finite range overflows; such
+        # values are large enough that halving them is exact.
+        fraction = (value / 2 - low / 2) / (high / 2 - low / 2)
     return plotly.colors.sample_colorscale(str(marker["colorscale"]), [fraction])[0]
 
 
