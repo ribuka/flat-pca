@@ -6,9 +6,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from ..run_config import run_config
+from ..run_config import run_config, statistic_configs
 from .catalog_query import SelectionRanges
-from .fit_form import FormValues, form_values_from_config
+from .fit_form import (
+    STATISTIC_FIELDS,
+    FormValues,
+    form_values_from_config,
+    parse_fit_form,
+)
 
 # Shown for a disabled range, window, or edge trim and for an unknown count.
 NONE_TEXT = "なし"
@@ -21,6 +26,12 @@ _NO_RANGES = SelectionRanges(
     time_max=None,
     step_time_max=None,
 )
+# A file count that never bounds ``n_component`` when re-validating saved settings.
+_ANY_FILE_COUNT = 2**31
+# The sections checked against the form; T² and Q also allow a component count.
+_FORM_SECTIONS = ("preprocess", "pca")
+# Values of ``jobs.artifact_dtype``.
+_ARTIFACT_DTYPES = ("float32", "float64")
 
 
 @dataclass(frozen=True)
@@ -118,6 +129,54 @@ def _range(values: FormValues, name: str, label: str) -> tuple[str, str]:
     return label, _pair(values, f"{name}_lower", f"{name}_upper", enabled)
 
 
+def _validated_values(config: Mapping[str, Any]) -> FormValues:
+    """Return the form values of saved settings, checking their types and values.
+
+    The preprocessing and PCA settings are validated by the form itself
+    (``parse_fit_form``) and must equal the saved ones, so that values of a
+    wrong type, such as a string of Steps, do not pass as plausible text.
+    The T² and Q settings, whose ``cumulative_explained_variance`` may also
+    be a component count unlike on the form, must be numbers accepted by
+    ``statistic_configs``.
+
+    Parameters
+    ----------
+    config : Mapping[str, Any]
+        A fit run's configuration (see ``build_fit_config``).
+
+    Returns
+    -------
+    FormValues
+        Form values of the settings (see ``form_values_from_config``).
+
+    Raises
+    ------
+    KeyError, TypeError, ValueError
+        If the configuration lacks a setting or holds an invalid value.
+    """
+    values = form_values_from_config(config, _NO_RANGES)
+    form = parse_fit_form(values, n_files=_ANY_FILE_COUNT)
+    errors = [
+        (name, message)
+        for name, message in form.errors.items()
+        if not name.startswith(STATISTIC_FIELDS)
+    ]
+    if errors:
+        name, message = errors[0]
+        raise ValueError(f"invalid {name}: {message}")
+    for name in _FORM_SECTIONS:
+        if getattr(form, name) != config[name]:
+            raise ValueError(f"invalid {name}: {config[name]!r}")
+    statistic_configs(config)
+    for prefix in STATISTIC_FIELDS:
+        for key, value in config[prefix].items():
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                raise TypeError(f"invalid {prefix}_{key}: {value!r}")
+    if config["artifact_dtype"] not in _ARTIFACT_DTYPES:
+        raise ValueError(f"invalid artifact_dtype: {config['artifact_dtype']!r}")
+    return values
+
+
 def _sections(
     run: Mapping[str, object], config: Mapping[str, Any]
 ) -> tuple[SettingsSection, ...]:
@@ -138,9 +197,9 @@ def _sections(
     Raises
     ------
     KeyError, TypeError, ValueError
-        If the configuration lacks a setting or holds a value of a wrong type.
+        If the configuration lacks a setting or holds an invalid value.
     """
-    values = form_values_from_config(config, _NO_RANGES)
+    values = _validated_values(config)
     edge_trim = values["edge_trim_start"] != "" or values["edge_trim_end"] != ""
     kmeans = values["impute_strategy"] == "kmeans"
     return (
@@ -241,7 +300,7 @@ def model_settings(run: Mapping[str, object]) -> ModelSettings:
     -------
     ModelSettings
         The summary, or an error if the saved configuration lacks a setting
-        or holds a value of a wrong type.
+        or holds an invalid value.
     """
     run_id = str(run["run_id"])
     try:

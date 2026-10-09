@@ -294,7 +294,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - グループは Targets（`runs`の行のファイル数・特徴量数・成分数）、Target Steps、Preprocessing、PCA、T² / Q、Artifacts（`artifact_dtype`）とする。
 - 設定の有無にかかわらず、すべての行を出す。無効な範囲・窓・端の切り落としと、`runs`の行にない件数は「なし」、自動の成分数は`auto`、`kmeans`以外の補完の`impute_kmeans_n_clusters`は「なし」（`kmeans`で未指定なら`default`）とする。
 - 既定では折りたたみ（`<details>`）、見出しに成分数と`scaling_strategy`を出す。要約の下に`/fit?run={run_id}`へのリンク（「Preprocess / PCA で開く」）を置く。
-- 保存した設定が読めない（JSONでない・キーがない・型が不正）ときは、要約の場所にエラーを表示し、画面のほかの部分はそのまま表示する。
+- 保存した設定が読めない（JSONでない・キーがない・型や値が不正）ときは、要約の場所にエラーを表示し、画面のほかの部分（transform 画面の fit 対象の表など）はそのまま表示する。前処理・PCAの設定はフォームの検証（`parse_fit_form`）に通して保存値と一致することを、T² / Q は数値で`statistic_configs`が受け付けることを確かめる。
 
 ### 5. スペクトル探索
 

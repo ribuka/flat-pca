@@ -10,6 +10,12 @@ from preprocess_settings import preprocess_settings
 from flat_pca.webui.services.model_settings import NONE_TEXT, model_settings
 
 STATISTICS = {"cumulative_explained_variance": 0.9, "alpha": 0.01}
+_PCA = {
+    "n_component": None,
+    "impute_strategy": "drop",
+    "impute_kmeans_n_clusters": None,
+    "scaling_strategy": "none",
+}
 
 
 def _config(**overrides: object) -> dict[str, object]:
@@ -18,12 +24,7 @@ def _config(**overrides: object) -> dict[str, object]:
         "files": [],
         "metadata_columns": [],
         "preprocess": preprocess_settings(),
-        "pca": {
-            "n_component": None,
-            "impute_strategy": "drop",
-            "impute_kmeans_n_clusters": None,
-            "scaling_strategy": "none",
-        },
+        "pca": _PCA,
         "mahalanobis": STATISTICS,
         "spe": STATISTICS,
         "artifact_dtype": "float32",
@@ -47,7 +48,14 @@ def test_unset_settings_are_shown_as_none() -> None:
     """Every row is shown; disabled ranges, windows, and edge trim are "なし"."""
     rows = _rows(_run(_config()))
 
-    assert list(rows) == ["Targets", "Target Steps", "Preprocessing", "PCA", "T² / Q", "Artifacts"]
+    assert list(rows) == [
+        "Targets",
+        "Target Steps",
+        "Preprocessing",
+        "PCA",
+        "T² / Q",
+        "Artifacts",
+    ]
     assert rows["Targets"] == {
         "Files": NONE_TEXT,
         "Features": NONE_TEXT,
@@ -107,7 +115,11 @@ def test_set_settings_are_shown_with_the_run_counts() -> None:
 
     rows = _rows(run)
 
-    assert rows["Targets"] == {"Files": "12", "Features": "3456", "Fitted components": "4"}
+    assert rows["Targets"] == {
+        "Files": "12",
+        "Features": "3456",
+        "Fitted components": "4",
+    }
     assert rows["Target Steps"] == {"Target Steps": "2"}
     preprocessing = rows["Preprocessing"]
     assert preprocessing["Wavelength range"] == "400 – 402.5"
@@ -140,6 +152,16 @@ def test_kmeans_without_a_cluster_count_uses_the_default() -> None:
     assert _rows(_run(_config(pca=pca)))["PCA"]["kmeans clusters"] == "default"
 
 
+def test_statistics_may_select_a_component_count() -> None:
+    """T² and Q may select a component count, which the form cannot enter."""
+    statistic = {"cumulative_explained_variance": 2, "alpha": 0.05}
+
+    rows = _rows(_run(_config(mahalanobis=statistic)))
+
+    assert rows["T² / Q"]["T² cumulative explained variance"] == "2"
+    assert rows["T² / Q"]["T² α"] == "0.05"
+
+
 @pytest.mark.parametrize(
     "config",
     [
@@ -147,11 +169,32 @@ def test_kmeans_without_a_cluster_count_uses_the_default() -> None:
         _config(preprocess=preprocess_settings(wavelength_range=400.0)),
         _config(pca=None),
         [],
+        _config(preprocess=preprocess_settings(target_steps="12")),
+        _config(pca={**_PCA, "scaling_strategy": []}),
+        _config(pca={**_PCA, "impute_strategy": {}}),
+        _config(pca={**_PCA, "n_component": "3"}),
+        _config(preprocess=preprocess_settings(max_null_ratio=2.0)),
+        _config(artifact_dtype="int8"),
+        _config(spe={"cumulative_explained_variance": "0.9", "alpha": 0.01}),
+        _config(spe={"cumulative_explained_variance": 0.9, "alpha": 1.5}),
     ],
-    ids=["missing-key", "wrong-range", "wrong-section", "not-an-object"],
+    ids=[
+        "missing-key",
+        "wrong-range",
+        "wrong-section",
+        "not-an-object",
+        "steps-as-text",
+        "scaling-as-list",
+        "imputation-as-object",
+        "components-as-text",
+        "invalid-ratio",
+        "invalid-dtype",
+        "selector-as-text",
+        "invalid-alpha",
+    ],
 )
 def test_unreadable_settings_report_an_error(config: object) -> None:
-    """A missing key or a value of a wrong type becomes the summary's error."""
+    """A missing key or an invalid value becomes the summary's error."""
     summary = model_settings(_run(config))
 
     assert summary.run_id == "fit-1"

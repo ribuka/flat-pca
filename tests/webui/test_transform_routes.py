@@ -176,25 +176,40 @@ def test_page_summarizes_the_chosen_model_settings(
     assert 'href="/fit?run=fit-1" data-model-settings-link' in html
 
 
+def _without_pca(saved: str) -> str:
+    """Return saved configuration JSON without its ``pca`` settings."""
+    config = json.loads(saved)
+    del config["pca"]
+    return json.dumps(config)
+
+
+@pytest.mark.parametrize(
+    ("break_config", "detail"),
+    [(_without_pca, "missing &#39;pca&#39;"), (lambda saved: "{", "Expecting property name")],
+    ids=["missing-key", "not-json"],
+)
 def test_page_reports_unreadable_model_settings(
-    client: TestClient, settings: Settings, spectra_paths: list[Path]
+    client: TestClient,
+    settings: Settings,
+    spectra_paths: list[Path],
+    break_config: Callable[[str], str],
+    detail: str,
 ) -> None:
     """Unreadable settings show an error in the summary; the page still renders."""
     _register_fit(client, settings, spectra_paths)
     database = _workspace(client).database
     run = get_run(database, "fit-1")
     assert run is not None
-    config = json.loads(str(run["config_json"]))
-    del config["pca"]
     database.execute(
-        "UPDATE runs SET config_json = ? WHERE run_id = ?", [json.dumps(config), "fit-1"]
+        "UPDATE runs SET config_json = ? WHERE run_id = ?",
+        [break_config(str(run["config_json"])), "fit-1"],
     )
 
     response = client.get("/transform")
 
     assert response.status_code == 200
     assert "data-model-settings-error" in response.text
-    assert "Cannot read the settings of fit-1: missing &#39;pca&#39;" in response.text
+    assert f"Cannot read the settings of fit-1: {detail}" in response.text
     assert "data-transform-targets" in response.text
 
 

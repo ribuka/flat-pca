@@ -85,6 +85,27 @@ def _submit_message(
     return response
 
 
+def _fit_targets(model_run: dict[str, object]) -> list[str]:
+    """Return the stems of the model's fit targets for the page.
+
+    Parameters
+    ----------
+    model_run : dict[str, object]
+        The chosen fit run.
+
+    Returns
+    -------
+    list[str]
+        The fit targets, or none when the saved configuration cannot be
+        read; the settings summary then reports the error
+        (see ``model_settings``).
+    """
+    try:
+        return run_target_stems(model_run)
+    except (KeyError, TypeError, ValueError):
+        return []
+
+
 @router.get("", response_class=HTMLResponse)
 def transform_page(request: Request, workspace: WorkspaceDependency) -> HTMLResponse:
     """Render the transform page.
@@ -111,7 +132,7 @@ def transform_page(request: Request, workspace: WorkspaceDependency) -> HTMLResp
     model_run = current_model_run(workspace)
     model_run_id = None if model_run is None else str(model_run["run_id"])
     use_same_data = workspace.transform_settings.use_same_data
-    fit_targets = [] if model_run is None else run_target_stems(model_run)
+    fit_targets = [] if model_run is None else _fit_targets(model_run)
     return render_view_page(
         request,
         "pages/transform.html",
