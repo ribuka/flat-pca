@@ -354,3 +354,41 @@ def test_legend_room_layout_adds_the_legend_to_height_and_top_margin(
     room = page.evaluate("() => legendRoomLayout({ height: 416, margin: { t: 40 } }, 28.2)")
 
     assert room == {"height": 445, "margin.t": 69, "autosize": True}
+
+
+# Draws a trend of the page's layout with `count` long-labeled traces in a new
+# figure and fits it as the page does; returns the legend and plot area sizes.
+TALL_LEGEND_JS = """async (count) => {
+    const root = document.querySelector("[data-explore]");
+    const url = `${root.dataset.trendUrl}&wavelength=400&step_time=0`;
+    const layout = (await (await fetch(url)).json()).by_step_time.layout;
+    const base = structuredClone(layout);
+    const data = Array.from({ length: count }, (_, index) => ({
+        x: [0, 1], y: [index, index + 1], type: "scatter",
+        name: `measurement-${String(index).padStart(2, "0")}-with-a-rather-long-label`,
+    }));
+    const gd = document.createElement("div");
+    gd.style.width = "500px";
+    document.body.append(gd);
+    await Plotly.react(gd, data, layout);
+    await fitLegendRoom(gd, base);
+    return {
+        base: base.height,
+        legend: gd._fullLayout.legend._height,
+        shown: gd.querySelector(".legend .bg").getBBox().height,
+        frame: gd._fullLayout._size.h,
+    };
+}"""
+
+
+def test_a_legend_taller_than_the_figure_is_shown_whole(
+    page: Page, fitted_server_url: str
+) -> None:
+    """A legend taller than the figure without it is shown whole above a fixed plot area."""
+    _open(page, fitted_server_url)
+
+    sizes = page.evaluate(TALL_LEGEND_JS, 40)
+
+    assert sizes["legend"] > sizes["base"]
+    assert abs(sizes["shown"] - sizes["legend"]) < 1
+    assert abs(sizes["frame"] - TREND_FRAME_HEIGHT) < 1

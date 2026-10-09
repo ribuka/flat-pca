@@ -81,7 +81,16 @@ def create_trend(
         xaxis_title=x_name,
         yaxis_title=y_name,
         showlegend=True,
-        legend={"orientation": "h", "x": 0, "xanchor": "left", "y": 1, "yanchor": "bottom"},
+        # The page makes room for the whole legend, so Plotly may show all of
+        # it instead of the default half of the figure height.
+        legend={
+            "orientation": "h",
+            "x": 0,
+            "xanchor": "left",
+            "y": 1,
+            "yanchor": "bottom",
+            "maxheight": 1,
+        },
         margin=TREND_MARGIN,
         height=trend_height(frame_height),
         # Keep the width following the container: a set height alone fixes it.

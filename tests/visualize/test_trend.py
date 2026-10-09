@@ -38,6 +38,7 @@ def test_create_trend_puts_the_legend_above_the_plot_area() -> None:
     legend = figure.layout.legend
     assert legend.orientation == "h"
     assert (legend.y, legend.yanchor) == (1, "bottom")
+    assert legend.maxheight == 1
     assert figure.layout.margin.t == TREND_MARGIN["t"]
     assert figure.layout.margin.b == TREND_MARGIN["b"]
     assert figure.layout.height == trend_height(250)
