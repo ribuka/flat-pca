@@ -12,6 +12,20 @@ from .config import TableConfig
 from .pagination import Page, paginate
 from .state import Bound, TableState
 
+# The width of each polars integer type.
+INTEGER_BITS = (
+    (pl.Int8, 8),
+    (pl.Int16, 16),
+    (pl.Int32, 32),
+    (pl.Int64, 64),
+    (pl.Int128, 128),
+    (pl.UInt8, 8),
+    (pl.UInt16, 16),
+    (pl.UInt32, 32),
+    (pl.UInt64, 64),
+    (pl.UInt128, 128),
+)
+
 
 @dataclass(frozen=True)
 class TableView:
@@ -63,6 +77,25 @@ def key_text(config: TableConfig) -> pl.Expr:
     return pl.col(config.key).cast(pl.String)
 
 
+def integer_range(dtype: pl.DataType) -> tuple[int, int]:
+    """Return the smallest and largest value of an integer type.
+
+    Parameters
+    ----------
+    dtype : pl.DataType
+        Integer type, signed or unsigned, of 8 to 128 bits.
+
+    Returns
+    -------
+    tuple[int, int]
+        Inclusive range of the type.
+    """
+    bits = next(bits for kind, bits in INTEGER_BITS if dtype == kind)
+    if dtype.is_signed_integer():
+        return -(2 ** (bits - 1)), 2 ** (bits - 1) - 1
+    return 0, 2**bits - 1
+
+
 def bound_condition(name: str, bound: Bound, dtype: pl.DataType, *, lower: bool) -> pl.Expr:
     """Return the condition that a column is on the inner side of a bound.
 
@@ -81,20 +114,21 @@ def bound_condition(name: str, bound: Bound, dtype: pl.DataType, *, lower: bool)
     -------
     pl.Expr
         Inclusive comparison of the column with the bound. An ``int`` bound
-        is compared exactly with an integer column; one past every integer
-        type of polars is outside any integer column, so every non-null value is
-        on the inner side of it or none is. Against other columns an ``int`` bound
-        is compared as a float (``±inf`` past the float range).
+        is compared exactly with an integer column: inside the column type's
+        range, as a literal of that type; outside it, every non-null value is
+        on the inner side of the bound or none is. Against other columns an
+        ``int`` bound is compared as a float (``±inf`` past the float range).
     """
     column = pl.col(name)
     if isinstance(bound, int):
         if dtype.is_integer():
-            try:
-                literal = pl.lit(bound)
-            except (OverflowError, pl.exceptions.InvalidOperationError):
-                # Every value is above a bound below every integer type, and
-                # below one above them; null values match no filter.
-                return column.is_not_null() if (bound < 0) == lower else pl.lit(False)
+            smallest, largest = integer_range(dtype)
+            if smallest <= bound <= largest:
+                literal = pl.lit(bound, dtype=dtype)
+            else:
+                # Every value is above a bound below the type, and below one
+                # above it; null values match no filter.
+                return column.is_not_null() if (bound < smallest) == lower else pl.lit(False)
         else:
             try:
                 literal = pl.lit(float(bound))

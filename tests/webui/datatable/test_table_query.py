@@ -218,7 +218,16 @@ UINT64_MAX = 2**64 - 1
         (pl.UInt64, [UINT64_MAX - 1, UINT64_MAX], "min", UINT64_MAX + 1, []),
         (pl.UInt64, [UINT64_MAX - 1, UINT64_MAX], "max", UINT64_MAX + 1, ["a", "b"]),
         (pl.UInt64, [UINT64_MAX - 1, UINT64_MAX], "min", UINT64_MAX, ["b"]),
+        (pl.Int64, [2**63 - 2, 2**63 - 1], "min", 2**63, []),
+        (pl.Int64, [2**63 - 2, 2**63 - 1], "max", 2**63, ["a", "b"]),
+        (pl.UInt64, [UINT64_MAX - 1, UINT64_MAX], "min", -1, ["a", "b"]),
+        (pl.UInt64, [UINT64_MAX - 1, UINT64_MAX], "max", -1, []),
+        (pl.Int8, [-128, 127], "min", 127, ["b"]),
+        (pl.Int8, [-128, 127], "max", 200, ["a", "b"]),
+        (pl.UInt8, [0, 255], "min", 256, []),
         # Bounds inside a 128-bit column.
+        (pl.UInt128, [2**128 - 2, 2**128 - 1], "min", 2**128 - 1, ["b"]),
+        (pl.UInt128, [2**128 - 2, 2**128 - 1], "min", 2**128, []),
         (pl.Int128, [2**70, 2**70 + 1], "min", 2**70 + 1, ["b"]),
         # Bounds past every integer type of polars.
         (pl.Int64, [1, 2], "min", 2**200, []),
