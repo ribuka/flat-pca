@@ -1,0 +1,14 @@
+{%- from "macros/icon.html" import icon -%}
+{#- A help icon whose explanation shows only while the icon is hovered or
+    focused. The caller's body is the explanation; ``id`` must be unique in the
+    page, since the icon refers to the explanation with aria-describedby.
+    The icon is a button, so it never sits inside a <label>.
+
+    {% call help_tip("transform-runs-help") %}Explanation…{% endcall %}
+-#}
+{% macro help_tip(id, label="Help") -%}
+<span class="help-tip">
+  <button type="button" class="help-tip-button" aria-label="{{ label }}" aria-describedby="{{ id }}">{{ icon("help") }}</button>
+  <span class="help-tip-text" role="tooltip" id="{{ id }}">{{ caller() }}</span>
+</span>
+{%- endmacro %}

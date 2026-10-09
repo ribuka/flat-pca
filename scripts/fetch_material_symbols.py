@@ -15,6 +15,7 @@ from pathlib import Path
 
 ICON_NAMES = (
     "check_circle",
+    "help",
     "left_panel_close",
     "left_panel_open",
     "progress_activity",

@@ -13,6 +13,7 @@ import polars as pl
 import pytest
 from fastapi.testclient import TestClient
 from fit_runs import register_shown_run
+from help_tips import help_tip_text
 from spectra import SPECTRA_FILE_COUNT, SPECTRA_SHORT_FILE
 from view_choice import choose_view
 
@@ -160,7 +161,10 @@ def test_default_x_axis_draws_the_default_date_column(client: TestClient) -> Non
     assert "data-select-url" not in html
     assert "data-open-url" not in html
     assert "run fit-1 の T² と Q です。" in html
-    assert "管理図の横軸は date の値です。" in html
+    assert "色分けは 3 つの図に共通です。" in help_tip_text(html, "monitoring-help")
+    assert help_tip_text(html, "control-chart-order-help") == "管理図の横軸は date の値です。"
+    assert "Box Select / Lasso Select" in help_tip_text(html, "point-table-help")
+    assert "No points selected." in html
     assert 'name="run"' not in html
     # The last file has the earliest date; the undated file has no position.
     expected = [f"s-{index:02d}" for index in reversed(range(SPECTRA_FILE_COUNT))]
@@ -212,7 +216,7 @@ def test_numeric_column_as_category_draws_the_rank(client: TestClient) -> None:
     html = client.get("/monitoring", params={"x_axis": "date", "as_category": "true"}).text
 
     assert "checked" in _as_category(html)
-    assert "管理図は date の昇順" in html
+    assert "管理図は date の昇順" in help_tip_text(html, "control-chart-order-help")
     expected = [f"s-{index:02d}" for index in reversed(range(SPECTRA_FILE_COUNT))]
     expected.remove(UNDATED)
     positions = _points(html, "q")

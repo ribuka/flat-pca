@@ -13,6 +13,7 @@ import polars as pl
 import pytest
 from fastapi.testclient import TestClient
 from fit_runs import register_fit_run
+from help_tips import help_tip_text
 
 from flat_pca.feature_engineering.pca import PcaModel
 from flat_pca.webui.app import create_app
@@ -249,7 +250,9 @@ def test_loadings_aggregate_the_components_by_wavelength(
         assert _decode(trace["y"])[index] == pytest.approx(reduce(components[2, mask]))
     assert trace["marker"]["colorbar"]["title"]["text"] == "wavelength"
     assert '<option value="wavelength" selected>' in html
-    assert "1 点が 1 波長です" in html
+    assert "1 点が 1 波長です" in help_tip_text(html, "loadings-help")
+    assert "independent of the shown files" in help_tip_text(html, "model-help")
+    assert "components.npy の第 1 行" in help_tip_text(html, "model-heatmap-help")
 
 
 @pytest.mark.parametrize(
@@ -270,8 +273,9 @@ def test_loadings_by_step_time_aggregate_within_the_heatmap_segment(
     html = client.get("/model", params=params | {"segment": "2:1"}).text
 
     assert '<option value="StepTime" selected>' in html
-    assert "1 点が 1 StepTime です" in html
-    assert "(Step, Sequence) = (2, 1)" in html
+    description = help_tip_text(html, "loadings-help")
+    assert "1 点が 1 StepTime です" in description
+    assert "(Step, Sequence) = (2, 1)" in description
     trace = _embedded(html, "model-loadings-figure")["data"][0]  # type: ignore[index]
     assert trace["marker"]["colorbar"]["title"]["text"] == "StepTime"
     features = pl.read_parquet(run_dir / "features.parquet")

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "datatable/macros.html" import container %}
+{% from "macros/help_tip.html" import help_tip %}
 {% block title %}transform - flat-pca{% endblock %}
 {% block view_swap %}model{% endblock %}
 {% block content %}
@@ -7,10 +8,11 @@
   <summary><h2>transform</h2></summary>
   <div class="card-body">
     {% if model_runs %}
-      {#- A change saves the settings (and, while unchecked, the chosen targets)
+      {#- A change of the model or of "use same data for fit" (in the targets
+          card) saves both settings (and, while unchecked, the chosen targets)
           and replaces the main part. -#}
-      <form id="transform-settings-form" class="transform-settings" autocomplete="off" hx-post="/transform/settings" hx-trigger="change"
-            hx-include="#files-selection" hx-swap="none" data-view-choice>
+      <form id="transform-model-form" class="transform-settings" autocomplete="off" hx-post="/transform/settings" hx-trigger="change"
+            hx-include="#files-selection, #transform-targets-form" hx-swap="none" data-view-choice>
         <label>Model (fit run)
           <select name="model" data-transform-model>
             {% for run in model_runs %}
@@ -18,31 +20,34 @@
             {% endfor %}
           </select>
         </label>
-        <label>
-          <input type="checkbox" name="use_same_data" value="true" data-use-same-data {% if use_same_data %}checked{% endif %}>
-          use same data for fit
-        </label>
       </form>
       {% include "partials/model_settings.html" %}
     {% else %}
       <p class="muted" data-no-model>No succeeded fit run. Run a fit on <a href="/fit">Preprocess / PCA</a> first.</p>
     {% endif %}
-    <p class="muted">
-      Checked, the transform targets are the files the model was fitted on.
-      Unchecked, choose the transform targets from the catalog.
-      "Run transform" transforms them with the model, unless a transform run of the same model and files already succeeded, which is shown instead.
-      Spectral exploration, scores, T² / Q, and the shown files in the sidebar use the transform run shown in the run list.
-    </p>
   </div>
 </details>
 
 <details class="card" data-group="targets" data-transform-targets open>
   <summary><h2>Transform targets</h2></summary>
   <div class="card-body">
-    {% if use_same_data %}
-      <p class="muted" data-fit-targets="{{ fit_targets|length }}">
-        The {{ fit_targets|length }} files the model was fitted on are chosen. Uncheck "use same data for fit" to choose others.
-      </p>
+    {% if model_runs %}
+      <form id="transform-targets-form" class="transform-settings" autocomplete="off" hx-post="/transform/settings" hx-trigger="change"
+            hx-include="#files-selection, #transform-model-form" hx-swap="none" data-view-choice>
+        <span class="with-help">
+          <label>
+            <input type="checkbox" name="use_same_data" value="true" data-use-same-data {% if use_same_data %}checked{% endif %}>
+            use same data for fit
+          </label>
+          {% call help_tip("use-same-data-help") -%}
+            Checked, the transform targets are the files the model was fitted on.
+            Unchecked, choose the transform targets from the catalog.
+          {%- endcall %}
+        </span>
+        {% if use_same_data %}
+          <span class="muted" data-fit-targets="{{ fit_targets|length }}">The {{ fit_targets|length }} files the model was fitted on are chosen.</span>
+        {% endif %}
+      </form>
     {% endif %}
     {#- Checked, the table shows the fit targets chosen and locked. The chosen
         targets over all pages and filters are kept in #files-selection, as on
@@ -50,8 +55,13 @@
     {{ container(file_table, selected, locked=use_same_data) }}
     <div class="selection-actions">
       {% include "partials/transform_submit.html" %}
-      <button id="run-transform" type="button" class="button-primary" hx-post="/transform" hx-include="#files-selection, #transform-settings-form"
+      <span class="with-help">
+        <button id="run-transform" type="button" class="button-primary" hx-post="/transform" hx-include="#files-selection, #transform-model-form, #transform-targets-form"
               hx-target="#transform-submit-message" hx-swap="outerHTML" {% if not model_run_id %}disabled{% endif %}>Run transform</button>
+        {% call help_tip("run-transform-help") -%}
+          "Run transform" transforms the chosen targets with the model, unless a transform run of the same model and files already succeeded, which is shown instead.
+        {%- endcall %}
+      </span>
     </div>
   </div>
 </details>
@@ -64,7 +74,12 @@
 </details>
 
 <details class="card" data-group="runs" open>
-  <summary><h2>Transform runs</h2></summary>
+  <summary>
+    <h2>Transform runs</h2>
+    {% call help_tip("transform-runs-help") -%}
+      Spectral exploration, scores, T² / Q, and the shown files in the sidebar use the transform run shown in this list.
+    {%- endcall %}
+  </summary>
   <div class="card-body">
     <div id="transform-runs" hx-get="/transform/runs" hx-target="this" hx-swap="innerHTML"
          hx-trigger="load, transform-started from:body, transform-updated from:body, view-selection-changed from:body">

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/help_tip.html" import help_tip %}
 {% block title %}Model - flat-pca{% endblock %}
 {% block view_swap %}model{% endblock %}
 {% block scripts %}
@@ -6,9 +7,16 @@
 {% endblock %}
 {% block content %}
 <details class="card" data-group="model" open>
-  <summary><h2>Model</h2></summary>
+  <summary>
+    <h2>Model</h2>
+    {% call help_tip("model-help") -%}
+      Figures fixed by the model chosen on the Transform page alone (independent of the shown files).
+    {%- endcall %}
+  </summary>
   <div class="card-body">
-    <p class="muted">Figures fixed by the model chosen on <a href="/transform">Transform</a> alone (independent of the shown files).{% if shown.run_id %} Fit run: <span class="mono" data-model-run="{{ shown.run_id }}">{{ shown.run_id }}</span>{% endif %}</p>
+    {% if shown.run_id %}
+      <p class="muted">Fit run: <span class="mono" data-model-run="{{ shown.run_id }}">{{ shown.run_id }}</span></p>
+    {% endif %}
     {% include "partials/model_settings.html" %}
     {% if shown.error %}
       <p class="error" data-model-error>{{ shown.error }}</p>
@@ -57,13 +65,22 @@
         <label>Y axis PCn
           <input type="number" name="y" form="model-form" min="1" max="{{ shown.component_count }}" value="{{ shown.y }}">
         </label>
-        <label>Aggregation
-          <select name="aggregation" form="model-form">
-            {% for key, label in aggregation_labels.items() %}
-              <option value="{{ key }}" {% if key == shown.aggregation %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </label>
+        <span class="with-help">
+          <label>Aggregation
+            <select name="aggregation" form="model-form">
+              {% for key, label in aggregation_labels.items() %}
+                <option value="{{ key }}" {% if key == shown.aggregation %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          {% call help_tip("loadings-help") %}<span data-loadings-description>
+            {%- if shown.color_by == "StepTime" -%}
+              成分 m と n の係数を、Heatmap で選んだ (Step, Sequence) = ({{ shown.segment[0] }}, {{ shown.segment[1] }}) の中で StepTime ごとに（波長方向に）集計した値で、1 点が 1 StepTime です（平均は符号の異なる係数が打ち消し合います）。
+            {%- else -%}
+              成分 m と n の係数を波長ごとに集計した値で、1 点が 1 波長です（平均は符号の異なる係数が打ち消し合います）。
+            {%- endif -%}
+          </span>{% endcall %}
+        </span>
         <label>Color by
           <select name="color_by" form="model-form">
             {% for key in loading_colors %}
@@ -75,13 +92,6 @@
         <button type="submit" form="model-form">Show</button>
       </div>
       <div id="model-loadings" class="plot" data-plot="model-loadings-figure"></div>
-      <p class="muted" data-loadings-description>
-        {%- if shown.color_by == "StepTime" -%}
-          成分 m と n の係数を、Heatmap で選んだ (Step, Sequence) = ({{ shown.segment[0] }}, {{ shown.segment[1] }}) の中で StepTime ごとに（波長方向に）集計した値で、1 点が 1 StepTime です（平均は符号の異なる係数が打ち消し合います）。
-        {%- else -%}
-          成分 m と n の係数を波長ごとに集計した値で、1 点が 1 波長です（平均は符号の異なる係数が打ち消し合います）。
-        {%- endif -%}
-      </p>
     </div>
   </details>
 
@@ -115,11 +125,19 @@
         <p class="warnings" data-model-notice>{{ shown.notice }}</p>
       {% endif %}
       {% if shown.view == "component" %}
-        <h3>PCA component {{ shown.component }}</h3>
-        <p class="muted">components.npy の第 {{ shown.component }} 行を、選んだ (Step, Sequence) の波長 × StepTime に並べた係数です。</p>
+        <h3 class="with-help">
+          PCA component {{ shown.component }}
+          {% call help_tip("model-heatmap-help") -%}
+            components.npy の第 {{ shown.component }} 行を、選んだ (Step, Sequence) の波長 × StepTime に並べた係数です。
+          {%- endcall %}
+        </h3>
       {% else %}
-        <h3>{{ shown.view_options[shown.view] }}</h3>
-        <p class="muted">PCA モデルが保存している特徴量ごとの前処理パラメータを、選んだ (Step, Sequence) の波長 × StepTime に並べた値です。{% if shown.view == "mean" %}スケーリング後の値の平均です。{% endif %}</p>
+        <h3 class="with-help">
+          {{ shown.view_options[shown.view] }}
+          {% call help_tip("model-heatmap-help") -%}
+            PCA モデルが保存している特徴量ごとの前処理パラメータを、選んだ (Step, Sequence) の波長 × StepTime に並べた値です。{% if shown.view == "mean" %}スケーリング後の値の平均です。{% endif %}
+          {%- endcall %}
+        </h3>
       {% endif %}
       <div data-explore data-trend-url="{{ trend_url }}">
         {% include "partials/heatmap_trend.html" %}

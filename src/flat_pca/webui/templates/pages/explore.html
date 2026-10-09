@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/help_tip.html" import help_tip %}
 {% block title %}Spectral explorer - flat-pca{% endblock %}
 {% block view_swap %}run files{% endblock %}
 {% block scripts %}
@@ -11,13 +12,31 @@
     {#- Controls in other cards join this form with form="explore-form". -#}
     <form id="explore-form" class="explore-form" method="get" action="/explore" data-auto-submit>
       <div class="field-row">
-        <label>View
-          <select name="view">
-            {% for key, label in view_labels.items() %}
-              <option value="{{ key }}" {% if key == shown.view %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-        </label>
+        <span class="with-help">
+          <label>View
+            <select name="view">
+              {% for key, label in view_labels.items() %}
+                <option value="{{ key }}" {% if key == shown.view %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          {#- What the values of the shown view are, for the views computed from the model. -#}
+          {% if not shown.error and shown.matrices and shown.view in ("contribution", "reconstruction", "residual", "q_contribution") %}
+            {% call help_tip("view-note-help") %}<span data-view-note>
+              {%- if shown.view == "contribution" -%}
+                第 {{ shown.component }} 成分のみの寄与 t<sub>k</sub>w<sub>k</sub> を、スケーリングの scale だけ戻した値（中心化は戻さない）です。
+              {%- elif shown.view == "reconstruction" -%}
+                先頭 1..{{ shown.component }} 成分の累積再構成です。トレンドには前処理済み（X.npy、欠損は空白）を重ねます。
+              {%- elif shown.view == "residual" -%}
+                残差 = fit 時と同じ補完・外れ値処理を適用した前処理済み − 先頭 1..{{ shown.component }} 成分の累積再構成です。
+              {%- else -%}
+                Q 寄与 (x<sub>f</sub> − x̂<sub>f</sub>)<sup>2</sup> は、fit 時と同じ補完・外れ値処理・スケーリングを適用した値 x と、
+                その先頭 1..{{ shown.q_components }} 成分（run の Q の設定で決まる成分数）からの再構成 x̂ との差の二乗です（スケーリングは戻しません）。
+                全特徴量の総和がそのファイルの Q です。
+              {%- endif -%}
+            </span>{% endcall %}
+          {% endif %}
+        </span>
         {% if shown.segment_options %}
           <label>(Step, Sequence)
             <select name="segment">
@@ -39,7 +58,9 @@
     {% if shown.run_id %}
       <p class="muted" data-shown-files>
         run {{ shown.run_id }} の表示ファイル：{{ shown.files|join("、") }}。
-        「Heatmap file」で選んだ 1 つをヒートマップに描き（既定は先頭のファイル）、すべてのファイルをトレンドに重ねます（未選択なら先頭のファイルを表示します）。
+        {% call help_tip("shown-files-help") -%}
+          「Heatmap file」で選んだ 1 つをヒートマップに描き（既定は先頭のファイル）、すべてのファイルをトレンドに重ねます（未選択なら先頭のファイルを表示します）。
+        {%- endcall %}
       </p>
     {% endif %}
     {% if shown.omitted %}
@@ -72,19 +93,6 @@
       {% if shown.intensity_transform %}
         <p data-intensity-transform="{{ shown.intensity_transform.name }}">
           Intensity transform: {{ shown.intensity_transform.name }}{% if shown.intensity_transform.name != "none" %} (scale = {{ shown.intensity_transform.scale|cell }}){% endif %}
-        </p>
-      {% endif %}
-      {% if shown.view == "contribution" %}
-        <p class="muted" data-view-note>第 {{ shown.component }} 成分のみの寄与 t<sub>k</sub>w<sub>k</sub> を、スケーリングの scale だけ戻した値（中心化は戻さない）です。</p>
-      {% elif shown.view == "reconstruction" %}
-        <p class="muted" data-view-note>先頭 1..{{ shown.component }} 成分の累積再構成です。トレンドには前処理済み（X.npy、欠損は空白）を重ねます。</p>
-      {% elif shown.view == "residual" %}
-        <p class="muted" data-view-note>残差 = fit 時と同じ補完・外れ値処理を適用した前処理済み − 先頭 1..{{ shown.component }} 成分の累積再構成です。</p>
-      {% elif shown.view == "q_contribution" %}
-        <p class="muted" data-view-note>
-          Q 寄与 (x<sub>f</sub> − x̂<sub>f</sub>)<sup>2</sup> は、fit 時と同じ補完・外れ値処理・スケーリングを適用した値 x と、
-          その先頭 1..{{ shown.q_components }} 成分（run の Q の設定で決まる成分数）からの再構成 x̂ との差の二乗です（スケーリングは戻しません）。
-          全特徴量の総和がそのファイルの Q です。
         </p>
       {% endif %}
       {% if shown.skipped %}

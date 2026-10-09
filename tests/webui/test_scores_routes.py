@@ -13,6 +13,7 @@ import polars as pl
 import pytest
 from fastapi.testclient import TestClient
 from fit_runs import register_shown_run
+from help_tips import help_tip_text
 from spectra import SPECTRA_SHORT_FILE
 from view_choice import choose_view
 
@@ -121,6 +122,9 @@ def test_default_page_colors_scores_by_the_default_column(client: TestClient) ->
     assert 'name="aggregation"' not in html
     assert 'data-select-url="/sidebar/selection/files/add"' in html
     assert 'data-point-table="point-table"' in html
+    assert "サイドバーの表示ファイルに追加" in help_tip_text(html, "scores-scatter-help")
+    assert "の累積和を時刻ごとに打ちます" in help_tip_text(html, "scores-trajectories-help")
+    assert "Box Select / Lasso Select" in help_tip_text(html, "point-table-help")
     assert "data-open-url" not in html
     assert 'name="run"' not in html
     assert 'name="file"' not in html

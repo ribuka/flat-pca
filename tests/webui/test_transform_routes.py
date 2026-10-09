@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from fit_runs import register_fit_run, register_transform_run
+from help_tips import help_tip_text
 from spectra import SPECTRA_FILE_COUNT, write_spectra
 from view_choice import choose_view
 
@@ -149,12 +150,47 @@ def test_page_with_a_fit_run_locks_the_fit_targets(
     assert re.search(r'<div id="files"[^>]*data-dt-locked>', html)
     assert f'data-fit-targets="{SPECTRA_FILE_COUNT}"' in html
     assert _selected_stems(html) == [path.stem for path in spectra_paths]
-    assert 'hx-post="/transform/settings"' in html
     assert re.search(
-        r'<button id="run-transform"[^>]*hx-include="#files-selection, #transform-settings-form"[^>]*>', html
+        r'<form id="transform-model-form"[^>]*hx-post="/transform/settings"[^>]*'
+        r'hx-include="#files-selection, #transform-targets-form"',
+        html,
+    )
+    assert re.search(
+        r'<form id="transform-targets-form"[^>]*hx-post="/transform/settings"[^>]*'
+        r'hx-include="#files-selection, #transform-model-form"',
+        html,
+    )
+    assert re.search(
+        r'<button id="run-transform"[^>]*'
+        r'hx-include="#files-selection, #transform-model-form, #transform-targets-form"[^>]*>',
+        html,
     )
     assert not re.search(r'<button id="run-transform"[^>]*disabled', html)
     assert 'hx-get="/transform/runs"' in html
+
+
+def test_use_same_data_sits_in_the_targets_card_with_help_tips(
+    client: TestClient, settings: Settings, spectra_paths: list[Path]
+) -> None:
+    """The checkbox is above the targets table; the explanations are help tips."""
+    _register_fit(client, settings, spectra_paths)
+
+    html = client.get("/transform").text
+
+    targets_card = html.index("data-transform-targets open>")
+    assert (
+        html.index('id="transform-model-form"')
+        < targets_card
+        < html.index('id="transform-targets-form"')
+        < html.index("data-use-same-data")
+        < html.index('<div id="files"')
+    )
+    assert "files the model was fitted on." in help_tip_text(html, "use-same-data-help")
+    assert "already succeeded" in help_tip_text(html, "run-transform-help")
+    assert "use the transform run shown in this list" in help_tip_text(
+        html, "transform-runs-help"
+    )
+    assert 'Uncheck "use same data for fit"' not in html
 
 
 def test_page_summarizes_the_chosen_model_settings(

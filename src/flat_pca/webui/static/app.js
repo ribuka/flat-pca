@@ -1035,3 +1035,39 @@ document.addEventListener(
   },
   true,
 );
+
+// ---- Help tips (templates/macros/help_tip.html) ----
+
+// The explanation opens below the icon toward the right; it is shifted left
+// when it would leave the viewport.
+function placeHelpTip(tip) {
+  const text = tip.querySelector(".help-tip-text");
+  text.style.removeProperty("--help-tip-shift");
+  const overflow = text.getBoundingClientRect().right - (document.documentElement.clientWidth - 16);
+  if (overflow > 0) {
+    text.style.setProperty("--help-tip-shift", `-${overflow}px`);
+  }
+}
+
+// Moving between the icon and the explanation keeps an Escape in effect;
+// coming back from outside shows the explanation again.
+function openHelpTip(event) {
+  const tip = event.target.closest?.(".help-tip");
+  if (tip && !tip.contains(event.relatedTarget)) {
+    tip.classList.remove("help-tip-dismissed");
+    placeHelpTip(tip);
+  }
+}
+
+document.addEventListener("mouseover", openHelpTip);
+document.addEventListener("focusin", openHelpTip);
+
+// Escape hides the shown explanation without moving the focus or the pointer.
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") {
+    return;
+  }
+  for (const tip of document.querySelectorAll(".help-tip:hover, .help-tip:focus-within")) {
+    tip.classList.add("help-tip-dismissed");
+  }
+});

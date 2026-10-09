@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from help_tips import help_tip_text
 
 from flat_pca.webui.app import create_app
 from flat_pca.webui.jobs.progress import write_progress
@@ -186,6 +187,7 @@ def test_estimate_follows_the_form(client: TestClient, form: dict[str, object]) 
     )
 
     assert 'data-n-features="6"' in html
+    assert "max_null_ratio" in help_tip_text(html, "fit-estimate-help")
     assert "<form" not in html
 
 
