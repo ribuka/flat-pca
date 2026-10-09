@@ -233,3 +233,22 @@ def test_fragment_header_checkbox_follows_the_limit(
     assert "disabled" in _header_check(over)
     assert "disabled" not in _header_check(fits)
     assert "disabled" not in _header_check(all_selected)
+
+
+def test_fragment_counts_keys_differing_only_in_case(environment: Environment) -> None:
+    """Keys differing only in case count as separate rows against the limit."""
+    frame = pl.DataFrame({"k": ["A", "a", "z"]})
+    config = TableConfig(
+        table_id="c", key="k", columns=(ColumnConfig("k"),), url="/", selectable=True, max_selected=2
+    )
+    view = apply_state(frame, TableState(), config)
+    call = "{{ fragment(config, view, selected) }}"
+
+    full = _render(environment, call, config=config, view=view, selected=["A", "a"])
+    single = replace(config, max_selected=1)
+    pair = apply_state(frame.head(2), TableState(), single)
+    one = _render(environment, call, config=single, view=pair, selected=[])
+
+    assert "hidden" not in _limit_notice(full)
+    assert "disabled" in _row_check(full, "z")
+    assert "disabled" in _header_check(one)

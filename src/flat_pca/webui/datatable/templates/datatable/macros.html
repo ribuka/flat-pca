@@ -89,8 +89,8 @@
 {#- As datatable.js's canChange: at the limit no row can be added, and the
     header checkbox cannot add the matching rows when they pass it. -#}
 {% set limited = config.max_selected is not none %}
-{% set selected_count = selected|unique|list|length %}
-{% set with_matching = (selected|list + view.matching_keys)|unique|list|length %}
+{% set selected_count = selected|unique(case_sensitive=true)|list|length %}
+{% set with_matching = (selected|list + view.matching_keys)|unique(case_sensitive=true)|list|length %}
 {% set full = limited and selected_count >= config.max_selected %}
 {% set header_blocked = limited and with_matching > config.max_selected and with_matching > selected_count %}
 {% if limited %}
