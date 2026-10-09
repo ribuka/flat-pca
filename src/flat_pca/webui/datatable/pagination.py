@@ -1,4 +1,4 @@
-"""Splitting a list into numbered pages."""
+"""Splitting the rows of a table into numbered pages."""
 
 from __future__ import annotations
 
@@ -11,31 +11,50 @@ NEIGHBOR_PAGES = 2
 
 
 @dataclass(frozen=True)
-class Page[T]:
-    """One page of a list.
+class Page:
+    """The position of one page among the rows of a table.
 
     Attributes
     ----------
-    items : list[T]
-        Items on the page.
     number : int
         1-based page number.
     count : int
-        Number of pages; at least 1, even for an empty list.
+        Number of pages; at least 1, even without rows.
     total : int
-        Number of items over all pages.
+        Number of rows over all pages.
     start : int
-        1-based position of the first item on the page, or 0 if it is empty.
+        1-based position of the first row on the page, or 0 if it is empty.
     end : int
-        1-based position of the last item on the page, or 0 if it is empty.
+        1-based position of the last row on the page, or 0 if it is empty.
     """
 
-    items: list[T]
     number: int
     count: int
     total: int
     start: int
     end: int
+
+    @property
+    def offset(self) -> int:
+        """Return the 0-based position of the page's first row.
+
+        Returns
+        -------
+        int
+            Number of rows before the page.
+        """
+        return max(self.start - 1, 0)
+
+    @property
+    def length(self) -> int:
+        """Return the number of rows on the page.
+
+        Returns
+        -------
+        int
+            ``end - start + 1``, or 0 for an empty page.
+        """
+        return self.end - self.start + 1 if self.start else 0
 
     @property
     def links(self) -> list[int | None]:
@@ -66,40 +85,42 @@ class Page[T]:
         return links
 
 
-def paginate[T](items: list[T], number: int, size: int) -> Page[T]:
-    """Return one page of ``items``.
+def paginate(total: int, number: int, size: int) -> Page:
+    """Return the position of one page among ``total`` rows.
 
     Parameters
     ----------
-    items : list[T]
-        All items in display order.
+    total : int
+        Number of rows over all pages; must not be negative.
     number : int
         Requested 1-based page number; a number past the last page shows the
         last page.
     size : int
-        Number of items per page; must be positive.
+        Number of rows per page; must be positive.
 
     Returns
     -------
-    Page[T]
+    Page
         The page.
 
     Raises
     ------
     ValueError
-        If ``number`` or ``size`` is not positive.
+        If ``total`` is negative, or ``number`` or ``size`` is not positive.
     """
-    if number < 1 or size < 1:
-        raise ValueError(f"page number and size must be positive: {number}, {size}")
-    count = max(1, ceil(len(items) / size))
+    if total < 0 or number < 1 or size < 1:
+        raise ValueError(
+            f"total must not be negative and page number and size must be positive: "
+            f"{total}, {number}, {size}"
+        )
+    count = max(1, ceil(total / size))
     number = min(number, count)
     begin = (number - 1) * size
-    shown = items[begin : begin + size]
+    length = min(size, total - begin)
     return Page(
-        items=shown,
         number=number,
         count=count,
-        total=len(items),
-        start=begin + 1 if shown else 0,
-        end=begin + len(shown),
+        total=total,
+        start=begin + 1 if length else 0,
+        end=begin + length,
     )

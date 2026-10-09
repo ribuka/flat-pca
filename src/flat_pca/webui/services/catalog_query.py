@@ -1,51 +1,12 @@
-"""Filtering, sorting, and summarizing the cataloged files."""
+"""Listing and summarizing the cataloged files."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 
 from flat_pca.utils import natural_keys
 
 from ..database import Database, quote_identifier
-from ..settings import MetadataColumnSettings
-
-FILE_SORT_COLUMNS = ("stem", "n_steps", "n_segments", "n_rows")
-EQUALS_PREFIX = "eq__"
-MIN_PREFIX = "min__"
-MAX_PREFIX = "max__"
-
-
-@dataclass(frozen=True)
-class FileQuery:
-    """Filter and sort order of the file list.
-
-    Attributes
-    ----------
-    text : str
-        Case-insensitive substring that stems must contain.
-    equals : dict[str, str]
-        Required values of ``category`` metadata columns.
-    ranges : dict[str, tuple[float | datetime | None, float | datetime | None]]
-        Inclusive ``(lower, upper)`` bounds of ``number`` and ``datetime``
-        metadata columns; ``None`` leaves a side open.
-    sort_by : str
-        Column to sort by: a file statistic or a metadata column.
-    descending : bool
-        Whether to sort in descending order.
-    page : int
-        1-based number of the shown page of the file list.
-    """
-
-    text: str = ""
-    equals: dict[str, str] = field(default_factory=dict)
-    ranges: dict[str, tuple[float | datetime | None, float | datetime | None]] = field(
-        default_factory=dict
-    )
-    sort_by: str = "stem"
-    descending: bool = False
-    page: int = 1
 
 
 @dataclass(frozen=True)
@@ -64,152 +25,24 @@ class MetadataWarnings:
     metadata_without_files: list[str]
 
 
-def _parse_bound(
-    raw: str, column: MetadataColumnSettings, name: str
-) -> float | datetime | None:
-    """Parse one range bound from a query parameter.
-
-    Parameters
-    ----------
-    raw : str
-        Parameter value; blank means an open bound.
-    column : MetadataColumnSettings
-        Column settings deciding the value type.
-    name : str
-        Column name used in errors.
-
-    Returns
-    -------
-    float | datetime | None
-        Parsed bound, or ``None`` for a blank value.
-
-    Raises
-    ------
-    ValueError
-        If the value cannot be parsed.
-    """
-    text = raw.strip()
-    if not text:
-        return None
-    try:
-        return (
-            datetime.fromisoformat(text) if column.type == "datetime" else float(text)
-        )
-    except ValueError as error:
-        raise ValueError(f"invalid bound for {name!r}: {raw!r}") from error
-
-
-def parse_file_query(
-    parameters: Mapping[str, str],
-    columns: Mapping[str, MetadataColumnSettings],
-) -> FileQuery:
-    """Build a ``FileQuery`` from request query parameters.
-
-    Recognized parameters are ``q`` (stem substring), ``sort``, ``order``
-    (``asc`` or ``desc``), ``page`` (a positive integer), ``eq__<column>`` for category columns, and
-    ``min__<column>`` / ``max__<column>`` for number and datetime columns.
-    Blank values are ignored.
-
-    Parameters
-    ----------
-    parameters : Mapping[str, str]
-        Query parameters.
-    columns : Mapping[str, MetadataColumnSettings]
-        Configured metadata columns.
-
-    Returns
-    -------
-    FileQuery
-        Parsed query.
-
-    Raises
-    ------
-    ValueError
-        If a parameter names an unknown column, uses a filter that does not
-        fit the column type, or has an unparsable value or page number.
-    """
-    equals: dict[str, str] = {}
-    lower: dict[str, float | datetime | None] = {}
-    upper: dict[str, float | datetime | None] = {}
-    for key, value in parameters.items():
-        for prefix in (EQUALS_PREFIX, MIN_PREFIX, MAX_PREFIX):
-            if not key.startswith(prefix):
-                continue
-            name = key.removeprefix(prefix)
-            if name not in columns:
-                raise ValueError(f"unknown metadata column: {name!r}")
-            is_category = columns[name].type == "category"
-            if is_category != (prefix == EQUALS_PREFIX):
-                raise ValueError(f"filter {key!r} does not fit column type")
-            if prefix == EQUALS_PREFIX:
-                if value.strip():
-                    equals[name] = value.strip()
-            else:
-                bound = _parse_bound(value, columns[name], name)
-                (lower if prefix == MIN_PREFIX else upper)[name] = bound
-
-    sort_by = parameters.get("sort", "") or "stem"
-    if sort_by not in FILE_SORT_COLUMNS and sort_by not in columns:
-        raise ValueError(f"unknown sort column: {sort_by!r}")
-    order = parameters.get("order", "") or "asc"
-    if order not in ("asc", "desc"):
-        raise ValueError(f"invalid sort order: {order!r}")
-    page = parameters.get("page", "").strip() or "1"
-    if not (page.isascii() and page.isdigit()) or int(page) < 1:
-        raise ValueError(f"invalid page: {page!r}")
-
-    ranges = {
-        name: (lower.get(name), upper.get(name))
-        for name in [*lower, *upper]
-        if lower.get(name) is not None or upper.get(name) is not None
-    }
-    return FileQuery(
-        text=parameters.get("q", "").strip(),
-        equals=equals,
-        ranges=ranges,
-        sort_by=sort_by,
-        descending=order == "desc",
-        page=int(page),
-    )
-
-
-def list_files(database: Database, query: FileQuery) -> list[dict[str, object]]:
-    """Return cataloged files with their metadata, filtered and sorted.
+def list_files(database: Database) -> list[dict[str, object]]:
+    """Return every cataloged file with its metadata.
 
     Parameters
     ----------
     database : Database
         Workspace database.
-    query : FileQuery
-        Filter and sort order. Its column names must have been validated,
-        for example by ``parse_file_query``.
 
     Returns
     -------
     list[dict[str, object]]
         One row per file with ``stem``, ``path``, ``n_rows``, ``n_steps``,
-        ``n_segments``, and every metadata column (null without a CSV row).
-        Stems are compared in natural order; null sort values come last.
+        ``n_segments``, and every metadata column (null without a CSV row),
+        with stems in natural order.
     """
     metadata_columns = ", ".join(
         f"m.{quote_identifier(name)}" for name in database.metadata_columns
     )
-    conditions: list[str] = []
-    parameters: list[object] = []
-    if query.text:
-        conditions.append("contains(lower(f.stem), lower(?))")
-        parameters.append(query.text)
-    for name, value in query.equals.items():
-        conditions.append(f"m.{quote_identifier(name)} = ?")
-        parameters.append(value)
-    for name, (lower, upper) in query.ranges.items():
-        if lower is not None:
-            conditions.append(f"m.{quote_identifier(name)} >= ?")
-            parameters.append(lower)
-        if upper is not None:
-            conditions.append(f"m.{quote_identifier(name)} <= ?")
-            parameters.append(upper)
-    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     rows = database.fetch_dicts(
         "SELECT f.stem, f.path, f.n_rows, "
         "coalesce(s.n_steps, 0) AS n_steps, coalesce(s.n_segments, 0) AS n_segments"
@@ -217,18 +50,10 @@ def list_files(database: Database, query: FileQuery) -> list[dict[str, object]]:
         "FROM files f "
         "LEFT JOIN (SELECT stem, count(DISTINCT step) AS n_steps, count(*) AS n_segments "
         "FROM segments GROUP BY stem) s USING (stem) "
-        f"LEFT JOIN file_metadata m USING (stem) {where}",
-        parameters,
+        "LEFT JOIN file_metadata m USING (stem)"
     )
     rows.sort(key=lambda row: natural_keys(str(row["stem"])))
-    present = [row for row in rows if row[query.sort_by] is not None]
-    missing = [row for row in rows if row[query.sort_by] is None]
-    if query.sort_by == "stem":
-        if query.descending:
-            present.reverse()
-    else:
-        present.sort(key=lambda row: row[query.sort_by], reverse=query.descending)
-    return present + missing
+    return rows
 
 
 def category_options(database: Database) -> dict[str, list[str]]:

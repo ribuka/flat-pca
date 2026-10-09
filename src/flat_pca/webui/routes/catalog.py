@@ -7,13 +7,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
-from ..services.catalog_query import (
-    category_options,
-    list_files,
-    metadata_warnings,
-    parse_file_query,
-)
-from ..services.pagination import paginate
+from ..datatable import apply_state, parse_state
+from ..services.catalog_query import category_options, metadata_warnings
+from ..services.file_table import file_frame, file_table_config
 from ..services.runs import latest_run_status
 from ..services.selection import parse_stems_json
 from ..templating import templates
@@ -22,8 +18,6 @@ from .dependencies import get_workspace
 
 router = APIRouter()
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
-
-FILE_PAGE_SIZE = 1000
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -51,6 +45,7 @@ def data_selection_page(
         {
             **latest_run_status(workspace.database, CATALOG_JOB),
             "selected": workspace.selection.stems,
+            "file_table": file_table_config(workspace.settings.metadata_columns),
         },
     )
 
@@ -120,42 +115,42 @@ def file_table(request: Request, workspace: WorkspaceDependency) -> HTMLResponse
     Parameters
     ----------
     request : Request
-        Current request whose query parameters are parsed by
-        ``parse_file_query``.
+        Current request whose query parameters are parsed by ``parse_state``
+        for the table of ``file_table_config``.
     workspace : Workspace
         Application workspace.
 
     Returns
     -------
     HTMLResponse
-        File table partial with its column filters, the page links, the
+        File table fragment with its column filters, the page links, the
         stems of every file that matches the filters (for the header
-        checkbox), and metadata warnings. Each page holds
-        ``FILE_PAGE_SIZE`` files; a page past the last one shows the last.
+        checkbox), and metadata warnings. A page past the last one shows the
+        last.
 
     Raises
     ------
     HTTPException
         With status 400 if the query parameters are invalid.
     """
-    columns = workspace.settings.metadata_columns
+    config = file_table_config(workspace.settings.metadata_columns)
+    parameters = {key: request.query_params.getlist(key) for key in request.query_params}
     try:
-        query = parse_file_query(request.query_params, columns)
+        state = parse_state(parameters, config)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     warnings = (
         metadata_warnings(workspace.database) if workspace.settings.metadata else None
     )
-    files = list_files(workspace.database, query)
+    view = apply_state(
+        file_frame(workspace.database), state, config, category_options(workspace.database)
+    )
     return templates.TemplateResponse(
         request,
         "partials/file_table.html",
         {
-            "page": paginate(files, query.page, FILE_PAGE_SIZE),
-            "matching_stems": [file["stem"] for file in files],
-            "columns": columns,
-            "options": category_options(workspace.database),
-            "query": query,
+            "table": config,
+            "view": view,
             "warnings": warnings,
             "selected": set(workspace.selection.stems),
         },

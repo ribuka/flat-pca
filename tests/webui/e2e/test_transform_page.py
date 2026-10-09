@@ -16,12 +16,12 @@ TRANSFORM_TIMEOUT_MS = 20_000
 
 def _choose_targets(page: Page) -> None:
     """Uncheck "use same data for fit" and choose every catalog file."""
-    expect(page.locator("#file-table[data-locked]")).to_have_count(1)
+    expect(page.locator("#files[data-dt-locked]")).to_have_count(1)
     mark_page(page)
     page.get_by_label("use same data for fit").uncheck()
     wait_for_view_refresh(page)
-    expect(page.locator("#file-table[data-locked]")).to_have_count(0)
-    expect(page.locator("#file-table tbody tr")).to_have_count(len(CATALOG_STEMS))
+    expect(page.locator("#files[data-dt-locked]")).to_have_count(0)
+    expect(page.locator("#files tbody tr")).to_have_count(len(CATALOG_STEMS))
     page.get_by_label("Select all filtered files").check()
 
 
@@ -36,8 +36,8 @@ def test_transform_page_locks_the_fit_targets_by_default(
     expect(page.locator("[data-transform-model]")).to_have_value("fit-1")
     expect(page.locator("[data-transform-targets]")).to_be_visible()
     expect(page.locator("[data-fit-targets]")).to_contain_text("12 files")
-    expect(page.locator("#file-table tbody tr")).to_have_count(len(CATALOG_STEMS))
-    for box in page.locator("#file-table [data-stem-check]").all():
+    expect(page.locator("#files tbody tr")).to_have_count(len(CATALOG_STEMS))
+    for box in page.locator("#files [data-dt-row-check]").all():
         expect(box).to_be_disabled()
     expect(page.get_by_label("Select all filtered files")).to_be_disabled()
     expect(page.get_by_role("button", name="Run transform")).to_be_enabled()

@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from flat_pca.webui.app import create_app
-from flat_pca.webui.routes import catalog as catalog_routes
+from flat_pca.webui.services import file_table
 from flat_pca.webui.services.runs import latest_run
 from flat_pca.webui.settings import Settings
 from flat_pca.webui.templating import STATIC_DIR
@@ -67,7 +67,7 @@ def test_data_selection_groups_are_collapsible(client: TestClient) -> None:
     for group in ("catalog", "files"):
         assert f'<details class="card" data-group="{group}" open>' in text
     assert 'data-group="filters"' not in text
-    assert '<button type="button" data-check-all' not in text
+    assert '<button type="button" data-dt-check-all' not in text
     assert "data-uncheck-all" not in text
 
 
@@ -133,35 +133,35 @@ def test_file_table_lists_files_and_metadata_warnings(
 
     assert response.status_code == 200
     text = response.text
-    assert text.index('data-stem="run-1"') < text.index('data-stem="run-2"')
-    assert text.index('data-stem="run-2"') < text.index('data-stem="run-10"')
+    assert text.index('data-dt-key="run-1"') < text.index('data-dt-key="run-2"')
+    assert text.index('data-dt-key="run-2"') < text.index('data-dt-key="run-10"')
     assert "2026-01-02 03:04:05" in text
     assert 'data-warning="files-without-metadata"' in text
     assert "<li>ghost</li>" in text
-    assert text.count("data-check-all") == 1
-    assert text.index("data-check-all") < text.index("<tbody>")
+    assert text.count("data-dt-check-all") == 1
+    assert text.index("data-dt-check-all") < text.index("<tbody>")
     assert "1–3 of 3" in text
-    assert "data-page=" not in text
+    assert "data-dt-page=" not in text
 
 
 def test_file_table_has_column_sort_and_filters(cataloged_client: TestClient) -> None:
     """Every column name sorts; the stem and metadata columns have filters."""
-    text = cataloged_client.get("/catalog/files", params={"sort": "yield_pct"}).text
+    text = cataloged_client.get("/catalog/files", params={"files.sort": "yield_pct"}).text
 
     for name in ("stem", "lot", "yield_pct", "date", "n_steps", "n_segments", "n_rows"):
-        assert f'data-sort="{name}"' in text
+        assert f'data-dt-sort="{name}"' in text
     assert text.count('aria-sort="ascending"') == 1
-    assert '<input type="hidden" name="sort" value="yield_pct" data-file-query>' in text
-    assert '<input type="hidden" name="order" value="asc" data-file-query>' in text
-    assert '<input type="hidden" name="page" value="1" data-file-query>' in text
-    assert 'name="q"' in text
-    assert 'name="eq__lot"' in text
-    assert 'name="min__yield_pct"' in text
-    assert 'name="max__yield_pct"' in text
-    assert re.search(r'type="datetime-local" id="[^"]+" name="max__date"', text)
-    assert "min__n_rows" not in text
+    assert '<input type="hidden" name="files.sort" value="yield_pct" data-dt-query>' in text
+    assert '<input type="hidden" name="files.order" value="asc" data-dt-query>' in text
+    assert '<input type="hidden" name="files.page" value="1" data-dt-query>' in text
+    assert 'name="files.q__stem"' in text
+    assert 'name="files.eq__lot"' in text
+    assert 'name="files.min__yield_pct"' in text
+    assert 'name="files.max__yield_pct"' in text
+    assert re.search(r'type="datetime-local" id="[^"]+" name="files.max__date"', text)
+    assert "files.min__n_rows" not in text
     descending = cataloged_client.get(
-        "/catalog/files", params={"sort": "n_rows", "order": "desc"}
+        "/catalog/files", params={"files.sort": "n_rows", "files.order": "desc"}
     ).text
     assert descending.count('aria-sort="descending"') == 1
 
@@ -174,12 +174,12 @@ def test_file_table_category_choices_follow_catalog(
     workspace = _workspace(client)
     wait_for(workspace.database, workspace.submit_catalog())
 
-    response = client.get("/catalog/files", params={"eq__lot": "B"})
+    response = client.get("/catalog/files", params={"files.eq__lot": "B"})
 
     assert response.status_code == 200
     assert '<option value="A" >' in response.text
     assert '<option value="B" selected>' in response.text
-    stale = client.get("/catalog/files", params={"eq__lot": "Z"}).text
+    stale = client.get("/catalog/files", params={"files.eq__lot": "Z"}).text
     assert '<option value="Z" selected>' in stale
 
 
@@ -187,42 +187,42 @@ def test_file_table_pages_and_lists_matching_stems(
     cataloged_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Files split into pages; every file matching the filters is listed."""
-    monkeypatch.setattr(catalog_routes, "FILE_PAGE_SIZE", 2)
+    monkeypatch.setattr(file_table, "FILE_PAGE_SIZE", 2)
 
     first = cataloged_client.get("/catalog/files").text
-    second = cataloged_client.get("/catalog/files", params={"page": "2"}).text
-    past = cataloged_client.get("/catalog/files", params={"page": "9"}).text
+    second = cataloged_client.get("/catalog/files", params={"files.page": "2"}).text
+    past = cataloged_client.get("/catalog/files", params={"files.page": "9"}).text
 
-    assert 'data-stem="run-2"' in first
-    assert 'data-stem="run-10"' not in first
+    assert 'data-dt-key="run-2"' in first
+    assert 'data-dt-key="run-10"' not in first
     assert "1–2 of 3" in first
-    assert '<button type="button" data-page="2" >Next</button>' in first
-    assert 'data-stem="run-10"' in second
-    assert 'data-stem="run-1"' not in second
+    assert '<button type="button" data-dt-page="2" >Next</button>' in first
+    assert 'data-dt-key="run-10"' in second
+    assert 'data-dt-key="run-1"' not in second
     assert "3–3 of 3" in second
     assert 'aria-current="page" disabled>2</button>' in second
     assert "3–3 of 3" in past
     for text in (first, second):
         assert '["run-1", "run-2", "run-10"]</script>' in text
-    filtered = cataloged_client.get("/catalog/files", params={"eq__lot": "B"}).text
+    filtered = cataloged_client.get("/catalog/files", params={"files.eq__lot": "B"}).text
     assert '["run-2"]</script>' in filtered
-    assert cataloged_client.get("/catalog/files", params={"page": "0"}).status_code == 400
+    assert cataloged_client.get("/catalog/files", params={"files.page": "0"}).status_code == 400
 
 
 def test_file_table_applies_filters(cataloged_client: TestClient) -> None:
     """Query parameters filter the table."""
     response = cataloged_client.get(
-        "/catalog/files", params={"eq__lot": "A", "sort": "yield_pct", "order": "desc"}
+        "/catalog/files", params={"files.eq__lot": "A", "files.sort": "yield_pct", "files.order": "desc"}
     )
 
     assert response.status_code == 200
-    assert 'data-stem="run-1"' in response.text
-    assert 'data-stem="run-2"' not in response.text
+    assert 'data-dt-key="run-1"' in response.text
+    assert 'data-dt-key="run-2"' not in response.text
 
 
 def test_file_table_rejects_invalid_filter(cataloged_client: TestClient) -> None:
     """Invalid filters are a client error."""
-    response = cataloged_client.get("/catalog/files", params={"min__lot": "1"})
+    response = cataloged_client.get("/catalog/files", params={"files.min__lot": "1"})
 
     assert response.status_code == 400
 
@@ -244,7 +244,7 @@ def test_selection_keeps_cataloged_stems(cataloged_client: TestClient) -> None:
     assert not re.search(r'value="run-1"[^>]*checked', table)
     page = cataloged_client.get("/").text
     assert (
-        '<input type="hidden" id="selected-stems" name="stems"'
+        '<input type="hidden" id="files-selection" name="stems"'
         """ value='["run-2", "run-10"]'>"""
     ) in page
 
@@ -350,11 +350,11 @@ def test_file_table_and_select_set_their_own_targets(client: TestClient) -> None
     """The file table reloads itself; Select sends the kept selection."""
     page = client.get("/").text
 
-    file_table = _opening_tag(page, "file-table")
-    assert 'hx-target="this"' in file_table
-    assert 'hx-swap="innerHTML"' in file_table
+    table = _opening_tag(page, "files")
+    assert 'hx-target="this"' in table
+    assert 'hx-swap="innerHTML"' in table
     select = _opening_tag(page, "select-files")
-    assert 'hx-include="#selected-stems"' in select
+    assert 'hx-include="#files-selection"' in select
     assert 'hx-target="#selection-summary"' in select
     assert 'hx-swap="outerHTML"' in select
 

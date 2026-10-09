@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "datatable/macros.html" import container %}
 {% block title %}Data selection - flat-pca{% endblock %}
 {% block content %}
 <details class="card" data-group="catalog" open>
@@ -11,17 +12,12 @@
 <details class="card" data-group="files" open>
   <summary><h2>Files</h2></summary>
   <div class="card-body">
-    <div id="file-table" hx-get="/catalog/files" hx-include="this"
-         hx-target="this" hx-swap="innerHTML" hx-sync="this:replace"
-         hx-trigger="load, catalog-updated from:body, file-query-changed">
-      <p class="muted">Loading…</p>
-    </div>
-    {#- The selection over all pages and filters as a JSON array, kept outside
-        the reloaded table. -#}
-    <input type="hidden" id="selected-stems" name="stems" value='{{ selected|tojson }}'>
+    {#- The selection over all pages and filters is kept as a JSON array in
+        the hidden input #files-selection, outside the reloaded table. -#}
+    {{ container(file_table, selected, triggers="catalog-updated from:body") }}
     <div class="selection-actions">
       {% include "partials/selection_summary.html" %}
-      <button id="select-files" type="button" class="button-primary" hx-post="/catalog/selection" hx-include="#selected-stems"
+      <button id="select-files" type="button" class="button-primary" hx-post="/catalog/selection" hx-include="#files-selection"
               hx-target="#selection-summary" hx-swap="outerHTML">Select</button>
     </div>
   </div>

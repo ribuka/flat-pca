@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import polars as pl
 
-from ..templating import format_value
+from ..datatable import format_value
 from .scored_samples import metadata_columns
 
 STEM_HEADER = "file"

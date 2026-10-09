@@ -9,9 +9,10 @@ from fastapi.responses import HTMLResponse
 
 from flat_pca.visualize import create_control_chart, create_t2_q_scatter
 
+from ..datatable import format_value
 from ..services.monitoring import MonitoringRequest, MonitoringView, resolve_monitoring
 from ..services.point_table import SELECT_TOOLS, PointTable, point_table
-from ..templating import format_value, script_json
+from ..templating import script_json
 from ..workspace import Workspace
 from .dependencies import get_workspace
 from .view_page import render_view_page

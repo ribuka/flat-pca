@@ -7,6 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}flat-pca{% endblock %}</title>
   <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="{{ url_for('datatable', path='datatable.css') }}?v={{ datatable_static_version('datatable.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}?v={{ static_version('app.css') }}">
   <script>
     // Applies the kept sidebar and width choices before the first paint.
@@ -23,6 +24,7 @@
   </script>
   <script src="{{ url_for('static', path='vendor/htmx.min.js') }}?v={{ static_version('vendor/htmx.min.js') }}"></script>
   {% block scripts %}{% endblock %}
+  <script src="{{ url_for('datatable', path='datatable.js') }}?v={{ datatable_static_version('datatable.js') }}" defer></script>
   <script src="{{ url_for('static', path='app.js') }}?v={{ static_version('app.js') }}" defer></script>
 </head>
 <body>
