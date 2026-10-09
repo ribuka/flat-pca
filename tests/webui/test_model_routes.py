@@ -100,6 +100,21 @@ def test_default_page_draws_every_figure_from_the_run(client: TestClient) -> Non
     assert "data-model-notice" not in html
 
 
+@pytest.mark.usefixtures("run_dir")
+def test_explained_variance_stacks_the_table_under_the_scree_plot(client: TestClient) -> None:
+    """The scree plot and its table are stacked, not laid out side by side."""
+    html = client.get("/model").text
+
+    match = re.search(
+        r'data-group="explained-variance".*?<div class="card-body">\s*<div class="([^"]*)">'
+        r'\s*<div id="model-scree".*?data-explained-variance',
+        html,
+        re.DOTALL,
+    )
+    assert match is not None
+    assert match.group(1) == "plot-stack"
+
+
 @pytest.mark.parametrize(
     ("view", "expected"),
     [

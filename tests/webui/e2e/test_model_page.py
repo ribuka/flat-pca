@@ -21,6 +21,22 @@ def _open(page: Page, url: str) -> None:
     expect(root).to_have_attribute("data-trend-step-time", "1")
 
 
+@pytest.mark.parametrize("width", [800, 1920])
+def test_explained_variance_table_is_below_the_scree_plot(
+    page: Page, fitted_server_url: str, width: int
+) -> None:
+    """At any width the scree plot spans the card and its table is drawn below it."""
+    page.set_viewport_size({"width": width, "height": 1000})
+    _open(page, fitted_server_url + MODEL_PATH)
+
+    stack = page.locator('[data-group="explained-variance"] .plot-stack').bounding_box()
+    scree = page.locator("#model-scree").bounding_box()
+    table = page.locator('[data-group="explained-variance"] .table-scroll').bounding_box()
+    assert stack is not None and scree is not None and table is not None
+    assert scree["width"] == pytest.approx(stack["width"], abs=1)
+    assert table["y"] >= scree["y"] + scree["height"]
+
+
 def test_slider_moves_the_component_trends(page: Page, fitted_server_url: str) -> None:
     """The StepTime slider cuts the component at another time point."""
     _open(page, fitted_server_url + MODEL_PATH)
