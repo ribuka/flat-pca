@@ -472,13 +472,28 @@ function keptFitFormValues() {
   }
 }
 
+// Returns whether `name` is a bound of a range ({name}_lower or _upper) that
+// is disabled in `values`. Such a bound keeps what the server drew: the
+// catalog range of the current fit target, which may differ from the kept
+// one and bound the field (min and max).
+function isDisabledFitRangeBound(form, name, values) {
+  const match = /^(.+)_(lower|upper)$/.exec(name);
+  const enabled = match && `${match[1]}_enabled`;
+  return Boolean(enabled && form.elements[enabled] && !Array.isArray(values[enabled]));
+}
+
 // Shows `values` (see fitFormValues) in the fit form. A checkbox is checked
 // only when its value is kept under its name, as FormData leaves out the
 // unchecked ones. A field takes its kept value, a select only one of its
-// options; a field without a kept value keeps what the server drew.
+// options; a field without a kept value, or the bound of a disabled range,
+// keeps what the server drew.
 function showFitFormValues(form, values) {
   for (const control of form.elements) {
-    if (!control.name || FIT_FORM_UNKEPT.has(control.name)) {
+    if (
+      !control.name ||
+      FIT_FORM_UNKEPT.has(control.name) ||
+      isDisabledFitRangeBound(form, control.name, values)
+    ) {
       continue;
     }
     const kept = Array.isArray(values[control.name]) ? values[control.name].map(String) : [];

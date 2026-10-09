@@ -59,6 +59,45 @@ def test_edited_settings_survive_a_switch_of_screens(
         expect(enabled).to_be_checked()
 
 
+def test_disabled_range_takes_the_current_catalog_range(
+    page: Page, cataloged_server_url: str
+) -> None:
+    """A disabled range shows the current target's bounds, so the form stays valid.
+
+    The kept settings stand for those of another fit target, whose catalog
+    range lies outside the current one.
+    """
+    _select_files(page, cataloged_server_url)
+    page.goto(f"{cataloged_server_url}/fit")
+    form = page.locator("#fit-form")
+    lower = form.locator('input[name="wavelength_range_lower"]')
+    expect(form.locator('input[name="wavelength_range_enabled"]')).not_to_be_checked()
+    drawn = lower.input_value()
+    form.locator('input[name="n_component"]').fill("4")
+    page.evaluate(
+        """() => {
+          const values = JSON.parse(sessionStorage.getItem("flat-pca:fit-form"));
+          values.wavelength_range_lower = ["1"];
+          values.w_normalization_range_lower = ["1"];
+          sessionStorage.setItem("flat-pca:fit-form", JSON.stringify(values));
+        }"""
+    )
+
+    _switch_screens(page)
+
+    expect(form.locator('input[name="n_component"]')).to_have_value("4")
+    expect(lower).to_have_value(drawn)
+    assert form.evaluate("form => form.checkValidity()")
+
+    # An enabled range keeps its bounds.
+    form.locator('input[name="wavelength_range_enabled"]').check()
+    lower.fill(drawn)
+    form.locator('input[name="wavelength_range_upper"]').fill(drawn)
+    _switch_screens(page)
+    expect(form.locator('input[name="wavelength_range_enabled"]')).to_be_checked()
+    expect(form.locator('input[name="wavelength_range_upper"]')).to_have_value(drawn)
+
+
 def test_reopened_run_settings_become_the_kept_ones(
     page: Page, fitted_server_url: str
 ) -> None:
