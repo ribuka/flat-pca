@@ -6,6 +6,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
+
+from flat_pca.feature_engineering.pca.analysis import resolve_used_components
+
 from ..run_config import run_config, statistic_configs
 from .catalog_query import SelectionRanges
 from .fit_form import (
@@ -129,15 +133,38 @@ def _range(values: FormValues, name: str, label: str) -> tuple[str, str]:
     return label, _pair(values, f"{name}_lower", f"{name}_upper", enabled)
 
 
+def _has_bool(value: object) -> bool:
+    """Return whether a saved setting is or holds a boolean.
+
+    Parameters
+    ----------
+    value : object
+        A setting, or a mapping or list of settings.
+
+    Returns
+    -------
+    bool
+        ``True`` if ``value`` or any value nested in it is a ``bool``.
+    """
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, Mapping):
+        return any(_has_bool(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_has_bool(item) for item in value)
+    return False
+
+
 def _validated_values(config: Mapping[str, Any]) -> FormValues:
     """Return the form values of saved settings, checking their types and values.
 
     The preprocessing and PCA settings are validated by the form itself
     (``parse_fit_form``) and must equal the saved ones, so that values of a
     wrong type, such as a string of Steps, do not pass as plausible text.
-    The T² and Q settings, whose ``cumulative_explained_variance`` may also
-    be a component count unlike on the form, must be numbers accepted by
-    ``statistic_configs``.
+    No setting may be a boolean, which would equal 0 or 1. The T² and Q
+    settings, whose ``cumulative_explained_variance`` may also be a
+    component count unlike on the form, must be numbers accepted by
+    ``resolve_used_components`` and ``statistic_configs``.
 
     Parameters
     ----------
@@ -154,6 +181,9 @@ def _validated_values(config: Mapping[str, Any]) -> FormValues:
     KeyError, TypeError, ValueError
         If the configuration lacks a setting or holds an invalid value.
     """
+    for name in (*_FORM_SECTIONS, *STATISTIC_FIELDS):
+        if _has_bool(config[name]):
+            raise TypeError(f"invalid {name}: {config[name]!r}")
     values = form_values_from_config(config, _NO_RANGES)
     form = parse_fit_form(values, n_files=_ANY_FILE_COUNT)
     errors = [
@@ -167,11 +197,18 @@ def _validated_values(config: Mapping[str, Any]) -> FormValues:
     for name in _FORM_SECTIONS:
         if getattr(form, name) != config[name]:
             raise ValueError(f"invalid {name}: {config[name]!r}")
-    statistic_configs(config)
     for prefix in STATISTIC_FIELDS:
         for key, value in config[prefix].items():
-            if isinstance(value, bool) or not isinstance(value, int | float):
+            if not isinstance(value, int | float):
                 raise TypeError(f"invalid {prefix}_{key}: {value!r}")
+        selector = config[prefix]["cumulative_explained_variance"]
+        try:
+            resolve_used_components(np.ones(1), 1, selector)
+        except ValueError as error:
+            raise ValueError(
+                f"invalid {prefix}_cumulative_explained_variance: {error}"
+            ) from error
+    statistic_configs(config)
     if config["artifact_dtype"] not in _ARTIFACT_DTYPES:
         raise ValueError(f"invalid artifact_dtype: {config['artifact_dtype']!r}")
     return values
