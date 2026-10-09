@@ -60,6 +60,7 @@ Update this document whenever the component gains a feature.
        selection_form=None,           # its form attribute, if any
        select_all_label="Select all filtered files",
        default_sort="stem",
+       max_selected=None,             # most selected rows; None for no limit
    )
    ```
 
@@ -139,8 +140,20 @@ container, which sends them with `hx-include="this"`.
   type match; give the initial selection in the same form. A table without
   selection does not cast its keys (`data-dt-key` is `str()` of the value). The header checkbox selects or clears every row matching the filters
   and shows all / some / none.
+- `max_selected` (a positive integer, on a selectable table only) limits the
+  selection. When it is reached, the checkboxes of the unselected rows are
+  disabled (selected rows can still be cleared) and the notice
+  `[data-dt-limit]` above the table says so; both hold after paging,
+  filtering, and sorting. The header checkbox is disabled while selecting
+  every matching row would pass the limit; when they all fit, or when they
+  are all selected (to clear them), it works as without a limit. An initial
+  selection past the limit is kept and can only be reduced. One function in
+  `datatable.js` (`canChange`) decides whether a change of the selection is
+  allowed, for a locked table too.
 - Each change of the selection dispatches `datatable:selection-change` on the
-  container. It bubbles; `event.detail.keys` holds the selected keys.
+  container. It bubbles; `event.detail.keys` holds the selected keys and
+  `event.detail.max` the limit (`null` without one), so the page can show
+  `n / max`. The table itself does not show the count.
 
 ## Elements and classes
 
@@ -149,11 +162,12 @@ container, so several tables can share a page.
 
 | Selector | Element |
 | --- | --- |
-| `.dt-root[data-datatable]` | Container (`id` = `table_id`); `data-dt-locked` when locked. |
+| `.dt-root[data-datatable]` | Container (`id` = `table_id`); `data-dt-locked` when locked; `data-dt-max-selected` with the limit. |
 | `.dt-scroll` / `.dt-table` | Scroll box with a fixed header / the table. |
 | `.dt-sort[data-dt-sort]`, `.dt-sort-mark` | Header sort button and its ▲ / ▼. |
 | `.dt-filter` | Filters under a header. |
 | `.dt-check`, `[data-dt-check-all]`, `[data-dt-row-check]` | Selection checkboxes. |
+| `.dt-limit[data-dt-limit]` | Notice that the selection limit is reached (`hidden` below it). |
 | `tr[data-dt-key]` | Row with its key. |
 | `.dt-pager`, `[data-dt-page]`, `.dt-page-current`, `[data-dt-page-range]` | Page links and "a–b of N". |
 
@@ -165,7 +179,7 @@ container or an ancestor fixes the scheme.
 
 | Variable | Use |
 | --- | --- |
-| `--dt-fg`, `--dt-muted` | Text, and headers / "a–b of N" / locked rows. |
+| `--dt-fg`, `--dt-muted` | Text, and headers / "a–b of N" / locked rows / the limit notice. |
 | `--dt-border` | Cell and box borders. |
 | `--dt-header-bg`, `--dt-row-hover-bg` | Header and hovered row backgrounds. |
 | `--dt-accent`, `--dt-accent-fg` | Sort marks and the current page, and its text. |

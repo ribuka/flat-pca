@@ -17,11 +17,37 @@
     return new Set(JSON.parse(selectionInput(root).value));
   }
 
+  // Returns the most rows that can be selected (data-dt-max-selected), or
+  // null for no limit.
+  function maxSelected(root) {
+    const max = root.dataset.dtMaxSelected;
+    return max === undefined ? null : Number(max);
+  }
+
   // Keeps the selection and tells the page: `datatable:selection-change`
-  // bubbles from the container with the selected keys in `detail.keys`.
+  // bubbles from the container with the selected keys in `detail.keys` and
+  // the limit in `detail.max` (null for none).
   function setSelectedKeys(root, keys) {
     selectionInput(root).value = JSON.stringify([...keys]);
-    root.dispatchEvent(new CustomEvent(SELECTION_EVENT, { bubbles: true, detail: { keys: [...keys] } }));
+    root.dispatchEvent(
+      new CustomEvent(SELECTION_EVENT, { bubbles: true, detail: { keys: [...keys], max: maxSelected(root) } }),
+    );
+  }
+
+  // Decides whether `keys` can be added to (`select`) or removed from the
+  // selection `selected`: nothing changes in a locked table, and adding
+  // must keep the selection within the limit. Every control that changes
+  // the selection asks this.
+  function canChange(root, selected, keys, select) {
+    if (root.hasAttribute("data-dt-locked")) {
+      return false;
+    }
+    const max = maxSelected(root);
+    if (!select || max === null) {
+      return true;
+    }
+    const added = keys.filter((key) => !selected.has(key));
+    return new Set(added).size + selected.size <= max;
   }
 
   // Returns the keys of every row matching the table's filters, on all of
@@ -32,21 +58,27 @@
 
   // Shows the selection in the row checkboxes, and in the header checkbox
   // whether all, some, or none of the rows matching the filters are
-  // selected. A locked table (data-dt-locked) shows the selection with every
-  // checkbox disabled; its filters and pages work.
+  // selected. A checkbox is disabled when its click could not change the
+  // selection (canChange): every one in a locked table (data-dt-locked),
+  // whose filters and pages still work, and at the limit the unselected
+  // rows and a header that would select past it. The limit notice shows
+  // while the selection is at the limit.
   function syncChecks(root) {
     const keys = selectedKeys(root);
-    const locked = root.hasAttribute("data-dt-locked");
     for (const box of root.querySelectorAll("[data-dt-row-check]")) {
       box.checked = keys.has(box.value);
-      box.disabled = locked;
+      box.disabled = !canChange(root, keys, [box.value], !box.checked);
     }
     const matching = matchingKeys(root);
     const checked = matching.filter((key) => keys.has(key)).length;
     const header = root.querySelector("[data-dt-check-all]");
     header.checked = matching.length > 0 && checked === matching.length;
     header.indeterminate = checked > 0 && checked < matching.length;
-    header.disabled = locked || matching.length === 0;
+    header.disabled = matching.length === 0 || !canChange(root, keys, matching, !header.checked);
+    const notice = root.querySelector("[data-dt-limit]");
+    if (notice) {
+      notice.hidden = keys.size < maxSelected(root);
+    }
   }
 
   function tableOf(element) {
@@ -57,24 +89,21 @@
   // every row matching the filters, shown on this page or not.
   document.addEventListener("change", (event) => {
     const root = tableOf(event.target);
-    if (
-      !root ||
-      !root.dataset.dtSelection ||
-      root.hasAttribute("data-dt-locked") ||
-      !event.target.matches("[data-dt-check-all], [data-dt-row-check]")
-    ) {
+    if (!root || !root.dataset.dtSelection || !event.target.matches("[data-dt-check-all], [data-dt-row-check]")) {
       return;
     }
     const keys = selectedKeys(root);
     const targets = event.target.matches("[data-dt-check-all]") ? matchingKeys(root) : [event.target.value];
-    for (const key of targets) {
-      if (event.target.checked) {
-        keys.add(key);
-      } else {
-        keys.delete(key);
+    if (canChange(root, keys, targets, event.target.checked)) {
+      for (const key of targets) {
+        if (event.target.checked) {
+          keys.add(key);
+        } else {
+          keys.delete(key);
+        }
       }
+      setSelectedKeys(root, keys);
     }
-    setSelectedKeys(root, keys);
     syncChecks(root);
   });
 
