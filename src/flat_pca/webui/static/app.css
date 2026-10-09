@@ -698,6 +698,13 @@ p.error {
   gap: 1rem;
 }
 
+/* A plot over the full width with its table below it, whatever the width. */
+.plot-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
 /* The heatmap with the vertical StepTime slider on its left and the
    wavelength slider below it. app.js places each slider so that its ends
    meet the first and last rows or columns. */
