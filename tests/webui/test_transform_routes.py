@@ -473,7 +473,9 @@ def test_sidebar_has_no_run_choice(
 
     assert "<select" not in sidebar
     assert "/sidebar/selection/run" not in sidebar
-    assert re.findall(r'<li data-stem="([^"]+)"', sidebar) == [path.stem for path in targets]
+    assert re.findall(
+        r'<tr data-dt-key="([^"]+)"', client.get("/sidebar/selection/files/table").text
+    ) == [path.stem for path in targets]
     assert client.post("/sidebar/selection/run", data={"run": "tr-1"}).status_code == 404
     assert "transform-updated from:body" in client.get("/").text
 

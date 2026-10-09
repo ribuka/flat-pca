@@ -8,7 +8,11 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
+from ..datatable import apply_state, parse_state
+from ..services.catalog_query import category_options
 from ..services.runs import list_succeeded_runs
+from ..services.selection import parse_stems_json
+from ..services.view_file_table import view_file_frame, view_file_table_config
 from ..services.view_selection import ViewChoice, resolve_view_choice
 from ..templating import templates
 from ..workspace import FIT_JOB, TRANSFORM_JOB, Workspace
@@ -161,40 +165,127 @@ def view_selection(request: Request, workspace: WorkspaceDependency) -> HTMLResp
     )
 
 
+@router.get("/files/dialog", response_class=HTMLResponse)
+def file_dialog(request: Request, workspace: WorkspaceDependency) -> HTMLResponse:
+    """Render the contents of the dialog choosing the shown files.
+
+    Parameters
+    ----------
+    request : Request
+        Current request.
+    workspace : Workspace
+        Application workspace.
+
+    Returns
+    -------
+    HTMLResponse
+        Dialog contents: the table of the run's transform targets, which
+        loads separately, starting from the chosen files, and the form that
+        saves the selection with the run in use.
+    """
+    choice = current_view_choice(workspace)
+    settings = workspace.settings
+    return templates.TemplateResponse(
+        request,
+        "partials/view_file_dialog.html",
+        {
+            "choice": choice,
+            "max_files": settings.ui.explore_max_files,
+            "table": view_file_table_config(
+                settings.metadata_columns, settings.ui.explore_max_files
+            ),
+        },
+    )
+
+
+@router.get("/files/table", response_class=HTMLResponse)
+def file_table(request: Request, workspace: WorkspaceDependency) -> HTMLResponse:
+    """Render one page of the filtered and sorted table of the shown-file dialog.
+
+    Parameters
+    ----------
+    request : Request
+        Current request whose query parameters are parsed by ``parse_state``
+        for the table of ``view_file_table_config``.
+    workspace : Workspace
+        Application workspace.
+
+    Returns
+    -------
+    HTMLResponse
+        Table fragment of the transform targets of the run in use (see
+        ``view_file_frame``), with the chosen files checked.
+
+    Raises
+    ------
+    HTTPException
+        With status 400 if the query parameters are invalid.
+    """
+    settings = workspace.settings
+    config = view_file_table_config(settings.metadata_columns, settings.ui.explore_max_files)
+    parameters = {key: request.query_params.getlist(key) for key in request.query_params}
+    try:
+        state = parse_state(parameters, config)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    choice = current_view_choice(workspace)
+    view = apply_state(
+        view_file_frame(workspace.database, choice.file_options),
+        state,
+        config,
+        category_options(workspace.database),
+    )
+    return templates.TemplateResponse(
+        request,
+        "partials/file_table.html",
+        {"table": config, "view": view, "warnings": None, "selected": set(choice.files)},
+    )
+
+
 @router.post("/files")
 def choose_files(
     workspace: WorkspaceDependency,
     run: Annotated[str, Form()],
-    file: Annotated[list[str] | None, Form()] = None,
+    stems: Annotated[str, Form()] = "[]",
 ) -> Response:
-    """Replace the chosen files of the run the sidebar was drawn with.
+    """Replace the chosen files of the run the dialog was opened with.
 
     Parameters
     ----------
     workspace : Workspace
         Application workspace.
     run : str
-        Run in use when the sidebar was drawn. If the run in use has changed
+        Run in use when the dialog was opened. If the run in use has changed
         since (in another tab, for example), the choice is left unchanged,
         and the change of the run is announced instead, so the browser
         shows the run in use in the sidebar and the main part.
-    file : list[str] | None, default None
-        Checked stems. Stems that are not transform targets of the run in
-        use are ignored, and only the first ``ui.explore_max_files`` of the
-        rest (in option order) are kept.
+    stems : str, default "[]"
+        JSON array of the selected stems (the dialog table's selection
+        input), parsed by ``parse_stems_json``. Stems that are not transform
+        targets of the run in use are ignored, and only the first
+        ``ui.explore_max_files`` of the rest (in option order) are kept.
 
     Returns
     -------
     Response
         Empty response announcing the change (see ``selection_changed``).
+
+    Raises
+    ------
+    HTTPException
+        With status 400 if ``stems`` is not a JSON array of strings.
     """
+    try:
+        requested = parse_stems_json(stems)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     selection = workspace.view_selection
     # Resolving the run in use and replacing its files is one step.
     with selection.transaction():
         choice = current_view_choice(workspace)
         if run != choice.run_id:
             return selection_changed("run")
-        wanted = set(file or ())
+        wanted = set(requested)
         stems = [stem for stem in choice.file_options if stem in wanted]
         selection.replace_stems(stems[: workspace.settings.ui.explore_max_files])
     return selection_changed("files")
@@ -253,6 +344,6 @@ def add_file(
         {
             "added": False,
             "message": f"Up to {max_files} shown files can be chosen. "
-            f"To add {stem}, clear another file in the sidebar.",
+            f"To add {stem}, clear another one in the sidebar's shown-file chooser.",
         }
     )

@@ -15,9 +15,11 @@ from pathlib import Path
 
 ICON_NAMES = (
     "check_circle",
+    "close",
     "help",
     "left_panel_close",
     "left_panel_open",
+    "open_in_new",
     "progress_activity",
 )
 FAMILY = "Material Symbols Outlined"

@@ -216,15 +216,20 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - T² / Q・スペクトル探索・スコアは、transform 画面で選んだ transform run（表示する run）と、サイドバーで選んだ表示ファイルを使う。モデル画面は transform 画面で選んだモデル（fit run）を使う。各画面のメインには run とファイルの選択欄を置かない。
   - 表示する run は、成功した transform run から選ぶ。何も選んでいないとき、または選んでいた run が成功していない（実行中・失敗・消えた）ときは、最新の成功した transform run を使う。成功した transform run がなければ、これらの画面は transform を先に実行する旨（No succeeded transform run. Run a transform on Transform first.）を表示する。
   - 表示する run のモデル（寄与率・ローディング・PCA成分・前処理の状態）は元の fit run のものを、ファイル（元データ・前処理済み・再構成・スコア・T² / Q）は transform run のものを使う。T² / Q の UCL は fit run のもの（`MahalanobisConfig`・`SpeConfig`）とする。
-  - サイドバーの表示ファイル（`/sidebar/selection`。どの画面でも常に表示する）の選択肢は、表示する run の transform 対象（`samples.parquet`の`stem`）を`natural_keys`の順に並べたもの。run がなければ空とする。検索ボックスで絞り込めるチェックボックスのリストとし、複数選べる。上限は`ui.explore_max_files`件（既定 20）で、上限に達したらほかのチェックボックスを無効にしてその旨を表示する。サーバーも上限を超えた分（選択肢の順で後ろのもの）と選択肢にないファイルを捨てる。fit・transform が終わったら（`fit-updated`・`transform-updated`イベント）取得し直す。
+  - サイドバーの表示ファイル（`/sidebar/selection`。どの画面でも常に表示する）には、件数（`n / max`）、選んだファイル名の一覧（`natural_keys`の順。読み取り専用）、ポップアップを開くボタン（Material Symbols の`open_in_new`、`aria-label`は`Choose shown files`）を置く。選択肢（表示する run の transform 対象。`samples.parquet`の`stem`）がなければ、ボタンを置かずにその旨を表示する。fit・transform が終わったら（`fit-updated`・`transform-updated`イベント）取得し直す。
+  - ポップアップは`base.html`の`<dialog id="view-files-dialog">`（`.layout`の外）を`showModal()`で開く。中身（`/sidebar/selection/files/dialog`、`partials/view_file_dialog.html`）は開くたびにサーバーから取得し、開いた時点の選択から始める（キャンセルした途中の選択は残さない）。閉じたダイアログは中身を捨てる（「Select」の要求中は、その応答を処理し終えるまで残す）。
+    - 表は`webui/datatable/`の部品で、`services/view_file_table.py`が設定と行を作る。列・フィルタ・ソートはデータ選択の表（`file_table_config`）と同じで、表のidは`view-files`（transform 画面では本体の表`files`と同じページに載るため）、表の断片は`/sidebar/selection/files/table`（`parse_state`→`apply_state`→`fragment`）とする。行は表示する run の transform 対象を`natural_keys`の順に並べたもの（`file_frame`を対象ファイルに絞る）で、catalogにないファイルもメタデータ・件数を空欄にして出す。category列の選択肢はデータ選択の表と同じ（`category_options`）。
+    - 上限は`ui.explore_max_files`件（既定 20。datatable の`max_selected`）で、上限に達したら未選択の行のチェックボックスを無効にしてその旨を表示する。ダイアログの下に選択の件数（`n / max`）を表示し、選択の変更（`datatable:selection-change`）に合わせて更新する。
+    - 「Select」で、表の選択（hidden input`#view-files-selection`のJSON配列。ダイアログのフォーム`#view-files-form`に属する）と開いたときの run を`POST /sidebar/selection/files`に送って保存し、ダイアログを閉じる。サーバーは不正な JSON を 400 とし、選択肢にないファイルと上限を超えた分（選択肢の順で後ろのもの）を捨てる。
+    - Cancel ボタン・Esc・閉じるボタン（Material Symbols の`close`）は保存せずに閉じる。
   - 表示する run を変えると、表示ファイルの選択をすべて解除する。
-  - 表示ファイルの変更は、サイドバーを描いたときの run も送る。その後に run が変わっていれば（別のタブなど）、選択を変えずに run の変更（`{"changed": "run"}`）を知らせ、サイドバーとメイン部分を今の run で取得し直させる。使う run の解決・一致の確認・選択の更新は、`ViewSelection.transaction()`のロックの中でまとめて行い、ほかの要求による変更が途中に入らないようにする。
+  - 表示ファイルの変更は、ダイアログを開いたときの run も送る。その後に run が変わっていれば（別のタブなど）、選択を変えずに run の変更（`{"changed": "run"}`）を知らせ、サイドバーとメイン部分を今の run で取得し直させる。使う run の解決・一致の確認・選択の更新は、`ViewSelection.transaction()`のロックの中でまとめて行い、ほかの要求による変更が途中に入らないようにする。
   - 選択はデータ選択の選択（`services/selection.py::FileSelection`）と同じく、サーバー側の workspace（表示する run と表示ファイルは`services/view_selection.py::ViewSelection`、transform 画面のモデルとチェックボックスは`services/transform_settings.py::TransformSettings`）に持つ。画面を移っても、ブラウザで再読み込みしても残り、ブラウザのタブ間で共有される。
   - 選択を変えると、サーバーは`HX-Trigger`で`view-selection-changed`イベント（表示する run は`{"changed": "run"}`、表示ファイルは`{"changed": "files"}`、transform 画面のモデルとチェックボックスは`{"changed": "model"}`）を返し、ページは読み直さない。ブラウザ（`app.js`の`refreshView`）は、サイドバーの選択（`#view-selection`）と、今の画面がその選択を使うときはメイン部分（`<main class="content">`の中身）を今の URL（クエリを含む）で取得し直し、両方が届いてからまとめて差し替える。URL と履歴は変えない。
     - メイン部分を差し替える選択は、`base.html`の`<main>`の`data-view-swap`に画面ごとに書く（`view_swap`ブロック）。スペクトル探索・スコアは run と表示ファイル（`run files`）、T² / Q は run だけ（`run`。表示ファイルを使わないため）、transform・モデルはモデルだけ（`model`。transform 画面では、表示する run を変えても送信メッセージを失わないよう、transform run 一覧だけを`view-selection-changed`で取得し直す）、データ選択と前処理・PCA は差し替えない（編集中のフォームを失わないため）。
     - これらの画面のルートは`routes/view_page.py::render_view_page`で描き、htmx の要求（`HX-Request: true`）にはメイン部分だけを返す（`base.html`が`main_only`で切り替える）。応答には`Vary: HX-Request`を付ける。
     - 差し替える前に、メイン部分の Plotly の図を`Plotly.purge`で破棄し、差し替え前に始まったトレンドの取得が差し替え後の図に描かないようにする。差し替えたあと（`htmx:afterSettle`）とページを開いたとき（`pageshow`）に、同じ関数（`initMain`）でメイン部分を初期化する。
-    - 表示ファイルを変えたときは、ファイルリストのスクロール位置を差し替えの前後で保つ。run を変えたときはリストの中身が変わるので先頭に戻す。検索ボックスの文字列はタブごとに`sessionStorage`へ保存し、差し替えやページの読み直しのあとも保つ。
+    - 表示ファイルの選択はダイアログで行うので、サイドバーには入力欄を置かず、差し替えで保つ状態（検索文字列やスクロール位置）はない。
     - 待つ間は下記のオーバーレイを表示する。キャンセルでは htmx の要求（`htmx:abort`）と取得を止め、サイドバーをサーバー側の選択で取得し直す（メイン部分は差し替えない）。取得に失敗したときは何も差し替えずにオーバーレイを閉じる。
   - スコア散布図の点のクリックは、`/sidebar/selection/files/add`に図の run とファイルを送り、そのファイルを表示ファイルに追加する。上限に達しているとき、または図を描いた後に表示する run が変わったとき（別のタブなど）は追加せず、警告を表示する。通信に失敗したときも警告を表示する。追加したら、上記と同じくサイドバーとメイン部分を差し替える。
 - フォーム内でhtmxの要求を出す要素は、フォームの`hx-target`を継承しないよう`hx-target`を明示する。

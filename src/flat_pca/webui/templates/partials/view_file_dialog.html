@@ -1,0 +1,25 @@
+{% from "datatable/macros.html" import container %}
+{% from "macros/icon.html" import icon %}
+{#- Contents of the shown-file dialog (#view-files-dialog in base.html). The
+    table starts from the chosen files; "Select" saves its selection with the
+    run in use, and closing the dialog otherwise saves nothing (app.js). -#}
+<div class="dialog-header">
+  <h2 id="view-files-dialog-title">Shown files</h2>
+  {% if choice.run_id %}<span class="muted" data-view-dialog-run>run {{ choice.run_id }}</span>{% endif %}
+  <button type="button" class="icon-button dialog-close" aria-label="Close" title="Close" data-dialog-close>{{ icon("close") }}</button>
+</div>
+<div class="dialog-body">
+  {% if choice.file_options %}
+    {{ container(table, choice.files) }}
+  {% else %}
+    <p class="muted">No files to choose</p>
+  {% endif %}
+</div>
+<div class="dialog-actions">
+  <span class="muted" data-view-dialog-count>{{ choice.files|length }} / {{ max_files }}</span>
+  <form id="{{ table.selection_form }}" hx-post="/sidebar/selection/files" hx-swap="none" data-view-choice>
+    <input type="hidden" name="run" value="{{ choice.run_id or '' }}">
+    <button type="button" data-dialog-close>Cancel</button>
+    <button type="submit" class="button-primary" {% if not choice.file_options %}disabled{% endif %}>Select</button>
+  </form>
+</div>

@@ -88,6 +88,12 @@
       <button type="button" id="busy-cancel">Cancel</button>
     </div>
   </div>
+  {#- The sidebar's "Choose shown files" opens this dialog; app.js fetches its
+      contents (partials/view_file_dialog.html) each time it opens. It stays
+      outside .layout, which the overlay makes inert. -#}
+  <dialog id="view-files-dialog" class="dialog" aria-labelledby="view-files-dialog-title">
+    <div class="dialog-content" data-dialog-content hx-sync="this:replace"></div>
+  </dialog>
 </body>
 </html>
 {% endif %}

@@ -35,14 +35,44 @@ def _register(client: TestClient, settings: Settings, paths: list[Path], run_id:
     return register_shown_run(_workspace(client).database, settings, paths, run_id, "median")
 
 
-def _checked(sidebar: str) -> list[str]:
-    """Return the checked stems of the sidebar partial."""
-    return re.findall(r'name="file" value="([^"]+)" checked', sidebar)
-
-
-def _options(sidebar: str) -> list[str]:
-    """Return the stems of the sidebar partial's file choices."""
+def _shown(sidebar: str) -> list[str]:
+    """Return the stems of the sidebar partial's read-only list of shown files."""
     return re.findall(r'<li data-stem="([^"]+)">', sidebar)
+
+
+def _table(client: TestClient, **params: str) -> str:
+    """Return the shown-file dialog's table fragment."""
+    response = client.get("/sidebar/selection/files/table", params=params)
+    assert response.status_code == 200
+    return response.text
+
+
+def _options(client: TestClient) -> list[str]:
+    """Return the row keys of the shown-file dialog's table."""
+    return re.findall(r'<tr data-dt-key="([^"]+)"', _table(client))
+
+
+def _checked(table: str) -> list[str]:
+    """Return the checked row keys of a table fragment."""
+    return re.findall(
+        r'value="([^"]+)" aria-label="Select [^"]+" data-dt-row-check checked', table
+    )
+
+
+def _dialog(client: TestClient) -> str:
+    """Return the contents of the shown-file dialog."""
+    response = client.get("/sidebar/selection/files/dialog")
+    assert response.status_code == 200
+    return response.text
+
+
+def _save(client: TestClient, run: str, stems: list[str]) -> Mapping[str, str]:
+    """Save the shown files as the dialog's "Select" does and return the response headers."""
+    response = client.post(
+        "/sidebar/selection/files", data={"run": run, "stems": json.dumps(stems)}
+    )
+    assert response.status_code == 200
+    return response.headers
 
 
 def _trigger(headers: Mapping[str, str]) -> object:
@@ -75,31 +105,102 @@ def test_every_page_loads_the_sidebar_choices(client: TestClient) -> None:
     assert 'hx-trigger="load, fit-updated from:body, transform-updated from:body"' in match.group(0)
 
 
+def test_every_page_has_the_empty_file_dialog(client: TestClient) -> None:
+    """The dialog sits outside the layout; app.js fetches its contents when it opens."""
+    html = client.get("/").text
+
+    match = re.search(
+        r'<dialog id="view-files-dialog"[^>]*>\s*<div class="dialog-content" data-dialog-content[^>]*></div>',
+        html,
+    )
+    assert match is not None
+    assert html.index('class="layout"') < html.index("busy-overlay") < match.start()
+
+
 def test_sidebar_without_a_run_offers_nothing(client: TestClient) -> None:
     """Without a succeeded transform run, no file can be chosen."""
     sidebar = client.get("/sidebar/selection").text
 
     assert "<select" not in sidebar
-    assert 'name="run"' not in sidebar
-    assert 'name="file"' not in sidebar
+    assert "data-view-files-open" not in sidebar
     assert "No files to choose" in sidebar
+    dialog = _dialog(client)
+    assert 'name="run" value=""' in dialog
+    assert "No files to choose" in dialog
+    assert "data-datatable" not in dialog
+    assert 'class="button-primary" disabled>Select</button>' in dialog
 
 
-def test_sidebar_lists_the_transform_targets_of_the_newest_run(
+def test_sidebar_shows_the_count_the_names_and_the_dialog_button(
     client: TestClient, settings: Settings, spectra_paths: list[Path]
 ) -> None:
-    """The newest run is used by default; its files are listed in natural order."""
+    """The sidebar lists the chosen files read-only and opens the dialog to change them."""
     _register(client, settings, spectra_paths, "tr-1")
-    _register(client, settings, spectra_paths[:6], "tr-2")
 
     sidebar = client.get("/sidebar/selection").text
 
-    assert _options(sidebar) == STEMS[:6]
-    assert _checked(sidebar) == []
     assert "0 / 20" in sidebar
-    assert "data-view-file-search" in sidebar
-    assert "<select" not in sidebar
-    assert 'hx-post="/sidebar/selection/files"' in sidebar
+    assert _shown(sidebar) == []
+    assert "No files chosen" in sidebar
+    assert "<input" not in sidebar
+    assert "<form" not in sidebar
+    button = re.search(r"<button[^>]*data-view-files-open[^>]*>(.*?)</button>", sidebar, re.DOTALL)
+    assert button is not None
+    assert 'aria-label="Choose shown files"' in button.group(0)
+    assert ">open_in_new</span>" in button.group(1)
+
+    choose_view(client, files=["s-10", "s-02"])
+    sidebar = client.get("/sidebar/selection").text
+
+    assert "2 / 20" in sidebar
+    assert _shown(sidebar) == ["s-02", "s-10"]
+
+
+def test_dialog_starts_from_the_chosen_files_of_the_newest_run(
+    client: TestClient, settings: Settings, spectra_paths: list[Path]
+) -> None:
+    """The newest run is used by default; its table has its own id and the limit."""
+    _register(client, settings, spectra_paths, "tr-1")
+    _register(client, settings, spectra_paths[:6], "tr-2")
+    choose_view(client, files=["s-03"])
+
+    dialog = _dialog(client)
+
+    assert 'name="run" value="tr-2"' in dialog
+    assert 'id="view-files" class="dt-root" data-datatable hx-get="/sidebar/selection/files/table"' in dialog
+    assert 'data-dt-max-selected="20"' in dialog
+    assert """id="view-files-selection" name="stems" value='["s-03"]' form="view-files-form\"""" in dialog
+    assert '<form id="view-files-form" hx-post="/sidebar/selection/files"' in dialog
+    assert "data-view-choice" in dialog
+    assert "1 / 20" in dialog
+    assert "data-dialog-close" in dialog
+    assert _options(client) == STEMS[:6]
+    assert _checked(_table(client)) == ["s-03"]
+
+
+def test_dialog_table_has_the_file_table_columns_and_filters(
+    client: TestClient, settings: Settings, spectra_paths: list[Path]
+) -> None:
+    """Files missing from the catalog are rows with blank metadata; filters and sorting work."""
+    _register(client, settings, spectra_paths, "tr-1")
+
+    table = _table(client)
+
+    for header in ("file", "lot", "date", "yield_pct", "Steps", "(Step, Sequence)s", "rows"):
+        assert re.search(rf'data-dt-sort="[^"]+">{re.escape(header)}<span', table)
+    assert 'aria-label="Filter by file name"' in table
+    assert 'name="view-files.eq__lot"' in table
+    row = re.search(r'<tr data-dt-key="s-00">(.*?)</tr>', table, re.DOTALL)
+    assert row is not None
+    assert re.findall(r"<td[^>]*>([^<]*)</td>", row.group(1))[1:] == [""] * 6
+
+    assert re.findall(
+        r'<tr data-dt-key="([^"]+)"',
+        _table(client, **{"view-files.q__stem": "s-1", "view-files.order": "desc"}),
+    ) == ["s-11", "s-10"]
+    assert client.get(
+        "/sidebar/selection/files/table", params={"view-files.sort": "missing"}
+    ).status_code == 400
 
 
 def test_files_are_listed_in_natural_order(
@@ -114,9 +215,9 @@ def test_files_are_listed_in_natural_order(
         renamed.append(target)
     _register(client, settings, renamed, "tr-1")
 
-    assert _options(client.get("/sidebar/selection").text) == [
-        "t-1", "t-2", "t-3", "t-10", "t-21", "t-100"
-    ]
+    assert _options(client) == ["t-1", "t-2", "t-3", "t-10", "t-21", "t-100"]
+    choose_view(client, files=["t-10", "t-2"])
+    assert _shown(client.get("/sidebar/selection").text) == ["t-2", "t-10"]
 
 
 def test_choosing_files_keeps_transform_targets_and_announces_the_change(
@@ -125,17 +226,27 @@ def test_choosing_files_keeps_transform_targets_and_announces_the_change(
     """Unknown stems are ignored, and the change of the files is announced."""
     _register(client, settings, spectra_paths, "tr-1")
 
-    response = client.post(
-        "/sidebar/selection/files",
-        data={"run": "tr-1", "file": ["s-10", "ghost", "s-02"]},
-    )
+    headers = _save(client, "tr-1", ["s-10", "ghost", "s-02"])
 
-    assert response.status_code == 200
-    assert _trigger(response.headers) == {"view-selection-changed": {"changed": "files"}}
+    assert _trigger(headers) == {"view-selection-changed": {"changed": "files"}}
     assert _workspace(client).view_selection.stems == ["s-02", "s-10"]
     sidebar = client.get("/sidebar/selection").text
-    assert _checked(sidebar) == ["s-02", "s-10"]
+    assert _shown(sidebar) == ["s-02", "s-10"]
     assert "2 / 20" in sidebar
+
+
+@pytest.mark.parametrize("stems", ["s-01", '{"stems": []}', "[1]"])
+def test_a_selection_that_is_not_a_json_array_of_stems_is_rejected(
+    client: TestClient, settings: Settings, spectra_paths: list[Path], stems: str
+) -> None:
+    """The selection is the table's hidden input; anything else is a bad request."""
+    _register(client, settings, spectra_paths, "tr-1")
+    choose_view(client, files=["s-03"])
+
+    response = client.post("/sidebar/selection/files", data={"run": "tr-1", "stems": stems})
+
+    assert response.status_code == 400
+    assert _workspace(client).view_selection.stems == ["s-03"]
 
 
 def test_choosing_another_run_clears_the_files(
@@ -154,7 +265,8 @@ def test_choosing_another_run_clears_the_files(
     assert _trigger(response.headers) == {"view-selection-changed": {"changed": "run"}}
     assert _workspace(client).view_selection.run_id == "tr-1"
     assert _workspace(client).view_selection.stems == []
-    assert _options(client.get("/sidebar/selection").text) == STEMS
+    assert _shown(client.get("/sidebar/selection").text) == []
+    assert _options(client) == STEMS
 
 
 def test_unknown_run_is_rejected(
@@ -177,30 +289,29 @@ def test_choice_survives_new_runs_and_falls_back_when_gone(
     choose_view(client, run="tr-1", files=["s-03"])
     _register(client, settings, spectra_paths[:6], "tr-2")
 
-    sidebar = client.get("/sidebar/selection").text
-    assert _options(sidebar) == STEMS
-    assert _checked(sidebar) == ["s-03"]
+    assert _shown(client.get("/sidebar/selection").text) == ["s-03"]
+    assert _options(client) == STEMS
 
     _workspace(client).view_selection.choose_run("gone")
-    sidebar = client.get("/sidebar/selection").text
-    assert _checked(sidebar) == []
-    assert _options(sidebar) == STEMS[:6]
+    assert _shown(client.get("/sidebar/selection").text) == []
+    assert _options(client) == STEMS[:6]
 
 
 def test_files_beyond_the_limit_are_not_kept(
     limited_client: TestClient, settings: Settings, spectra_paths: list[Path]
 ) -> None:
-    """At ``ui.explore_max_files`` the other files cannot be checked."""
+    """At ``ui.explore_max_files`` the other rows of the dialog cannot be checked."""
     _register(limited_client, settings, spectra_paths, "tr-1")
 
     choose_view(limited_client, files=["s-10", "s-01", "s-00"])
 
     assert _workspace(limited_client).view_selection.stems == ["s-00", "s-01"]
-    sidebar = limited_client.get("/sidebar/selection").text
-    assert _checked(sidebar) == ["s-00", "s-01"]
-    assert 'name="file" value="s-02" disabled' in sidebar
-    assert "data-view-file-limit" in sidebar
-    assert "The limit of 2 files" in sidebar
+    assert "2 / 2" in limited_client.get("/sidebar/selection").text
+    assert 'data-dt-max-selected="2"' in _dialog(limited_client)
+    table = _table(limited_client)
+    assert _checked(table) == ["s-00", "s-01"]
+    assert 'value="s-02" aria-label="Select s-02" data-dt-row-check disabled' in table
+    assert re.search(r"<p class=\"dt-limit\"[^>]*data-dt-limit>", table) is not None
 
 
 def test_adding_a_file_stops_at_the_limit(
@@ -255,10 +366,12 @@ def test_a_figure_of_another_run_adds_nothing(
     assert _workspace(client).view_selection.stems == []
 
 
-def test_a_sidebar_of_another_run_changes_nothing(
+
+
+def test_a_dialog_of_another_run_changes_nothing(
     client: TestClient, settings: Settings, spectra_paths: list[Path]
 ) -> None:
-    """Checkboxes drawn before the run changed (in another tab) keep the choice.
+    """A selection made in a dialog opened before the run changed (in another tab) keeps the choice.
 
     The response announces a change of the run, so the browser also replaces
     the main part drawn with the previous run.
@@ -266,13 +379,11 @@ def test_a_sidebar_of_another_run_changes_nothing(
     _register(client, settings, spectra_paths, "tr-1")
     _register(client, settings, spectra_paths, "tr-2")
     choose_view(client, run="tr-2", files=["s-02"])
-    assert 'name="run" value="tr-2"' in client.get("/sidebar/selection").text
+    assert 'name="run" value="tr-2"' in _dialog(client)
 
-    response = client.post(
-        "/sidebar/selection/files", data={"run": "tr-1", "file": ["s-01"]}
-    )
+    headers = _save(client, "tr-1", ["s-01"])
 
-    assert _trigger(response.headers) == {"view-selection-changed": {"changed": "run"}}
+    assert _trigger(headers) == {"view-selection-changed": {"changed": "run"}}
     assert _workspace(client).view_selection.stems == ["s-02"]
 
 

@@ -376,11 +376,11 @@ def test_old_succeeded_run_can_be_chosen(
     _add_runs(client, settings, 101, "succeeded")
 
     html = client.get("/explore", params={"view": "preprocessed"}).text
-    sidebar = client.get("/sidebar/selection").text
+    table = client.get("/sidebar/selection/files/table").text
 
     assert f"run {fit_run} の表示ファイル" in html
     assert 'data-heatmap-label="s-00"' in html
-    assert 'data-stem="s-00"' in sidebar
+    assert '<tr data-dt-key="s-00">' in table
 
 
 def _trend_values(

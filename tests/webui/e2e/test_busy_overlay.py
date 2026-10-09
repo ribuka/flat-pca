@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 from playwright.sync_api import Page, Request, Route, expect
-from sidebar_choice import mark_page, wait_for_sidebar, wait_for_view_refresh
+from sidebar_choice import (
+    mark_page,
+    select_in_dialog,
+    shown_files,
+    wait_for_sidebar,
+    wait_for_view_refresh,
+)
 
 pytestmark = pytest.mark.e2e
 
@@ -103,7 +109,7 @@ def test_cancelling_a_refresh_shows_the_server_choice(
     expect(heatmap).to_have_attribute("data-heatmap-label", "s-00")
     mark_page(page)
 
-    page.locator('#view-selection input[value="s-05"]').check()
+    select_in_dialog(page, ["s-05"])
 
     expect(page.locator("#busy-overlay")).to_have_class("busy-overlay busy-visible")
     page.locator("#busy-cancel").click()
@@ -111,7 +117,7 @@ def test_cancelling_a_refresh_shows_the_server_choice(
     wait_for_view_refresh(page)
     expect(page.locator("#busy-overlay")).to_be_hidden()
     # The server took the choice before the cancel, and the sidebar shows it.
-    expect(page.locator('#view-selection input[value="s-05"]')).to_be_checked()
+    expect(shown_files(page)).to_have_text(["s-05"])
     expect(heatmap).to_have_attribute("data-heatmap-label", "s-00")
     assert len(pending) == 1
 
@@ -134,7 +140,7 @@ def test_a_failed_refresh_releases_the_page(
     wait_for_sidebar(page)
     mark_page(page)
 
-    page.locator('#view-selection input[value="s-05"]').check()
+    select_in_dialog(page, ["s-05"])
 
     wait_for_view_refresh(page)
     expect(page.locator("#busy-overlay")).to_be_hidden()

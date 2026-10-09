@@ -1,25 +1,25 @@
+{% from "macros/icon.html" import icon %}
 <div class="view-selection-field">
-  <span class="view-selection-label">Shown files
-    <span class="muted" data-view-file-count>{{ choice.files|length }} / {{ max_files }}</span>
-  </span>
-  {% if choice.file_options %}
-    <input type="search" class="view-file-search" placeholder="Filter by file name" aria-label="Filter the shown files" data-view-file-search>
-    <form id="view-files-form" hx-post="/sidebar/selection/files" hx-trigger="change" hx-swap="none" data-view-choice>
-      <input type="hidden" name="run" value="{{ choice.run_id }}">
-      <ul class="view-file-list">
-        {% set full = choice.files|length >= max_files %}
-        {% for stem in choice.file_options %}
-          {% set checked = stem in choice.files %}
-          <li data-stem="{{ stem }}">
-            <label><input type="checkbox" name="file" value="{{ stem }}" {% if checked %}checked{% elif full %}disabled{% endif %}> {{ stem }}</label>
-          </li>
-        {% endfor %}
-      </ul>
-    </form>
-    {% if full %}
-      <p class="muted" data-view-file-limit>The limit of {{ max_files }} files is reached; clear one to choose another.</p>
+  <div class="view-selection-heading">
+    <span class="view-selection-label">Shown files
+      <span class="muted" data-view-file-count>{{ choice.files|length }} / {{ max_files }}</span>
+    </span>
+    {% if choice.file_options %}
+      {#- Opens the dialog of base.html, whose contents app.js fetches each time. -#}
+      <button type="button" class="icon-button" aria-label="Choose shown files" title="Choose shown files" data-view-files-open>
+        {{- icon("open_in_new") -}}
+      </button>
     {% endif %}
-  {% else %}
+  </div>
+  {% if not choice.file_options %}
     <p class="muted">No files to choose</p>
+  {% elif choice.files %}
+    <ul class="view-file-list" data-view-file-list>
+      {% for stem in choice.files %}
+        <li data-stem="{{ stem }}">{{ stem }}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted" data-view-file-none>No files chosen</p>
   {% endif %}
 </div>

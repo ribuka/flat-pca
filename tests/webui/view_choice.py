@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 
 from fastapi.testclient import TestClient
@@ -24,7 +25,8 @@ def choose_view(
         shown files.
     files : Sequence[str] | None, default None
         Shown files to choose after the run; ``None`` keeps them. They are
-        sent with the run in use, as the sidebar drawn with it does.
+        sent as a JSON array with the run in use, as the shown-file dialog
+        opened with it does.
     """
     if run is not None:
         response = client.post("/transform/show", data={"run": run})
@@ -32,6 +34,7 @@ def choose_view(
     if files is not None:
         shown_run = current_view_choice(client.app.state.workspace).run_id
         response = client.post(
-            "/sidebar/selection/files", data={"run": shown_run, "file": list(files)}
+            "/sidebar/selection/files",
+            data={"run": shown_run, "stems": json.dumps(list(files))},
         )
         assert response.status_code == 200
