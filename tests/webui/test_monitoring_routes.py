@@ -48,15 +48,31 @@ def _decode(values: object) -> list[object]:
     return list(values)  # type: ignore[call-overload]
 
 
-def _points(html: str, name: str) -> dict[str, tuple[float, float]]:
-    """Return ``(x, y)`` of every point of a T²/Q figure keyed by stem."""
-    points: dict[str, tuple[float, float]] = {}
+def _points(html: str, name: str) -> dict[str, tuple[object, float]]:
+    """Return ``(x, y)`` of every point of a T²/Q figure keyed by stem.
+
+    ``x`` is a number, or the ISO text of a date on a date axis.
+    """
+    points: dict[str, tuple[object, float]] = {}
     for trace in _figure(html, f"monitoring-{name}-figure")["data"]:  # type: ignore[union-attr]
         for stem, x, y in zip(
             _decode(trace["customdata"]), _decode(trace["x"]), _decode(trace["y"]), strict=True
         ):
-            points[str(stem)] = (float(x), float(y))
+            points[str(stem)] = (x, float(y))
     return points
+
+
+def _x_order(html: str, name: str) -> list[str]:
+    """Return the stems of a control chart sorted by their horizontal position."""
+    positions = _points(html, name)
+    return sorted(positions, key=lambda stem: positions[stem][0])  # type: ignore[arg-type, return-value]
+
+
+def _as_category(html: str) -> str:
+    """Return the ``As category`` checkbox of the page."""
+    match = re.search(r'<input type="checkbox" name="as_category"[^>]*>', html)
+    assert match is not None
+    return match.group(0)
 
 
 @pytest.fixture
@@ -83,6 +99,7 @@ def _register(
     metadata = {
         path.stem: {
             "lot": "AB"[index % 2],
+            "yield_pct": 80.0 + index,
             "date": None
             if path.stem == UNDATED
             else f"2024-01-{SPECTRA_FILE_COUNT - index:02d}T00:00:00",
@@ -123,38 +140,86 @@ def test_navigation_links_to_the_page(client: TestClient) -> None:
 
 
 @pytest.mark.usefixtures("run_dir")
-def test_default_order_follows_the_default_column(client: TestClient) -> None:
-    """Without a choice, the charts follow ``ui.default_order_by``."""
+def test_default_x_axis_draws_the_default_date_column(client: TestClient) -> None:
+    """Without a choice, the charts draw ``ui.default_x_axis`` on a date axis."""
     response = client.get("/monitoring")
 
     assert response.status_code == 200
     html = response.text
     assert '<option value="date" selected>' in html
+    assert "checked" not in _as_category(html)
+    assert "disabled" not in _as_category(html)
     assert 'data-plot="monitoring-q-figure" data-point-table="point-table"' in html
     assert "data-select-url" not in html
     assert "data-open-url" not in html
     assert "run fit-1 の T² と Q です。" in html
+    assert "管理図の横軸は date の値です。" in html
     assert 'name="run"' not in html
-    # The last file has the earliest date and the undated file comes last.
+    # The last file has the earliest date; the undated file has no position.
+    expected = [f"s-{index:02d}" for index in reversed(range(SPECTRA_FILE_COUNT))]
+    expected.remove(UNDATED)
+    for name in ("t2", "q"):
+        assert _x_order(html, name) == expected
+    positions = _points(html, "q")
+    assert positions["s-00"][0] == f"2024-01-{SPECTRA_FILE_COUNT:02d}T00:00:00"
+    layout = _figure(html, "monitoring-q-figure")["layout"]
+    assert layout["xaxis"]["title"]["text"] == "date"  # type: ignore[index]
+    unplotted = html.split("data-unplotted>", 1)[1].split("</p>", 1)[0]
+    assert unplotted == f"Not in the control charts because date is missing: {UNDATED}"
+    # The scatter plot and the UCL summary still hold the undated file.
+    assert UNDATED in _points(html, "scatter")
+    assert f"/ {SPECTRA_FILE_COUNT} files" in html
+
+
+@pytest.mark.usefixtures("run_dir")
+def test_numeric_column_is_drawn_at_its_values(client: TestClient) -> None:
+    """A numeric column places each point at its value."""
+    html = client.get("/monitoring", params={"x_axis": "yield_pct"}).text
+
+    positions = _points(html, "t2")
+    assert {stem: x for stem, (x, _) in positions.items()} == {
+        f"s-{index:02d}": 80.0 + index for index in range(SPECTRA_FILE_COUNT)
+    }
+    assert "data-unplotted" not in html
+
+
+@pytest.mark.usefixtures("run_dir")
+def test_numeric_column_as_category_draws_the_rank(client: TestClient) -> None:
+    """``As category`` draws the files at their rank, with missing values last."""
+    html = client.get("/monitoring", params={"x_axis": "date", "as_category": "true"}).text
+
+    assert "checked" in _as_category(html)
+    assert "管理図は date の昇順" in html
     expected = [f"s-{index:02d}" for index in reversed(range(SPECTRA_FILE_COUNT))]
     expected.remove(UNDATED)
     positions = _points(html, "q")
-    assert sorted(positions, key=lambda stem: positions[stem][0]) == [*expected, UNDATED]
-    assert sorted(positions[stem][0] for stem in positions) == list(
-        range(1, SPECTRA_FILE_COUNT + 1)
-    )
+    assert _x_order(html, "q") == [*expected, UNDATED]
+    assert sorted(x for x, _ in positions.values()) == list(range(1, SPECTRA_FILE_COUNT + 1))
+    layout = _figure(html, "monitoring-q-figure")["layout"]
+    assert layout["xaxis"]["title"]["text"] == "file order (date)"  # type: ignore[index]
+    assert "data-unplotted" not in html
+
+
+@pytest.mark.usefixtures("run_dir")
+@pytest.mark.parametrize("as_category", ["", "true"])
+def test_category_column_disables_as_category(client: TestClient, as_category: str) -> None:
+    """A category column is always drawn by rank and disables ``As category``."""
+    params = {"x_axis": "lot"} | ({"as_category": as_category} if as_category else {})
+    html = client.get("/monitoring", params=params).text
+
+    assert "disabled" in _as_category(html)
+    positions = _points(html, "t2")
+    assert sorted(x for x, _ in positions.values()) == list(range(1, SPECTRA_FILE_COUNT + 1))
 
 
 @pytest.mark.usefixtures("run_dir")
 def test_natural_order_on_request(client: TestClient) -> None:
-    """An empty order choice sorts the files by their names."""
-    html = client.get("/monitoring", params={"order": ""}).text
+    """An empty x axis choice sorts the files by their names."""
+    html = client.get("/monitoring", params={"x_axis": ""}).text
 
     assert '<option value="" selected>' in html
-    positions = _points(html, "t2")
-    assert sorted(positions, key=lambda stem: positions[stem][0]) == [
-        f"s-{index:02d}" for index in range(SPECTRA_FILE_COUNT)
-    ]
+    assert "disabled" in _as_category(html)
+    assert _x_order(html, "t2") == [f"s-{index:02d}" for index in range(SPECTRA_FILE_COUNT)]
 
 
 def test_figures_show_the_saved_statistics(client: TestClient, run_dir: Path) -> None:
@@ -169,14 +234,15 @@ def test_figures_show_the_saved_statistics(client: TestClient, run_dir: Path) ->
     for stem, (_, value) in _points(html, "q").items():
         assert value == pytest.approx(q[stem])
     for stem, (x, y) in _points(html, "scatter").items():
-        assert (x, y) == pytest.approx((t2[stem], q[stem]))
+        assert (float(x), y) == pytest.approx((t2[stem], q[stem]))  # type: ignore[arg-type]
     shapes = _figure(html, "monitoring-scatter-figure")["layout"]["shapes"]  # type: ignore[index]
     assert shapes[0]["x0"] == pytest.approx(saved["mahalanobis_ucl"][0])
     assert shapes[1]["y0"] == pytest.approx(saved["spe_ucl"][0])
     exceeding = saved.filter(pl.col("spe_exceeds_ucl"))["stem"].to_list()
     assert f"Q {len(exceeding)}" in html.split("data-exceeding", 1)[1].split("</p>", 1)[0]
-    q_traces = _figure(html, "monitoring-q-figure")["data"]  # type: ignore[index]
-    assert sorted(_decode(q_traces[1]["customdata"])) == sorted(exceeding)  # type: ignore[index]
+    # Points above a UCL are drawn like the others, in one trace per figure.
+    for name in ("t2", "q", "scatter"):
+        assert len(_figure(html, f"monitoring-{name}-figure")["data"]) == 1  # type: ignore[arg-type]
 
 
 @pytest.mark.usefixtures("run_dir")
@@ -188,14 +254,14 @@ def test_points_are_colored_by_the_default_column(client: TestClient) -> None:
     assert '<option value="lot" selected>' in html
     for name in ("t2", "q", "scatter"):
         figure = _figure(html, f"monitoring-{name}-figure")
-        groups = {trace["legendgroup"] for trace in figure["data"]}  # type: ignore[index, union-attr]
-        assert groups == {"A", "B"}
+        names = {trace["name"] for trace in figure["data"]}  # type: ignore[index, union-attr]
+        assert names == {"A", "B"}
         assert figure["layout"]["legend"]["title"]["text"] == "lot"  # type: ignore[index]
 
     uncolored = client.get("/monitoring", params={"color": ""}).text
     assert '<option value="" selected>none</option>' in uncolored
-    names = [trace["name"] for trace in _figure(uncolored, "monitoring-q-figure")["data"]]  # type: ignore[union-attr]
-    assert names == ["within UCL", "exceeds UCL"]
+    (trace,) = _figure(uncolored, "monitoring-q-figure")["data"]  # type: ignore[misc]
+    assert "name" not in trace
 
 
 def _point_rows(html: str) -> list[list[str]]:
@@ -218,8 +284,8 @@ def test_point_table_holds_the_statistics_of_every_file(
     for name in ("t2", "scatter"):
         assert f'data-plot="monitoring-{name}-figure" data-point-table="point-table"' in html
     rows = _point_rows(html)
-    positions = _points(html, "q")
-    assert [row[0] for row in rows] == sorted(positions, key=lambda stem: positions[stem][0])
+    # In chart order, followed by the undated file missing from the charts.
+    assert [row[0] for row in rows] == [*_x_order(html, "q"), UNDATED]
     saved = _scores_by_stem(run_dir)
     for row in rows:
         record = saved.row(by_predicate=pl.col("stem") == row[0], named=True)
@@ -258,9 +324,9 @@ def test_page_shows_the_run_chosen_on_the_transform_screen(
 
 
 @pytest.mark.usefixtures("run_dir")
-def test_unknown_order_column_falls_back_to_the_default(client: TestClient) -> None:
-    """An unavailable ordering column is replaced by the default one."""
-    html = client.get("/monitoring", params={"order": "missing"}).text
+def test_unknown_x_axis_column_falls_back_to_the_default(client: TestClient) -> None:
+    """An unavailable horizontal-axis column is replaced by the default one."""
+    html = client.get("/monitoring", params={"x_axis": "missing"}).text
 
     assert '<option value="date" selected>' in html
 
@@ -396,13 +462,13 @@ def test_q_contributions_add_up_to_the_saved_q(
 
 @pytest.mark.usefixtures("run_dir")
 def test_points_can_be_colored_by_file_name(client: TestClient) -> None:
-    """Color by offers the file name, which the order choices do not."""
+    """Color by offers the file name, which the x axis choices do not."""
     html = client.get("/monitoring", params={"color": "stem"}).text
 
     assert '<option value="stem" selected>file name</option>' in html
-    order = html.split('name="order"', 1)[1].split("</select>", 1)[0]
-    assert 'value="stem"' not in order
+    x_axis = html.split('name="x_axis"', 1)[1].split("</select>", 1)[0]
+    assert 'value="stem"' not in x_axis
     scatter = _figure(html, "monitoring-scatter-figure")
-    groups = {trace["legendgroup"] for trace in scatter["data"]}  # type: ignore[index, union-attr]
-    assert groups == {f"s-{index:02d}" for index in range(SPECTRA_FILE_COUNT)}
+    names = {trace["name"] for trace in scatter["data"]}  # type: ignore[index, union-attr]
+    assert names == {f"s-{index:02d}" for index in range(SPECTRA_FILE_COUNT)}
     assert scatter["layout"]["legend"]["title"]["text"] == "stem"  # type: ignore[index]

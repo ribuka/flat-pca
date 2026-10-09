@@ -29,7 +29,7 @@
     {% elif figures %}
       <p class="muted">
         run {{ shown.run_id }} の T² と Q です。色分けは 3 つの図に共通です。
-        UCL を超えた点を強調します。点をクリックするか範囲を選ぶと、そのファイルを図の下の表に表示します。
+        点をクリックするか範囲を選ぶと、そのファイルを図の下の表に表示します。
       </p>
       <p data-exceeding>
         Above UCL: T² {{ shown.points.t2_exceeding|length }}{% if shown.points.t2_exceeding %} ({{ shown.points.t2_exceeding|join(", ") }}){% endif %},
@@ -48,23 +48,32 @@
     <summary><h2>Control charts</h2></summary>
     <div class="card-body">
       <div class="field-row">
-        <label>Order by
-          <select name="order" form="monitoring-form">
-            <option value="" {% if shown.order is none %}selected{% endif %}>file name (natural order)</option>
-            {% for column in shown.order_options %}
-              <option value="{{ column }}" {% if column == shown.order %}selected{% endif %}>{{ column }}</option>
+        <label>X axis
+          <select name="x_axis" form="monitoring-form">
+            <option value="" {% if shown.x_axis is none %}selected{% endif %}>file name (natural order)</option>
+            {% for column in shown.x_axis_options %}
+              <option value="{{ column }}" {% if column == shown.x_axis %}selected{% endif %}>{{ column }}</option>
             {% endfor %}
           </select>
         </label>
+        {#- Only a numeric, date, or datetime column can be drawn on a numeric axis. -#}
+        <label><input type="checkbox" name="as_category" value="true" form="monitoring-form" {% if shown.as_category %}checked{% endif %} {% if not shown.x_axis_numeric %}disabled{% endif %}> As category</label>
         <button type="submit" form="monitoring-form">Show</button>
       </div>
       <p class="muted">
-        {% if shown.order is none %}管理図はファイル名の自然順に並べています。{% else %}管理図は {{ shown.order }} の昇順（欠損は末尾、同じ値はファイル名の自然順）に並べています。{% endif %}
+        {% if shown.x_axis is none -%}
+          管理図はファイル名の自然順に並べています。
+        {%- elif shown.numeric_axis -%}
+          管理図の横軸は {{ shown.x_axis }} の値です。
+        {%- else -%}
+          管理図は {{ shown.x_axis }} の昇順（欠損は末尾、同じ値はファイル名の自然順）に並べています。
+        {%- endif %}
       </p>
-      <div class="plot-grid">
-        <div id="monitoring-t2" class="plot" data-plot="monitoring-t2-figure" data-point-table="point-table"></div>
-        <div id="monitoring-q" class="plot" data-plot="monitoring-q-figure" data-point-table="point-table"></div>
-      </div>
+      {% if shown.unplotted %}
+        <p class="warnings" data-unplotted>Not in the control charts because {{ shown.x_axis }} is missing: {{ shown.unplotted|join(", ") }}</p>
+      {% endif %}
+      <div id="monitoring-t2" class="plot" data-plot="monitoring-t2-figure" data-point-table="point-table"></div>
+      <div id="monitoring-q" class="plot" data-plot="monitoring-q-figure" data-point-table="point-table"></div>
     </div>
   </details>
 

@@ -1,14 +1,18 @@
-"""Tests for the file order of the T² and Q control charts."""
+"""Tests for the horizontal axis of the T² and Q control charts."""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, time
 
 import numpy as np
 import polars as pl
 import pytest
 
-from flat_pca.webui.services.monitoring import control_chart_order
+from flat_pca.webui.services.control_chart_axis import (
+    control_chart_order,
+    missing_axis_values,
+    supports_numeric_axis,
+)
 
 
 def _samples() -> pl.DataFrame:
@@ -59,3 +63,45 @@ def test_metadata_column_may_share_an_internal_name(name: str) -> None:
     samples = pl.DataFrame({"stem": ["s-10", "s-2", "s-1"], name: [30, 10, 10]})
 
     np.testing.assert_array_equal(control_chart_order(samples, name), [2, 1, 0])
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        ([1, 2], True),
+        ([1.5, 2.5], True),
+        ([date(2024, 1, 1)], True),
+        (["2024-01-01T12:00:00"], False),
+        (["A", "B"], False),
+        ([True, False], False),
+        ([time(12)], False),
+    ],
+)
+def test_supports_numeric_axis(values: list[object], expected: bool) -> None:
+    """Numbers, dates, and datetimes go on a numeric axis; other types go by rank."""
+    assert supports_numeric_axis(pl.Series(values).dtype) is expected
+
+
+def test_categorical_column_is_not_numeric() -> None:
+    """A categorical column is drawn by rank."""
+    assert not supports_numeric_axis(pl.Series(["A"], dtype=pl.Categorical).dtype)
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        (pl.Series([1.0, None, float("nan"), 2.0]), [False, True, True, False]),
+        (pl.Series([1, None, 3]), [False, True, False]),
+        (pl.Series([date(2024, 1, 1), None]), [False, True]),
+    ],
+)
+def test_missing_axis_values(values: pl.Series, expected: list[bool]) -> None:
+    """Nulls and float NaN values cannot be placed on a numeric axis."""
+    np.testing.assert_array_equal(missing_axis_values(values), expected)
+
+
+def test_datetime_column_is_numeric() -> None:
+    """A datetime column goes on a (date) numeric axis."""
+    values = pl.Series(["2024-01-01T12:00:00"]).str.to_datetime()
+
+    assert supports_numeric_axis(values.dtype)

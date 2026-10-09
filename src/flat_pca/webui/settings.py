@@ -139,8 +139,9 @@ class UiSettings(_StrictModel):
     ----------
     default_color_by : str | None
         Metadata column used to color scatter plots by default.
-    default_order_by : str | None
-        Metadata column ordering T²/Q control charts by default.
+    default_x_axis : str | None
+        Metadata column on the horizontal axis of the T²/Q control charts
+        by default.
     heatmap_max_cells : int
         Maximum number of heatmap cells sent to the browser.
     explore_max_files : int
@@ -152,7 +153,7 @@ class UiSettings(_StrictModel):
     """
 
     default_color_by: str | None = None
-    default_order_by: str | None = None
+    default_x_axis: str | None = None
     heatmap_max_cells: PositiveInt = 1_200_000
     explore_max_files: PositiveInt = 20
     memory_poll_seconds: PositiveInt = 5
@@ -206,7 +207,7 @@ class Settings(_StrictModel):
             The validated settings.
         """
         columns = self.metadata_columns
-        for field in ("default_color_by", "default_order_by"):
+        for field in ("default_color_by", "default_x_axis"):
             name = getattr(self.ui, field)
             if name is not None and name not in columns:
                 raise ValueError(f"ui.{field} is not a metadata column: {name!r}")

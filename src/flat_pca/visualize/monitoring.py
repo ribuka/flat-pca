@@ -8,18 +8,13 @@ import polars as pl
 
 from .marker_color import category_color, color_groups, continuous_marker
 
-WITHIN_UCL_NAME = "within UCL"
-EXCEEDS_UCL_NAME = "exceeds UCL"
-EXCEEDS_UCL_COLOR = "#d62728"
-UCL_LINE = {"color": EXCEEDS_UCL_COLOR, "dash": "dash", "width": 1}
-WITHIN_MARKER = {"size": 8}
-EXCEEDS_MARKER = {"size": 11, "symbol": "diamond"}
-# A colored point above a limit keeps its color and gets this outline.
-EXCEEDS_OUTLINE = {"line": {"color": EXCEEDS_UCL_COLOR, "width": 2}}
+UCL_COLOR = "#d62728"
+UCL_LINE = {"color": UCL_COLOR, "dash": "dash", "width": 1}
+MARKER = {"size": 8}
 
 
 def _marker_trace(
-    rows: np.ndarray,
+    rows: np.ndarray | slice,
     x: np.ndarray,
     y: np.ndarray,
     names: np.ndarray,
@@ -31,8 +26,8 @@ def _marker_trace(
 
     Parameters
     ----------
-    rows : np.ndarray
-        Boolean mask or positions of the points of the trace.
+    rows : np.ndarray | slice
+        Positions of the points of the trace.
     x, y : np.ndarray
         Coordinates of all points.
     names : np.ndarray
@@ -60,28 +55,23 @@ def _marker_trace(
     )
 
 
-def _split_traces(
+def _marker_traces(
     x: np.ndarray,
     y: np.ndarray,
-    exceeds: np.ndarray,
     names: np.ndarray,
     hover: str,
     text: np.ndarray | None = None,
     color: pl.Series | None = None,
 ) -> list[go.Scatter]:
-    """Return marker traces that highlight the points above a limit.
+    """Return the marker traces of the points, colored like the score scatter plot.
 
-    Without ``color``, the points within the limits form one trace and the
-    points above them a red, larger diamond trace. With ``color``, every
-    point is colored by its value like the score scatter plot, and the points
-    above a limit are larger diamonds outlined in red.
+    Every point is drawn with the same marker, whether or not it lies above
+    a control limit.
 
     Parameters
     ----------
     x, y : np.ndarray
         Point coordinates.
-    exceeds : np.ndarray
-        Boolean mask of the points above a control limit.
     names : np.ndarray
         Name of each point, carried as ``customdata``.
     hover : str
@@ -90,91 +80,37 @@ def _split_traces(
         Extra hover text of each point.
     color : pl.Series | None, optional
         Value coloring each point, titled by the series name. A numeric
-        series is drawn with a continuous color scale shared by both traces;
-        any other series draws a within-limit and an above-limit trace per
-        value, grouped in the legend by value.
+        series is drawn with a continuous color scale; any other series
+        draws one trace per value, named by the value.
 
     Returns
     -------
     list[go.Scatter]
-        Without ``color`` or with a numeric one, the within-limit trace
-        followed by the highlighted trace; with a categorical one, those two
-        traces of each value in turn.
+        One trace of every point without ``color`` or with a numeric one;
+        one trace of each value with a categorical one.
     """
+    every = slice(None)
     if color is None:
-        return [
-            _marker_trace(~exceeds, x, y, names, hover, text, name=WITHIN_UCL_NAME, marker=WITHIN_MARKER),
-            _marker_trace(
-                exceeds,
-                x,
-                y,
-                names,
-                hover,
-                text,
-                name=EXCEEDS_UCL_NAME,
-                marker=EXCEEDS_MARKER | {"color": EXCEEDS_UCL_COLOR},
-            ),
-        ]
+        return [_marker_trace(every, x, y, names, hover, text, marker=MARKER)]
     if color.dtype.is_numeric():
-        within = np.flatnonzero(~exceeds)
-        above = np.flatnonzero(exceeds)
-        # The one color bar goes on a trace holding a finite color value, as
-        # Plotly.js cannot draw the bar of a trace whose values are all missing.
-        finite = np.isfinite(color.cast(pl.Float64).to_numpy())
-        within_scale = bool(finite[within].any())
         return [
             _marker_trace(
-                within,
-                x,
-                y,
-                names,
-                hover,
-                text,
-                name=WITHIN_UCL_NAME,
-                marker=WITHIN_MARKER | continuous_marker(color, within, showscale=within_scale),
-            ),
-            _marker_trace(
-                above,
-                x,
-                y,
-                names,
-                hover,
-                text,
-                name=EXCEEDS_UCL_NAME,
-                marker=EXCEEDS_MARKER
-                | continuous_marker(color, above, showscale=not within_scale)
-                | EXCEEDS_OUTLINE,
-            ),
+                every, x, y, names, hover, text, marker=MARKER | continuous_marker(color)
+            )
         ]
-    traces = []
-    for index, (value, rows) in enumerate(color_groups(color).items()):
-        fill = {"color": category_color(index)}
-        traces += [
-            _marker_trace(
-                rows[~exceeds[rows]],
-                x,
-                y,
-                names,
-                hover,
-                text,
-                name=value,
-                legendgroup=value,
-                marker=WITHIN_MARKER | fill,
-            ),
-            _marker_trace(
-                rows[exceeds[rows]],
-                x,
-                y,
-                names,
-                hover,
-                text,
-                name=f"{value} ({EXCEEDS_UCL_NAME})",
-                legendgroup=value,
-                showlegend=bool(exceeds[rows].any()),
-                marker=EXCEEDS_MARKER | fill | EXCEEDS_OUTLINE,
-            ),
-        ]
-    return traces
+    return [
+        _marker_trace(
+            rows,
+            x,
+            y,
+            names,
+            hover,
+            text,
+            name=value,
+            marker=MARKER | {"color": category_color(index)},
+        )
+        for index, (value, rows) in enumerate(color_groups(color).items())
+    ]
 
 
 def _color_layout(color: pl.Series | None) -> dict[str, object]:
@@ -188,16 +124,31 @@ def _color_layout(color: pl.Series | None) -> dict[str, object]:
     Returns
     -------
     dict[str, object]
-        Layout properties: the legend is titled by the color column, and
-        with a numeric one it lies above the plot, clear of the color bar.
+        Layout properties: a categorical color titles the legend by its
+        column; otherwise there is no legend to lay out.
     """
-    if color is None:
+    if color is None or color.dtype.is_numeric():
         return {}
-    if color.dtype.is_numeric():
-        return {
-            "legend": {"orientation": "h", "x": 1, "xanchor": "right", "y": 1.02, "yanchor": "bottom"}
-        }
     return {"legend_title_text": color.name}
+
+
+def _axis_values(x: pl.Series) -> np.ndarray:
+    """Return the values of a numeric or temporal series as plot coordinates.
+
+    Parameters
+    ----------
+    x : pl.Series
+        Numeric, date, or datetime values.
+
+    Returns
+    -------
+    np.ndarray
+        ``float64`` values of a numeric series; Python ``date`` or
+        ``datetime`` objects otherwise, which Plotly draws on a date axis.
+    """
+    if x.dtype.is_numeric():
+        return x.cast(pl.Float64).to_numpy()
+    return np.asarray(x.to_list(), dtype=object)
 
 
 def create_control_chart(
@@ -206,16 +157,17 @@ def create_control_chart(
     ucl: float,
     labels: Sequence[str],
     y_name: str,
-    order_values: Sequence[str] | None = None,
-    order_name: str | None = None,
+    x: pl.Series | None = None,
+    x_text: Sequence[str] | None = None,
+    x_name: str | None = None,
     color: pl.Series | None = None,
 ) -> go.Figure:
-    """Create a control chart of one statistic in the given file order.
+    """Create a control chart of one statistic.
 
-    The points are drawn at positions ``1..n`` in the order given, with a
-    dashed line at the upper control limit. Points above the limit are
-    drawn in a separate, highlighted trace. Each point carries its label as
-    ``customdata``, so a click handler can tell which sample was chosen.
+    Without ``x``, the points are drawn at the positions ``1..n`` in the
+    order given; with ``x``, at its values on a numeric or date axis. A
+    dashed line marks the upper control limit. Each point carries its label
+    as ``customdata``, so a click handler can tell which sample was chosen.
 
     Parameters
     ----------
@@ -227,12 +179,17 @@ def create_control_chart(
         Name of each point in the hover text and ``customdata``.
     y_name : str
         Label of the vertical axis, such as ``"T²"``.
-    order_values : Sequence[str] | None, optional
-        Text of the ordering value of each point, shown in the hover text.
-    order_name : str | None, optional
-        Name of the ordering column; the horizontal axis is titled with it.
+    x : pl.Series | None, optional
+        Numeric, date, or datetime horizontal position of each point,
+        without missing values. ``None`` for the positions ``1..n``.
+    x_text : Sequence[str] | None, optional
+        Text of the horizontal-axis value of each point, shown in the hover
+        text.
+    x_name : str | None, optional
+        Name of the horizontal-axis column. It titles the axis, as
+        ``file order (<x_name>)`` without ``x``.
     color : pl.Series | None, optional
-        Value coloring each point, in display order; see ``_split_traces``.
+        Value coloring each point, in display order; see ``_marker_traces``.
 
     Returns
     -------
@@ -240,21 +197,20 @@ def create_control_chart(
         Control chart.
     """
     ys = np.asarray(values, dtype=np.float64)
-    xs = np.arange(1, ys.size + 1)
-    text = None if order_values is None else np.asarray(list(order_values), dtype=object)
-    order_line = "" if text is None else f"{order_name or 'order'}=%{{text}}<br>"
-    hover = (
-        "%{customdata}<br>" + order_line + f"{y_name}=%{{y:.4g}}<extra></extra>"
-    )
+    xs = np.arange(1, ys.size + 1) if x is None else _axis_values(x)
+    text = None if x_text is None else np.asarray(list(x_text), dtype=object)
+    x_line = "" if text is None else f"{x_name or 'x'}=%{{text}}<br>"
+    hover = "%{customdata}<br>" + x_line + f"{y_name}=%{{y:.4g}}<extra></extra>"
     figure = go.Figure(
-        _split_traces(
-            xs, ys, ys > ucl, np.asarray(list(labels), dtype=object), hover, text, color
-        )
+        _marker_traces(xs, ys, np.asarray(list(labels), dtype=object), hover, text, color)
     )
     figure.add_hline(
         y=ucl, line=UCL_LINE, annotation_text=f"UCL = {ucl:.4g}", annotation_position="top left"
     )
-    x_title = "file order" if order_name is None else f"file order ({order_name})"
+    if x is not None:
+        x_title = x_name
+    else:
+        x_title = "file order" if x_name is None else f"file order ({x_name})"
     return figure.update_layout(xaxis_title=x_title, yaxis_title=y_name, **_color_layout(color))
 
 
@@ -271,7 +227,6 @@ def create_t2_q_scatter(
 ) -> go.Figure:
     """Create a scatter plot of T² against Q with both control limits.
 
-    Points above either limit are drawn in a separate, highlighted trace.
     Each point carries its label as ``customdata``.
 
     Parameters
@@ -291,7 +246,7 @@ def create_t2_q_scatter(
     q_name : str, default "Q"
         Label of the vertical axis.
     color : pl.Series | None, optional
-        Value coloring each point; see ``_split_traces``.
+        Value coloring each point; see ``_marker_traces``.
 
     Returns
     -------
@@ -304,14 +259,7 @@ def create_t2_q_scatter(
         "%{customdata}<br>" + f"{t2_name}=%{{x:.4g}}<br>{q_name}=%{{y:.4g}}<extra></extra>"
     )
     figure = go.Figure(
-        _split_traces(
-            xs,
-            ys,
-            (xs > t2_ucl) | (ys > q_ucl),
-            np.asarray(list(labels), dtype=object),
-            hover,
-            color=color,
-        )
+        _marker_traces(xs, ys, np.asarray(list(labels), dtype=object), hover, color=color)
     )
     figure.add_vline(
         x=t2_ucl,
