@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "macros/color_by.html" import color_by_options %}
+{% from "macros/help_tip.html" import help_tip %}
 {% block title %}T² / Q - flat-pca{% endblock %}
 {% block view_swap %}run{% endblock %}
 {% block scripts %}
@@ -14,11 +15,17 @@
       <form id="monitoring-form" class="explore-form" method="get" action="/monitoring" data-auto-submit>
         {% if figures %}
           <div class="field-row">
-            <label>Color by
-              <select name="color">
-                {{ color_by_options(shown.color_options, shown.color) }}
-              </select>
-            </label>
+            <span class="with-help">
+              <label>Color by
+                <select name="color">
+                  {{ color_by_options(shown.color_options, shown.color) }}
+                </select>
+              </label>
+              {% call help_tip("monitoring-help") -%}
+                色分けは 3 つの図に共通です。
+                点をクリックするか範囲を選ぶと、そのファイルを図の下の表に表示します。
+              {%- endcall %}
+            </span>
             <button type="submit">Show</button>
           </div>
         {% endif %}
@@ -27,10 +34,7 @@
     {% if shown.error %}
       <p class="error" data-monitoring-error>{{ shown.error }}</p>
     {% elif figures %}
-      <p class="muted">
-        run {{ shown.run_id }} の T² と Q です。色分けは 3 つの図に共通です。
-        点をクリックするか範囲を選ぶと、そのファイルを図の下の表に表示します。
-      </p>
+      <p class="muted">run {{ shown.run_id }} の T² と Q です。</p>
       <p data-exceeding>
         Above UCL: T² {{ shown.points.t2_exceeding|length }}{% if shown.points.t2_exceeding %} ({{ shown.points.t2_exceeding|join(", ") }}){% endif %},
         Q {{ shown.points.q_exceeding|length }}{% if shown.points.q_exceeding %} ({{ shown.points.q_exceeding|join(", ") }}){% endif %}
@@ -48,27 +52,29 @@
     <summary><h2>Control charts</h2></summary>
     <div class="card-body">
       <div class="field-row">
-        <label>X axis
-          <select name="x_axis" form="monitoring-form">
-            <option value="" {% if shown.x_axis is none %}selected{% endif %}>file name (natural order)</option>
-            {% for column in shown.x_axis_options %}
-              <option value="{{ column }}" {% if column == shown.x_axis %}selected{% endif %}>{{ column }}</option>
-            {% endfor %}
-          </select>
-        </label>
+        <span class="with-help">
+          <label>X axis
+            <select name="x_axis" form="monitoring-form">
+              <option value="" {% if shown.x_axis is none %}selected{% endif %}>file name (natural order)</option>
+              {% for column in shown.x_axis_options %}
+                <option value="{{ column }}" {% if column == shown.x_axis %}selected{% endif %}>{{ column }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          {% call help_tip("control-chart-order-help") -%}
+            {% if shown.x_axis is none -%}
+              管理図はファイル名の自然順に並べています。
+            {%- elif shown.numeric_axis -%}
+              管理図の横軸は {{ shown.x_axis }} の値です。
+            {%- else -%}
+              管理図は {{ shown.x_axis }} の昇順（欠損は末尾、同じ値はファイル名の自然順）に並べています。
+            {%- endif %}
+          {%- endcall %}
+        </span>
         {#- Only a numeric, date, or datetime column can be drawn on a numeric axis. -#}
         <label><input type="checkbox" name="as_category" value="true" form="monitoring-form" {% if shown.as_category %}checked{% endif %} {% if not shown.x_axis_numeric %}disabled{% endif %}> As category</label>
         <button type="submit" form="monitoring-form">Show</button>
       </div>
-      <p class="muted">
-        {% if shown.x_axis is none -%}
-          管理図はファイル名の自然順に並べています。
-        {%- elif shown.numeric_axis -%}
-          管理図の横軸は {{ shown.x_axis }} の値です。
-        {%- else -%}
-          管理図は {{ shown.x_axis }} の昇順（欠損は末尾、同じ値はファイル名の自然順）に並べています。
-        {%- endif %}
-      </p>
       {% if shown.unplotted %}
         <p class="warnings" data-unplotted>Not in the control charts because {{ shown.x_axis }} is missing: {{ shown.unplotted|join(", ") }}</p>
       {% endif %}

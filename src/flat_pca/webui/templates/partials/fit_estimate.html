@@ -1,11 +1,12 @@
+{% from "macros/help_tip.html" import help_tip %}
 <p data-estimate data-n-features="{{ estimate.n_features }}">
   {{ estimate.n_files }} files × about {{ estimate.n_features }} features:
   estimated memory <strong>{{ "%.2f"|format(estimate.memory_gb) }} GB</strong>
   <span class="muted">(limit {{ memory_warn_gb }} GB)</span>
-</p>
-<p class="muted">
-  特徴量数は catalog からの見積もりで、疎な列の除去（max_null_ratio）前の値です。
-  メモリは N × F × 8 B の {{ "%g"|format(estimate.memory_factor) }} 倍です。補完が drop 以外、またはスケーリングが none 以外では NumPy の高速経路を使わないため、係数が大きくなります。
+  {% call help_tip("fit-estimate-help") -%}
+    特徴量数は catalog からの見積もりで、疎な列の除去（max_null_ratio）前の値です。
+    メモリは N × F × 8 B の {{ "%g"|format(estimate.memory_factor) }} 倍です。補完が drop 以外、またはスケーリングが none 以外では NumPy の高速経路を使わないため、係数が大きくなります。
+  {%- endcall %}
 </p>
 {% if estimate.exceeds(memory_warn_gb) %}
   <div class="warnings" data-memory-warning>

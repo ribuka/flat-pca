@@ -107,3 +107,33 @@ def test_running_transform_covers_the_page_and_can_be_cancelled(
     expect(page.locator("#busy-overlay")).to_be_hidden(timeout=TRANSFORM_TIMEOUT_MS)
     expect(page.locator("[data-run-status]")).to_have_text("cancelled")
     expect(page.locator("[data-transform-runs] tbody tr")).to_have_count(1)
+
+
+def test_help_tip_shows_on_hover_and_keyboard_focus(page: Page, fitted_server_url: str) -> None:
+    """The explanation of "use same data for fit" shows only on hover or focus."""
+    page.goto(f"{fitted_server_url}/transform")
+    wait_for_sidebar(page)
+    tip = page.locator("[data-transform-targets] #use-same-data-help")
+    icon = page.locator('[aria-describedby="use-same-data-help"]')
+
+    expect(icon).to_have_accessible_name("Help")
+    expect(icon).to_have_accessible_description(
+        "Checked, the transform targets are the files the model was fitted on. "
+        "Unchecked, choose the transform targets from the catalog."
+    )
+    expect(tip).to_be_hidden()
+
+    icon.hover()
+    expect(tip).to_be_visible()
+    expect(tip).to_contain_text("files the model was fitted on")
+    page.mouse.move(0, 0)
+    expect(tip).to_be_hidden()
+
+    page.get_by_label("use same data for fit").focus()
+    page.keyboard.press("Tab")
+    expect(icon).to_be_focused()
+    expect(tip).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(tip).to_be_hidden()
+    page.keyboard.press("Tab")
+    expect(tip).to_be_hidden()

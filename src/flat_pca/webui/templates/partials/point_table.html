@@ -1,12 +1,16 @@
+{% from "macros/help_tip.html" import help_tip %}
 {#- The table of the points chosen in the figures carrying
     data-point-table="point-table". app.js fills the body from the embedded
     rows; every choice replaces the shown rows. -#}
 <details id="point-table" class="card point-table" data-group="points" data-shown-count="0" open>
-  <summary><h2>Selected points</h2></summary>
-  <div class="card-body">
-    <p class="muted" data-point-table-empty>
+  <summary>
+    <h2>Selected points</h2>
+    {% call help_tip("point-table-help") -%}
       図の点をクリックするか、モードバーの Box Select / Lasso Select で範囲を選ぶと、その点のファイルを表示します。ダブルクリックで選択を解除します。
-    </p>
+    {%- endcall %}
+  </summary>
+  <div class="card-body">
+    <p class="muted" data-point-table-empty>No points selected.</p>
     {#- .table-scroll caps the height, so many rows scroll inside it. #}
     <div class="table-scroll" hidden>
       <table class="file-table">

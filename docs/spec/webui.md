@@ -197,7 +197,11 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - 下端には、Web UI のサーバープロセスのメモリ使用量（RSS）、マシン全体のメモリ使用量 / 総量（と使用率）、flat-pca の version（`VERSION`ファイルの値。インストール済みパッケージのメタデータから読む）を表示する。メモリ（`/sidebar/system`。`psutil`で取得）は`ui.memory_poll_seconds`秒（既定 5）ごとにポーリングする。
 - サイドバーの状態は、catalog更新の開始・完了とファイル集合の選択（`catalog-started`・`catalog-updated`・`selection-updated`イベント）で再取得し、catalog実行中は2秒ごとにポーリングする。
 - 用語：データ選択で選ぶファイル集合を「fit 対象」（画面では Fit target）、サイドバーで選ぶファイルを「表示ファイル」（画面では Shown files）と呼び、画面の文言で区別する。
-- 画面の文言（ナビゲーション・見出し・ラベル・ボタン・選択肢・プレースホルダー・表の列名・状態・警告・エラーメッセージ・図のタイトル）は英語とする。詳細説明（`.muted`の注記）だけを日本語で書く。
+- 画面の文言（ナビゲーション・見出し・ラベル・ボタン・選択肢・プレースホルダー・表の列名・状態・警告・エラーメッセージ・図のタイトル）は英語とする。詳細説明（`.muted`の注記と help アイコンの説明）だけを日本語で書く。
+- 操作や図の意味を説明する長文は、カードに常時表示せず、関係する要素（チェックボックス・ボタン・選択欄・カード見出しなど）の右に置いた help アイコン（Material Symbols の`help`）にまとめる（`templates/macros/help_tip.html`の`help_tip`マクロ。`{% call help_tip(id) %}説明{% endcall %}`）。
+  - 説明はアイコンにホバーしたとき、またはキーボードでフォーカスしたときだけ、アイコンの下に表示する。アイコンは`<button type="button">`（`aria-label="Help"`）で、説明（`role="tooltip"`）を`aria-describedby`で参照する。`id`はページ内で一意にする。
+  - 説明はポインターで乗っても閉じない。画面の右端からはみ出すときは左へずらし、Escape で閉じる（`app.js`）。
+  - 状態を表す短い文（`No ... yet.`・`Loading…`・`Cancelled.`・上限到達の警告・選択件数・エラーなど）は help にせず、そのまま表示する。
 - 各画面の内容は、データ選択と同じく折りたためるカード（`<details class="card">`、既定は開いた状態）に分ける。先頭のカードは画面名を見出しにする。折りたたんだカードを開いたら、Plotly の図を`Plotly.Plots.resize`でカードの幅に合わせて描き直す。
 - 凡例のある Plotly の図（モデル・スコア・T² / Q の各図とスペクトル探索・モデル画面のトレンド）では、凡例の操作でトレースを非表示にせず、透明度で「アクティブ / 非アクティブ」を切り替える（`app.js`の`attachLegendOpacity`）。
   - 非アクティブなトレースは`opacity: 0.1`（`INACTIVE_OPACITY`）で描いたまま、`zorder`でアクティブなトレースの背面に回す。アクティブは`opacity: 1`。
@@ -252,7 +256,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - PCA設定：`n_component`の既定（空欄）は「累積寄与率0.99に達する成分数、上限1000」とし、UIで変更できる。上限1000まで成分をfitしてから先頭の成分だけを残し（`truncate_pca_model`）、捨てた成分の分散は`noise_variance_`へ平均として畳み込む。`impute_strategy`（`"kmeans"`のときは`impute_kmeans_n_clusters`）、`scaling_strategy`（`"none"`・`"z-score"`・`"minmax"`・`"robust"`・`"pareto"`）、`MahalanobisConfig`・`SpeConfig`の`cumulative_explained_variance`と`alpha`を設定できる。外れ値処理は`flatten_pca`と同じく使わない（`outlier_strategy=None`）ため、画面に出さない。
   - 成分数を打ち切るとQのUCL（$\theta_2$・$\theta_3$）の精度が下がる（SPEC.md「Q統計量（SPE）仕様」）。画面に注記する。
   - `scaling_strategy`が`"none"`以外ではNumPyの高速経路を使わず、fitが遅くなり必要メモリも増える。画面に注記する。
-- 実行前に、catalogから特徴量数と必要メモリを見積もって表示する（フォームの変更ごとに更新する）。`jobs.memory_warn_gb`を超える場合は確認欄へのチェックを求め、チェックが無い送信はエラーとする。
+- 実行前に、catalogから特徴量数と必要メモリを見積もって表示する（フォームの変更ごとに更新する。見積もりの前提と係数は help で説明する）。`jobs.memory_warn_gb`を超える場合は確認欄へのチェックを求め、チェックが無い送信はエラーとする。
 - 送信は`hx-post`とし、`PreprocessConfig`等の`ValueError`は該当フィールドの横にpartialで表示する。UI経由の実行では`stem_uniqueness="error"`を使う。
 - カードは上から、画面名（fit 対象のファイル数）、設定グループ（Target Steps・Preprocessing・PCA・T² / Q）、Memory estimate（見積もり）、Run status（実行状況）、Runs（run一覧）とする。実行ボタン（Run fit）は Run status のカードの先頭に左揃えで置き、`form="fit-form"`でフォームを送信する。ブラウザの入力検証で不正な欄があれば、その欄を含む折りたたんだグループを開く。
 - fitのrunが待機中・実行中の間は、上記のオーバーレイで画面全体を覆って操作できなくする。実行中のrunがある状態でページを開いた（読み直した）ときも同じ。
@@ -266,22 +270,22 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 ### 3. transform
 
-- `/transform`。transform に使うモデル（成功した fit run。新しい順。表示は`run_id（作成日時）`）の選択欄と、`use same data for fit`のチェックボックスを置く。モデルの既定は最新の fit run（選んでいた fit run がなくなったときも最新に戻す）、チェックボックスの既定はチェックあり。どちらも workspace（`TransformSettings`）に持ち、変えると`POST /transform/settings`で保存して`{"changed": "model"}`を知らせ、メイン部分を差し替える。チェックなしのときの表の選択も、このとき workspace に保存する。
+- `/transform`。画面名のカードに transform に使うモデル（成功した fit run。新しい順。表示は`run_id（作成日時）`）の選択欄を、Transform targets のカードの表の上に`use same data for fit`のチェックボックス（help でチェックの有無による対象の違いを説明し、チェックありのときは fit 対象のファイル数を横に表示する）を置く。モデルの既定は最新の fit run（選んでいた fit run がなくなったときも最新に戻す）、チェックボックスの既定はチェックあり。どちらも workspace（`TransformSettings`）に持ち、どちらかを変えると、両方の値（モデルのフォーム`#transform-model-form`とチェックボックスのフォーム`#transform-targets-form`は互いを`hx-include`で含める）を`POST /transform/settings`で保存して`{"changed": "model"}`を知らせ、メイン部分を差し替える。チェックなしのときの表の選択も、このとき workspace に保存する。
 - モデルの選択欄の下に、選んだ fit run の設定の要約（`partials/model_settings.html`）を置く。モデルを変えるとメイン部分ごと差し替わるため、要約も切り替わる。
 - transform 対象を選ぶ表と「Run transform」ボタンは、チェックの有無にかかわらず常に表示する。
   - 表はデータ選択と同じもの（`/catalog/files`の絞り込み・ソート・ページング、ページやフィルタをまたいだ選択、ヘッダのチェックボックスでの一括選択）とする。
   - チェックありのときは、モデルの fit 対象（fit run の`config.json`のファイル）を選んだ状態で表示し、表のチェックボックスを無効にしてグレーアウトする（`#files`の`data-dt-locked`。絞り込み・ソート・ページングは使える）。
   - チェックなしのときは、catalog から自由に選べる。選択は送信時に workspace（`Workspace.transform_selection`）へ保存し、画面を開き直しても残す。
-- fit を実行しただけでは transform しない。「Run transform」（`POST /transform`）を押したときにだけ、選んだモデルで transformジョブ（種別`transform`）を投入する。モデルとチェックの有無は、画面を描いたときのもの（設定フォームの値）を要求に含めて使い、別のタブで設定を変えても、その画面で選んだものとは別のモデル・対象を transform しない。要求のモデルがもう成功した fit run でなければ、画面の読み直しを促すエラーを表示する。チェックありのときは fit 対象を、チェックなしのときは表で選んだ catalog のファイルを対象とする。fit run がない・対象がないときは、ボタンの横にエラーを表示する。
+- fit を実行しただけでは transform しない。「Run transform」（`POST /transform`）を押したときにだけ、選んだモデルで transformジョブ（種別`transform`）を投入する。モデルとチェックの有無は、画面を描いたときのもの（2つの設定フォームの値）を要求に含めて使い、別のタブで設定を変えても、その画面で選んだものとは別のモデル・対象を transform しない。要求のモデルがもう成功した fit run でなければ、画面の読み直しを促すエラーを表示する。チェックありのときは fit 対象を、チェックなしのときは表で選んだ catalog のファイルを対象とする。fit run がない・対象がないときは、ボタンの横にエラーを表示する。ボタンの help で、この動作（成功済みの同じ transform があれば再実行せずに表示すること）を説明する。
   - チェックの有無を問わず、同じ fit run で同じ対象ファイルの集合（順序は問わない）を transform した成功済みの transform run があり、その後どのファイルも変わっていなければ（`config.json`に保存したファイルごとのパス・サイズ・更新時刻`size`・`mtime_ns`が今と同じなら）、ジョブを作らずにその run を表示する run にし、その旨をボタンの横に表示する（`services/transform_targets.py::find_transform_run`）。チェックなしで fit 対象と同じファイルを手で選んだ場合も同じ。
   - 投入した transform run は、その時点で表示する run に選んでおき、成功したら表示する（実行中・失敗したときは最新の成功した transform run を表示する）。
 - 実行中は前処理・PCA画面と同じオーバーレイ（「Running the transform…」、経過時間、段階と進捗、残り時間、キャンセル）と実行状況を表示し、`/transform/runs/{run_id}/status`をポーリングする。終わったら`transform-updated`で transform run 一覧とサイドバーの表示ファイルを取得し直す。
-- transform run 一覧（`/transform/runs`）は、表示中の run（元の fit run とファイル数）と、run・元の fit run・作成日時・状態・ファイル数・所要時間を新しい順に表示する。成功した run の「Show」（`POST /transform/show`）で、その run をスペクトル探索・スコア・T² / Q とサイドバーの表示ファイルで使う run にする。
+- transform run 一覧（`/transform/runs`）は、表示中の run（元の fit run とファイル数）と、run・元の fit run・作成日時・状態・ファイル数・所要時間を新しい順に表示する。成功した run の「Show」（`POST /transform/show`）で、その run をスペクトル探索・スコア・T² / Q とサイドバーの表示ファイルで使う run にする。カード見出しの help で、一覧で表示中の run をそれらの画面が使うことを説明する。
 
 ### 4. モデル
 
 - fit runを選んだ時点で決まり、ファイルの選択で変わらない図をまとめる。fit run は transform 画面で選んだモデルを使い、表示ファイルの選択は使わない。fit run がなければ、その旨を表示する。
-- Model のカードの fit run の ID の下に、transform 画面と同じ設定の要約（`partials/model_settings.html`）を置く。
+- Model のカードの fit run の ID の下に、transform 画面と同じ設定の要約（`partials/model_settings.html`）を置く。モデルだけで決まる図である（表示ファイルによらない）ことは、カード見出しの help で説明する。
 - 選択項目：ローディングの成分番号m・n（既定はPC1・PC2。範囲外は既定に戻す）、ローディングの集計方法、ローディングの色（集計の単位。wavelength か StepTime。既定は wavelength）、ヒートマップの値（PCA成分kか前処理パラメータ。既定はPCA成分k）、成分番号k（既定は1。範囲外は既定に戻す）、`(Step, Sequence)`（`features.parquet`から求める。既定は先頭）。
   - 選択は`/model?x={m}&y={n}&aggregation=…&color_by=…&view=…&k=…&segment={Step}:{Sequence}`のクエリで表す。
   - ローディングの成分番号m・n・集計方法・色（Color by）は Loadings のカードに、ヒートマップの値・成分番号k・`(Step, Sequence)`は Heatmap のカードに置く。
@@ -290,7 +294,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   2. ローディング散布図：成分mとnの係数を、特徴量ごとに Color by で選んだ列の単位で集計し、1点をその列の1値として打ち、その列の値で色付けする（`create_loading_scatter`の`color`。ホバーにも出す）。集計方法は平均・RMS・絶対値平均から選ぶ（既定はRMS。平均は符号の異なる寄与が打ち消し合うため）。
      - wavelength（既定）：全`(Step, Sequence)`の特徴量を波長ごとに集計し、1点を1波長とする。
      - StepTime：Heatmap のカードで選んだ`(Step, Sequence)`の特徴量だけを StepTime ごとに（波長方向に）集計し、1点を1 StepTime とする。`(Step, Sequence)`が違えば同じ StepTime でも別の時刻のため、PCA成分のヒートマップと同じ`(Step, Sequence)`の中だけで集計する。そのため、`(Step, Sequence)`を変えるとローディング散布図も変わる。
-     - 図の下の説明文は、選んだ Color by に合わせて切り替える（StepTime では集計した`(Step, Sequence)`も示す）。
+     - 集計の説明は Aggregation の help に置き、選んだ Color by に合わせて切り替える（StepTime では集計した`(Step, Sequence)`も示す）。
   3. ヒートマップとトレンド：「ヒートマップの値」で選んだ、特徴量（時刻 × 波長）ごとの値を`(Step, Sequence)`ごとのStepTime × 波長に並べる（`feature_segment_matrix`）。ヒートマップ・トレンドの描き方（スライダーとクリック、十字線、ビニング）はスペクトル探索と同じとする。トレンドは`/model/trend?run=…&view=…&k=…&segment=…`でビニング前の行列から切り出す。ページ表示時の行列を、run・値（view）・k・`(Step, Sequence)`をキーに表示キャッシュへ保持し（スペクトル探索と同じキャッシュ）、外れている場合は解決し直す。
      - PCA成分k（`view=component`）：`components.npy`の1行。0中心の発散カラースケールで描く。
      - 前処理パラメータ：`PcaModel`が保存している特徴量ごとの値（`model.columns`は`features.parquet`の行順）。連続カラースケールで描く（カラーバーは`value`）。
@@ -298,6 +302,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
        - スケーリングのcenter・scale（`scaling_center`・`scaling_scale`）：`scaling_strategy`が`"none"`以外のとき。
        - 補完値：`impute_strategy="median"`の中央値（`impute_median`）、`"kmeans"`のクラスタ重心（`kmeans_centroid_{c}`。cは1始まり）。
        - 外れ値処理の閾値（`outlier_lower`・`outlier_upper`）とwinsorizeの上下限（`winsor_lower`・`winsor_upper`）：外れ値処理をしたとき。Web UIのfitは`outlier_strategy=None`のため、通常は持たない。
+     - ヒートマップの見出しの help で、値（PCA成分kの係数、前処理パラメータ）の意味を説明する。
      - 選択肢にはそのrunが持つ値だけを出す。runが持たないパラメータを`view`で指定した場合は、持たない旨を表示してPCA成分kを表示する。前処理パラメータとして不正な`view`は400とする。
 
 ### モデルの設定の要約
@@ -326,7 +331,9 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - 一度に表示するファイルは`ui.explore_max_files`件（既定 20）までとする（サイドバーの上限と同じ）。トレンドの要求などで超えて指定された場合は選択肢の順で先頭から上限までを表示し、ページでは表示しなかったファイルの件数と一覧を表示する。準備済みの行（再構成・残差・Q寄与で使う、補完・外れ値処理後の行）の表示キャッシュも同じ件数を保持するため、上限までのファイルなら表示し直しても`prepare_rows`は再実行されない。
   - `(Step, Sequence)`の選択肢は、元データではヒートマップのファイルの元データ、それ以外では`features.parquet`から求める。選んだ`(Step, Sequence)`を持たないファイルはトレンドから除き、その旨を表示する。
   - 選択は`/explore?view=…&heatmap_file=…&segment={Step}:{Sequence}&k=…`のクエリで表す。トレンドの要求（`/explore/trend`）は、描いたページの run とファイルも`run=…&file=…`で指定する。
-  - Q寄与（`view=q_contribution`）は成分数をrunのQの設定で固定するため、kを選ばない（再構成に使う成分数を画面に表示する）。
+  - Q寄与（`view=q_contribution`）は成分数をrunのQの設定で固定するため、kを選ばない（再構成に使う成分数を View の help に表示する）。
+  - 寄与・累積再構成・残差・Q寄与では、そのビューの値の意味を View の help で説明する。
+  - 表示ファイルの一覧は画面名のカードに表示し、ヒートマップとトレンドに描くファイルの説明はその help に置く。
 - 前処理済みでは、そのrunの`intensity_transform`（と`intensity_transform_scale`）を画面に表示する。
 - ヒートマップ：横軸波長、縦軸`StepTime`（0を下）。
   - セル数が`ui.heatmap_max_cells`を超える場合は、サーバーで時間方向をビン平均してから送る。ビニングした旨を表示する。
@@ -345,6 +352,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - 選択は`/scores?x={m}&y={n}&color=…&trajectory_x={m}&trajectory_y={n}&trajectory_color=…`のクエリで表す（`x`・`y`・`color`は散布図、`trajectory_*`は軌跡）。
   - 散布図の選択欄は Score scatter のカードに、軌跡の選択欄は Partial score trajectories のカードに置き、どちらも1つのフォームで送る。カードは上から、画面名・Score scatter・Selected points（選んだ点の表）・Partial score trajectories とする。
   - 色分けの選択肢は「none」・ファイル名（`stem`。画面では「file name」）・メタデータ列とする（T² / Q も同じ。`macros/color_by.html`）。ファイル名は文字列の列と同じく値ごとの系列とする。
+- 散布図の点の操作、部分スコア軌跡の計算の説明は、それぞれのカード見出しの help に置く。
 - スコア散布図：横軸PCm、縦軸PCn。1点が1ファイル（`scores.parquet`の値。`impute_strategy="drop"`で除いたファイルは含まない）。選んだ列で色分けする。
   - 色分けの既定は`ui.default_color_by`とする。数値の列は連続カラースケール、それ以外の列は値ごとの系列（欠損は1つの系列）とする。
   - 点をクリックすると、そのファイルをサイドバーの表示ファイルに追加し、今の画面にとどまる（ページは読み直さず、サイドバーとメイン部分を差し替える）。上限に達していれば追加せず、警告を表示する。
@@ -357,7 +365,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - run は transform 画面で選んだ表示する run を使い、表示ファイルの選択は使わない。
 - 選択項目：色分けの列、管理図の横軸の列（X axis）と As category。
   - 選択は`/monitoring?color=…&x_axis=…&as_category=true`のクエリで表す（`as_category`はチェックしたときだけ付く）。
-  - 色分けは画面名のカードに置き、3つの図に共通とする。X axis と As category は Control charts のカードに置く。カードは上から、画面名・Control charts・T² × Q scatter・Selected points とする。
+  - 色分けは画面名のカードに置き、3つの図に共通とする（そのことと点の選び方を Color by の help で説明する）。X axis と As category は Control charts のカードに置き、管理図の並び順（横軸の値・昇順・自然順）を X axis の help で説明する。カードは上から、画面名・Control charts・T² × Q scatter・Selected points とする。
 - 色分けはスコア散布図と同じく、選択肢は「none」・ファイル名・メタデータ列、既定は`ui.default_color_by`とする（X axis の選択肢はファイル名の自然順とメタデータ列のまま）。数値の列は連続カラースケール（3つの図とも、管理図に描かないファイルも含めた全ファイルの値の範囲で1つのスケールとする。全件欠損の列は灰色で描き、カラーバーを出さない）、それ以外の列は値ごとの系列（欠損は1つの系列）とする。
 - UCL超過点も他の点と同じマーカーで描き、強調しない（3つの図とも）。超過の有無はUCL線との位置関係、超過件数の表示、選んだ点の表で確かめる。
 - 1点が1ファイル（`scores.parquet`の`mahalanobis_*`・`spe_*`列。`impute_strategy="drop"`で除いたファイルは含まず、その旨を表示する）。列名とUCLはrunの`config.json`の`MahalanobisConfig`・`SpeConfig`に従う。
@@ -376,6 +384,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - 画面ごとに1つ、図の下に Selected points のカードとして置く（`partials/point_table.html`）。行は`services/point_table.py::point_table`が作り、全ファイルの行（`format_value`で整形した文字列。先頭はstem）をページにJSONで埋め込む。`app.js`が選んだ点の行を図の並び順で表示する。ファイル数1万・15列でおよそ1.7 MBになる。
 - クリックではその1行、範囲選択では囲んだすべての点の行を表示し、毎回前の表示を置き換える。選択の解除（ダブルクリック）で表を空にする。
 - 図のモードバーに Box Select と Lasso Select を出す（`layout.modebar.add`）。
+- 表が空のときは「No points selected.」と表示する。点の選び方（クリック・Box Select / Lasso Select・ダブルクリックでの解除）はカード見出しの help で説明する。
 - 表は高さに上限を設け、行が多いときは表の中でスクロールする。
 
 ## 計算仕様

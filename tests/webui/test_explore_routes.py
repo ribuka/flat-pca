@@ -14,6 +14,7 @@ import polars as pl
 import pytest
 from fastapi.testclient import TestClient
 from fit_runs import register_shown_run
+from help_tips import help_tip_text
 from spectra import SPECTRA_SHORT_FILE, SPECTRA_WAVELENGTHS
 from view_choice import choose_view
 
@@ -153,6 +154,8 @@ def test_raw_view_shows_the_chosen_files_in_natural_order(
     assert '<option value="2:1" selected>' in html
     assert 'data-heatmap-label="s-02"' in html
     assert "表示ファイル：s-02、s-10。" in html
+    assert "すべてのファイルをトレンドに重ねます" in help_tip_text(html, "shown-files-help")
+    assert 'id="view-note-help"' not in html
     assert "file=s-02&amp;file=s-10&amp;heatmap_file=s-02&amp;segment=2%3A1" in html
 
 
@@ -419,7 +422,7 @@ def test_reconstruction_view_has_no_missing_cells_and_overlays_x(
     assert f'data-heatmap-label="{SHORT} (reconstruction)"' in html
     assert 'name="k" min="1" max="3" value="2"' in html
     assert 'data-intensity-transform="sqrt"' in html
-    assert "先頭 1..2 成分の累積再構成" in html
+    assert "先頭 1..2 成分の累積再構成" in help_tip_text(html, "view-note-help")
     z = np.array(_decode(_heatmap(html)["z"]), dtype=np.float64)
     assert z.shape == (3, 5)
     assert np.isfinite(z).all()
