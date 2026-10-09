@@ -25,6 +25,13 @@ from flat_pca.webui.workspace import TRANSFORM_JOB, Workspace
 SHORT = f"s-{SPECTRA_SHORT_FILE:02d}"
 # Files are dated in reverse index order; this one has no date.
 UNDATED = "s-05"
+# The undated file has the largest yield, which no control chart on a date axis draws.
+UNDATED_YIELD = 100.0
+
+
+def _yield(index: int) -> float:
+    """Return the ``yield_pct`` of the file ``s-{index:02d}``."""
+    return UNDATED_YIELD if f"s-{index:02d}" == UNDATED else 80.0 + index
 
 
 def _workspace(client: TestClient) -> Workspace:
@@ -99,7 +106,7 @@ def _register(
     metadata = {
         path.stem: {
             "lot": "AB"[index % 2],
-            "yield_pct": 80.0 + index,
+            "yield_pct": _yield(index),
             "date": None
             if path.stem == UNDATED
             else f"2024-01-{SPECTRA_FILE_COUNT - index:02d}T00:00:00",
@@ -178,9 +185,25 @@ def test_numeric_column_is_drawn_at_its_values(client: TestClient) -> None:
 
     positions = _points(html, "t2")
     assert {stem: x for stem, (x, _) in positions.items()} == {
-        f"s-{index:02d}": 80.0 + index for index in range(SPECTRA_FILE_COUNT)
+        f"s-{index:02d}": _yield(index) for index in range(SPECTRA_FILE_COUNT)
     }
     assert "data-unplotted" not in html
+
+
+@pytest.mark.usefixtures("run_dir")
+def test_numeric_color_scale_covers_files_left_out_of_the_charts(client: TestClient) -> None:
+    """The color range spans every scored file in all three figures.
+
+    The undated file, absent from the charts on a date axis, has the largest
+    yield, so a range of the drawn files only would differ from the scatter plot's.
+    """
+    html = client.get("/monitoring", params={"x_axis": "date", "color": "yield_pct"}).text
+
+    for name in ("t2", "q", "scatter"):
+        (trace,) = _figure(html, f"monitoring-{name}-figure")["data"]  # type: ignore[misc]
+        assert (trace["marker"]["cmin"], trace["marker"]["cmax"]) == (80.0, UNDATED_YIELD)
+        assert trace["marker"]["showscale"] is True
+    assert UNDATED not in _points(html, "q")
 
 
 @pytest.mark.usefixtures("run_dir")

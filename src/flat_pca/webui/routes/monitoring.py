@@ -22,36 +22,11 @@ router = APIRouter(prefix="/monitoring")
 WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
 
 
-def _control_chart_points(shown: MonitoringView) -> dict[str, Any]:
-    """Return the keyword arguments of ``create_control_chart`` shared by both charts.
-
-    Parameters
-    ----------
-    shown : MonitoringView
-        Resolved screen without an error.
-
-    Returns
-    -------
-    dict[str, Any]
-        ``labels``, ``x``, ``x_text``, ``x_name``, and ``color`` of the files
-        drawn in the control charts (``MonitoringView.chart_rows``).
-    """
-    assert shown.points is not None
-    drawn = shown.points.samples[shown.chart_rows]
-    x_axis = shown.x_axis
-    return {
-        "labels": drawn["stem"].to_list(),
-        "x": drawn[x_axis] if shown.numeric_axis and x_axis is not None else None,
-        "x_text": None
-        if x_axis is None
-        else [format_value(value) for value in drawn[x_axis].to_list()],
-        "x_name": x_axis,
-        "color": None if shown.color is None else drawn[shown.color],
-    }
-
-
 def _figures(shown: MonitoringView) -> dict[str, str]:
     """Build the figures of a resolved T² and Q screen.
+
+    Every figure gets the values of all scored files, so the colors match;
+    the control charts draw only the files of ``MonitoringView.chart_rows``.
 
     Parameters
     ----------
@@ -65,22 +40,34 @@ def _figures(shown: MonitoringView) -> dict[str, str]:
     """
     points = shown.points
     assert points is not None
-    rows = shown.chart_rows
-    chart = _control_chart_points(shown)
+    samples = points.samples
+    x_axis = shown.x_axis
+    labels = samples["stem"].to_list()
+    color = None if shown.color is None else samples[shown.color]
+    chart: dict[str, Any] = {
+        "labels": labels,
+        "x": samples[x_axis] if shown.numeric_axis and x_axis is not None else None,
+        "x_text": None
+        if x_axis is None
+        else [format_value(value) for value in samples[x_axis].to_list()],
+        "x_name": x_axis,
+        "color": color,
+        "rows": shown.chart_rows,
+    }
     figures = {
         "t2": create_control_chart(
-            points.t2[rows], ucl=points.t2_ucl, y_name="T²", **chart
+            points.t2, ucl=points.t2_ucl, y_name="T²", **chart
         ).update_layout(title="T² control chart"),
         "q": create_control_chart(
-            points.q[rows], ucl=points.q_ucl, y_name="Q", **chart
+            points.q, ucl=points.q_ucl, y_name="Q", **chart
         ).update_layout(title="Q control chart"),
         "scatter": create_t2_q_scatter(
             points.t2,
             points.q,
             t2_ucl=points.t2_ucl,
             q_ucl=points.q_ucl,
-            labels=points.samples["stem"].to_list(),
-            color=None if shown.color is None else points.samples[shown.color],
+            labels=labels,
+            color=color,
         ).update_layout(title="T² × Q"),
     }
     return {

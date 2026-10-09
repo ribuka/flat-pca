@@ -62,6 +62,7 @@ def _marker_traces(
     hover: str,
     text: np.ndarray | None = None,
     color: pl.Series | None = None,
+    rows: np.ndarray | None = None,
 ) -> list[go.Scatter]:
     """Return the marker traces of the points, colored like the score scatter plot.
 
@@ -82,25 +83,32 @@ def _marker_traces(
         Value coloring each point, titled by the series name. A numeric
         series is drawn with a continuous color scale; any other series
         draws one trace per value, named by the value.
+    rows : np.ndarray | None, optional
+        Ascending positions of the points drawn; all points by default. The
+        colors still follow all of ``color`` (the range of a numeric one,
+        the order of the values of a categorical one), so figures drawing
+        different points of the same files color them alike.
 
     Returns
     -------
     list[go.Scatter]
-        One trace of every point without ``color`` or with a numeric one;
-        one trace of each value with a categorical one.
+        One trace of the drawn points without ``color`` or with a numeric
+        one; one trace of each value with drawn points with a categorical
+        one.
     """
-    every = slice(None)
+    drawn = np.arange(y.size) if rows is None else np.asarray(rows, dtype=np.intp)
     if color is None:
-        return [_marker_trace(every, x, y, names, hover, text, marker=MARKER)]
+        return [_marker_trace(drawn, x, y, names, hover, text, marker=MARKER)]
     if color.dtype.is_numeric():
-        return [
-            _marker_trace(
-                every, x, y, names, hover, text, marker=MARKER | continuous_marker(color)
-            )
-        ]
+        # Plotly.js cannot draw the color bar of a trace without a finite value.
+        finite = np.isfinite(color.cast(pl.Float64).to_numpy()[drawn])
+        marker = continuous_marker(color, drawn, showscale=bool(finite.any()))
+        return [_marker_trace(drawn, x, y, names, hover, text, marker=MARKER | marker)]
+    is_drawn = np.zeros(y.size, dtype=bool)
+    is_drawn[drawn] = True
     return [
         _marker_trace(
-            rows,
+            group[is_drawn[group]],
             x,
             y,
             names,
@@ -109,7 +117,8 @@ def _marker_traces(
             name=value,
             marker=MARKER | {"color": category_color(index)},
         )
-        for index, (value, rows) in enumerate(color_groups(color).items())
+        for index, (value, group) in enumerate(color_groups(color).items())
+        if is_drawn[group].any()
     ]
 
 
@@ -161,6 +170,7 @@ def create_control_chart(
     x_text: Sequence[str] | None = None,
     x_name: str | None = None,
     color: pl.Series | None = None,
+    rows: np.ndarray | None = None,
 ) -> go.Figure:
     """Create a control chart of one statistic.
 
@@ -181,7 +191,8 @@ def create_control_chart(
         Label of the vertical axis, such as ``"T²"``.
     x : pl.Series | None, optional
         Numeric, date, or datetime horizontal position of each point,
-        without missing values. ``None`` for the positions ``1..n``.
+        missing only where a point is not drawn (see ``rows``). ``None``
+        for the positions ``1..n``.
     x_text : Sequence[str] | None, optional
         Text of the horizontal-axis value of each point, shown in the hover
         text.
@@ -190,6 +201,10 @@ def create_control_chart(
         ``file order (<x_name>)`` without ``x``.
     color : pl.Series | None, optional
         Value coloring each point, in display order; see ``_marker_traces``.
+    rows : np.ndarray | None, optional
+        Ascending positions of the points drawn, such as those with an
+        ``x`` value; all points by default. Every argument still holds a
+        value for every point, so the colors match a figure of all points.
 
     Returns
     -------
@@ -202,7 +217,9 @@ def create_control_chart(
     x_line = "" if text is None else f"{x_name or 'x'}=%{{text}}<br>"
     hover = "%{customdata}<br>" + x_line + f"{y_name}=%{{y:.4g}}<extra></extra>"
     figure = go.Figure(
-        _marker_traces(xs, ys, np.asarray(list(labels), dtype=object), hover, text, color)
+        _marker_traces(
+            xs, ys, np.asarray(list(labels), dtype=object), hover, text, color, rows
+        )
     )
     figure.add_hline(
         y=ucl, line=UCL_LINE, annotation_text=f"UCL = {ucl:.4g}", annotation_position="top left"

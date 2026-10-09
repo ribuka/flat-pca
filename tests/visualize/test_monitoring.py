@@ -150,3 +150,36 @@ def test_numeric_color_without_values_draws_no_scale() -> None:
     assert trace.marker.color == MISSING_COLOR
     assert trace.marker.showscale is False
     assert trace.marker.colorbar.title.text is None
+
+
+def test_control_chart_rows_keep_the_colors_of_every_point() -> None:
+    """Points left out keep the numeric range and the categorical colors of all points."""
+    common = {
+        "ucl": 4.0,
+        "labels": ["a", "b", "c", "d"],
+        "y_name": "Q",
+        "x": pl.Series("yield", [1.0, None, 3.0, 4.0]),
+        "rows": np.array([0, 2, 3]),
+    }
+    numeric = create_control_chart(
+        [1.0, 5.0, 2.0, 7.0], color=pl.Series("pct", [10.0, 99.0, 20.0, 30.0]), **common
+    )
+    (trace,) = numeric.data
+    assert list(trace.customdata) == ["a", "c", "d"]
+    assert list(trace.x) == [1.0, 3.0, 4.0]
+    assert list(trace.marker.color) == [10.0, 20.0, 30.0]
+    assert (trace.marker.cmin, trace.marker.cmax) == (10.0, 99.0)
+
+    categorical = create_control_chart(
+        [1.0, 5.0, 2.0, 7.0], color=pl.Series("lot", ["L1", "L2", "L3", "L1"]), **common
+    )
+    assert [trace.name for trace in categorical.data] == ["L1", "L3"]
+    assert [list(trace.customdata) for trace in categorical.data] == [["a", "d"], ["c"]]
+    full = create_control_chart(
+        [1.0, 5.0, 2.0, 7.0],
+        ucl=4.0,
+        labels=["a", "b", "c", "d"],
+        y_name="Q",
+        color=pl.Series("lot", ["L1", "L2", "L3", "L1"]),
+    )
+    assert categorical.data[1].marker.color == full.data[2].marker.color
