@@ -24,6 +24,8 @@ class TableView:
         Position of the shown page; a page past the last one shows the last.
     rows : list[dict[str, object]]
         Rows of the shown page with every frame column, in display order.
+    row_keys : list[str]
+        Key of each row in ``rows`` as text (``key_text``).
     matching_keys : list[str]
         Keys of every row matching the filters, on all pages, as text; empty
         for a table that is not selectable.
@@ -34,8 +36,28 @@ class TableView:
     state: TableState
     page: Page
     rows: list[dict[str, object]]
+    row_keys: list[str]
     matching_keys: list[str]
     options: dict[str, list[str]]
+
+
+def key_text(config: TableConfig) -> pl.Expr:
+    """Return the expression giving the text of each row's key.
+
+    The row checkboxes, the header checkbox, and the selection all use this
+    text, so that keys of any type (datetimes, booleans, ...) match.
+
+    Parameters
+    ----------
+    config : TableConfig
+        Table settings naming the key column.
+
+    Returns
+    -------
+    pl.Expr
+        The key column cast to ``pl.String``.
+    """
+    return pl.col(config.key).cast(pl.String)
 
 
 def filter_expression(state: TableState) -> pl.Expr:
@@ -153,17 +175,25 @@ def apply_state(
     Returns
     -------
     TableView
-        The shown page and the keys of every matching row.
+        The shown page and the keys of every matching row. Only the page's
+        rows are collected with every column; the matching rows are counted,
+        or only their keys are collected for a selectable table.
     """
-    matching = sort_frame(frame.lazy().filter(filter_expression(state)), state, config).collect()
-    page = paginate(matching.height, state.page, config.page_size)
+    matching = sort_frame(frame.lazy().filter(filter_expression(state)), state, config)
+    if config.selectable:
+        matching_keys = matching.select(key_text(config)).collect().to_series().to_list()
+        total = len(matching_keys)
+    else:
+        matching_keys = []
+        total = matching.select(pl.len()).collect().item()
+    page = paginate(total, state.page, config.page_size)
+    rows = matching.slice(page.offset, page.length).collect()
     return TableView(
         state=state,
         page=page,
-        rows=matching.slice(page.offset, page.length).to_dicts(),
-        matching_keys=(
-            matching.get_column(config.key).cast(pl.String).to_list() if config.selectable else []
-        ),
+        rows=rows.to_dicts(),
+        row_keys=rows.select(key_text(config)).to_series().to_list(),
+        matching_keys=matching_keys,
         options=(
             choice_options(frame, config)
             if options is None

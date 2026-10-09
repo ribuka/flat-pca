@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -23,7 +24,10 @@ FILTER_PREFIXES = {
     MAX_PREFIX: ("number", "datetime"),
 }
 
-type Bound = float | datetime | None
+# A "number" bound kept as an int instead of a float.
+INTEGER = re.compile(r"[+-]?[0-9]+")
+
+type Bound = int | float | datetime | None
 
 
 @dataclass(frozen=True)
@@ -88,7 +92,9 @@ def _parse_bound(raw: str, column: ColumnConfig, key: str) -> Bound:
     Returns
     -------
     Bound
-        Parsed bound, or ``None`` for a blank value.
+        Parsed bound, or ``None`` for a blank value. A ``"number"`` bound
+        written as an integer stays an ``int`` so that it keeps its precision
+        against integer columns.
 
     Raises
     ------
@@ -99,7 +105,9 @@ def _parse_bound(raw: str, column: ColumnConfig, key: str) -> Bound:
     if not text:
         return None
     try:
-        return datetime.fromisoformat(text) if column.filter == "datetime" else float(text)
+        if column.filter == "datetime":
+            return datetime.fromisoformat(text)
+        return int(text) if INTEGER.fullmatch(text) else float(text)
     except ValueError as error:
         raise ValueError(f"invalid bound for {key!r}: {raw!r}") from error
 

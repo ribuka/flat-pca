@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 
 import polars as pl
 import pytest
 from jinja2 import Environment, select_autoescape
 
 from flat_pca.webui.datatable import (
+    ColumnConfig,
     TableConfig,
     TableState,
     apply_state,
@@ -106,3 +108,18 @@ def test_fragment_links_pages(
     assert '<button type="button" data-dt-page="1" >Previous</button>' in html
     assert 'aria-current="page" disabled>2</button>' in html
     assert '<button type="button" data-dt-page="3" disabled>Next</button>' in html
+
+
+def test_fragment_row_checkboxes_use_the_matching_key_text(environment: Environment) -> None:
+    """A datetime key has the same text in the row checkbox and the matching keys."""
+    frame = pl.DataFrame({"when": [datetime.fromisoformat("2026-01-01")]})
+    config = TableConfig(
+        table_id="d", key="when", columns=(ColumnConfig("when"),), url="/", selectable=True
+    )
+    view = apply_state(frame, TableState(), config)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    (key,) = view.matching_keys
+    assert f'value="{key}"' in html
+    assert f'data-dt-key="{key}"' in html

@@ -8,7 +8,14 @@ from .config import ColumnConfig, FilterKind, TableConfig
 from .environment import STATIC_DIR, TEMPLATES_DIR, configure_environment
 from .formatting import format_value
 from .pagination import Page, paginate
-from .query import TableView, apply_state, choice_options, filter_expression, sort_frame
+from .query import (
+    TableView,
+    apply_state,
+    choice_options,
+    filter_expression,
+    key_text,
+    sort_frame,
+)
 from .state import TableState, parameter_name, parse_state
 
 __all__ = [
@@ -25,6 +32,7 @@ __all__ = [
     "configure_environment",
     "filter_expression",
     "format_value",
+    "key_text",
     "paginate",
     "parameter_name",
     "parse_state",

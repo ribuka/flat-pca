@@ -99,7 +99,7 @@
   </thead>
   <tbody>
     {% for row in view.rows %}
-      {% set key = row[config.key]|string %}
+      {% set key = view.row_keys[loop.index0] %}
       <tr data-dt-key="{{ key }}">
         {% if config.selectable %}
           <td class="dt-check"><input type="checkbox" value="{{ key }}" aria-label="Select {{ key }}" data-dt-row-check {% if key in selected %}checked{% endif %}></td>

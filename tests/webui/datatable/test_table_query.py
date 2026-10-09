@@ -8,10 +8,12 @@ import polars as pl
 import pytest
 
 from flat_pca.webui.datatable import (
+    ColumnConfig,
     TableConfig,
     TableState,
     apply_state,
     choice_options,
+    parse_state,
 )
 
 
@@ -113,3 +115,49 @@ def test_choice_options_come_from_the_frame_or_the_caller(
     assert apply_state(frame, TableState(), config).options == {"group": ["a", "b"]}
     given = apply_state(frame, TableState(), config, {"group": ("b", "z")})
     assert given.options == {"group": ["b", "z"]}
+
+
+def test_apply_state_keeps_integer_bounds_exact() -> None:
+    """Integer bounds are not rounded to floats against integer columns."""
+    frame = pl.DataFrame({"key": ["a", "b"], "big": [2**53, 2**53 + 1]})
+    config = TableConfig(
+        table_id="t",
+        key="key",
+        columns=(ColumnConfig("key"), ColumnConfig("big", filter="number")),
+        url="/",
+        selectable=True,
+    )
+
+    state = parse_state({"t.min__big": [str(2**53 + 1)]}, config)
+
+    assert state.ranges == {"big": (2**53 + 1, None)}
+    assert apply_state(frame, state, config).matching_keys == ["b"]
+
+
+def test_apply_state_gives_the_same_text_for_row_and_matching_keys() -> None:
+    """Keys of any type have one text form for the rows and the selection."""
+    frame = pl.DataFrame({"when": [datetime.fromisoformat("2026-01-01")], "flag": [True]})
+    for key in ("when", "flag"):
+        config = TableConfig(
+            table_id="t", key=key, columns=(ColumnConfig(key),), url="/", selectable=True
+        )
+
+        view = apply_state(frame.lazy(), TableState(), config)
+
+        assert view.row_keys == view.matching_keys
+        assert view.row_keys == frame.select(pl.col(key).cast(pl.String)).to_series().to_list()
+
+
+def test_apply_state_pages_a_lazy_frame_without_selection(
+    frame: pl.DataFrame, config: TableConfig
+) -> None:
+    """A table without selection counts the matching rows of a LazyFrame."""
+    plain = TableConfig(
+        table_id="t", key="key", columns=config.columns, url="/table", page_size=3
+    )
+
+    view = apply_state(frame.lazy(), TableState(sort_by="count", page=2), plain)
+
+    assert view.page.total == 4
+    assert view.row_keys == ["k2"]
+    assert [row["key"] for row in view.rows] == ["k2"]

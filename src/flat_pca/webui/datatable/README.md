@@ -19,7 +19,7 @@ Update this document whenever the component gains a feature.
 | --- | --- |
 | `config.py` | `TableConfig` and `ColumnConfig`: what the application decides. |
 | `state.py` | `TableState` and `parse_state`: query parameters → table state. |
-| `query.py` | `apply_state`: table state + frame → `TableView` (rows of one page, the page, matching keys, choices). |
+| `query.py` | `apply_state`: table state + frame → `TableView` (rows of one page, the page, matching keys, choices). A `LazyFrame` is collected only for the page's rows and for the matching keys (or their count). |
 | `pagination.py` | `Page` and `paginate`: the page among the rows. |
 | `formatting.py` | `format_value`: the cell text (`dt_cell` filter). |
 | `environment.py` | `configure_environment`: registers the templates and the filter with a Jinja2 environment; `TEMPLATES_DIR`, `STATIC_DIR`. |
@@ -120,7 +120,7 @@ a filter that does not fit its column, or an unparsable value is a
 | `page` | 1-based page number; a page past the last shows the last. |
 | `q__<column>` | Substring of a `"text"` column. |
 | `eq__<column>` | Value of a `"choice"` column. |
-| `min__<column>`, `max__<column>` | Bounds of a `"number"` (a float) or `"datetime"` (ISO 8601, as `datetime-local` sends) column. |
+| `min__<column>`, `max__<column>` | Bounds of a `"number"` (an integer stays an `int` to keep its precision against integer columns, anything else is a float) or `"datetime"` (ISO 8601, as `datetime-local` sends) column. |
 
 The fragment carries these as inputs marked `data-dt-query` inside the
 container, which sends them with `hx-include="this"`.
@@ -134,7 +134,9 @@ container, which sends them with `hx-include="this"`.
 - The selection of a selectable table spans pages and filters. It is a JSON
   array in the hidden input `#<table_id>-selection` (named `selection_name`),
   outside the reloaded fragment, so a form or `hx-include` can send it as one
-  field. The header checkbox selects or clears every row matching the filters
+  field. Keys are the key column cast to polars `String` (`key_text`) for the
+  row checkboxes, the header checkbox, and the selection alike, so keys of any
+  type match; give the initial selection in the same form. The header checkbox selects or clears every row matching the filters
   and shows all / some / none.
 - Each change of the selection dispatches `datatable:selection-change` on the
   container. It bubbles; `event.detail.keys` holds the selected keys.
