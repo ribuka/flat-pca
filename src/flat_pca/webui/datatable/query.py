@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -9,7 +10,11 @@ import polars as pl
 
 from .config import TableConfig
 from .pagination import Page, paginate
-from .state import TableState
+from .state import Bound, TableState
+
+# The range of the integer literals compared with integer columns: Int64 and UInt64.
+INT64_MIN = -(2**63)
+UINT64_MAX = 2**64 - 1
 
 
 @dataclass(frozen=True)
@@ -25,7 +30,9 @@ class TableView:
     rows : list[dict[str, object]]
         Rows of the shown page with every frame column, in display order.
     row_keys : list[str]
-        Key of each row in ``rows`` as text (``key_text``).
+        Key of each row in ``rows`` as text: ``key_text`` for a selectable
+        table, so that it matches the selection, and ``str`` of the value
+        otherwise, so that any key type (binary, for example) can be shown.
     matching_keys : list[str]
         Keys of every row matching the filters, on all pages, as text; empty
         for a table that is not selectable.
@@ -60,7 +67,35 @@ def key_text(config: TableConfig) -> pl.Expr:
     return pl.col(config.key).cast(pl.String)
 
 
-def filter_expression(state: TableState) -> pl.Expr:
+def bound_literal(bound: Bound, dtype: pl.DataType) -> pl.Expr:
+    """Return a range bound as a literal fit for comparing with a column.
+
+    Parameters
+    ----------
+    bound : Bound
+        Bound from ``parse_state``; not ``None``.
+    dtype : pl.DataType
+        Type of the compared column.
+
+    Returns
+    -------
+    pl.Expr
+        An ``int`` bound stays an integer literal against an integer column
+        when it fits 64 bits, so it keeps its precision; otherwise it becomes
+        a float (``±inf`` past the float range). Other bounds are used as
+        they are.
+    """
+    if not isinstance(bound, int):
+        return pl.lit(bound)
+    if dtype.is_integer() and INT64_MIN <= bound <= UINT64_MAX:
+        return pl.lit(bound)
+    try:
+        return pl.lit(float(bound))
+    except OverflowError:
+        return pl.lit(math.inf if bound > 0 else -math.inf)
+
+
+def filter_expression(state: TableState, schema: Mapping[str, pl.DataType]) -> pl.Expr:
     """Return the expression selecting the rows that match a state's filters.
 
     Parameters
@@ -68,6 +103,9 @@ def filter_expression(state: TableState) -> pl.Expr:
     state : TableState
         State whose column names have been validated, for example by
         ``parse_state``.
+    schema : Mapping[str, pl.DataType]
+        Column types of the filtered frame, which decide the type of the
+        range bounds (``bound_literal``).
 
     Returns
     -------
@@ -87,9 +125,9 @@ def filter_expression(state: TableState) -> pl.Expr:
         conditions.append(pl.col(name).cast(pl.String) == value)
     for name, (lower, upper) in state.ranges.items():
         if lower is not None:
-            conditions.append(pl.col(name) >= pl.lit(lower))
+            conditions.append(pl.col(name) >= bound_literal(lower, schema[name]))
         if upper is not None:
-            conditions.append(pl.col(name) <= pl.lit(upper))
+            conditions.append(pl.col(name) <= bound_literal(upper, schema[name]))
     return pl.all_horizontal(conditions).fill_null(False)
 
 
@@ -179,7 +217,10 @@ def apply_state(
         rows are collected with every column; the matching rows are counted,
         or only their keys are collected for a selectable table.
     """
-    matching = sort_frame(frame.lazy().filter(filter_expression(state)), state, config)
+    lazy = frame.lazy()
+    matching = sort_frame(
+        lazy.filter(filter_expression(state, lazy.collect_schema())), state, config
+    )
     if config.selectable:
         matching_keys = matching.select(key_text(config)).collect().to_series().to_list()
         total = len(matching_keys)
@@ -192,7 +233,11 @@ def apply_state(
         state=state,
         page=page,
         rows=rows.to_dicts(),
-        row_keys=rows.select(key_text(config)).to_series().to_list(),
+        row_keys=(
+            rows.select(key_text(config)).to_series().to_list()
+            if config.selectable
+            else [str(value) for value in rows.get_column(config.key).to_list()]
+        ),
         matching_keys=matching_keys,
         options=(
             choice_options(frame, config)

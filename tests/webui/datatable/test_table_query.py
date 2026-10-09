@@ -161,3 +161,44 @@ def test_apply_state_pages_a_lazy_frame_without_selection(
     assert view.page.total == 4
     assert view.row_keys == ["k2"]
     assert [row["key"] for row in view.rows] == ["k2"]
+
+
+@pytest.mark.parametrize(
+    ("values", "bound", "expected"),
+    [
+        # Integer bounds past the Polars integer range against a float column.
+        ([1e38, 1e40], str(10**39), ["b"]),
+        ([1e38, 1e40], str(10**400), []),
+        # A float bound against an integer column.
+        ([1, 3], "2.5", ["b"]),
+        # An integer bound past 64 bits against an integer column.
+        ([1, 3], str(2**70), []),
+    ],
+)
+def test_apply_state_fits_bounds_to_the_column_type(
+    values: list[float], bound: str, expected: list[str]
+) -> None:
+    """Bounds that parse are compared with the column without failing."""
+    frame = pl.DataFrame({"key": ["a", "b"], "value": values})
+    config = TableConfig(
+        table_id="t",
+        key="key",
+        columns=(ColumnConfig("key"), ColumnConfig("value", filter="number")),
+        url="/",
+        selectable=True,
+    )
+
+    state = parse_state({"t.min__value": [bound]}, config)
+
+    assert apply_state(frame, state, config).matching_keys == expected
+
+
+def test_apply_state_shows_binary_keys_of_a_table_without_selection() -> None:
+    """Only a selectable table casts its keys to text."""
+    frame = pl.DataFrame({"key": [b"\xff", b"\xfe"], "label": ["a", "b"]})
+    config = TableConfig(table_id="t", key="key", columns=(ColumnConfig("label"),), url="/")
+
+    view = apply_state(frame, TableState(), config)
+
+    assert [row["label"] for row in view.rows] == ["a", "b"]
+    assert view.row_keys == [str(b"\xff"), str(b"\xfe")]
