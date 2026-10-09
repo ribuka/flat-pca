@@ -6,8 +6,11 @@ import polars as pl
 
 MISSING_LABEL = "(missing)"
 CONTINUOUS_COLOR_SCALE = "Viridis"
-# Points without a numeric color value are drawn grey.
+# Trajectories without a numeric color value are drawn grey.
 MISSING_COLOR = "#9e9e9e"
+# Scatter points without a numeric color value are drawn faint, so the
+# points with a value stand out.
+MISSING_MARKER = {"color": "lightgray", "opacity": 0.5}
 CATEGORY_COLORS = plotly.colors.qualitative.Plotly
 
 
@@ -69,13 +72,11 @@ def continuous_marker(
     -------
     dict[str, object]
         ``color``, ``colorscale``, ``cmin``, ``cmax``, ``colorbar``, and
-        ``showscale`` of a Plotly marker. Without any finite value there is no
-        range to show, so every point gets ``MISSING_COLOR`` and no color bar.
+        ``showscale`` of a Plotly marker. ``color`` must have a finite value
+        to span the range.
     """
     values = color.cast(pl.Float64).to_numpy()
     finite = values[np.isfinite(values)]
-    if not finite.size:
-        return {"color": MISSING_COLOR, "showscale": False}
     return {
         "color": values if rows is None else values[rows],
         "colorscale": CONTINUOUS_COLOR_SCALE,
@@ -84,3 +85,40 @@ def continuous_marker(
         "colorbar": {"title": {"text": color.name}},
         "showscale": showscale,
     }
+
+
+def continuous_marker_groups(
+    color: pl.Series, rows: np.ndarray | None = None
+) -> list[tuple[np.ndarray, dict[str, object]]]:
+    """Split points colored by a numeric value into missing and valued ones.
+
+    Plotly draws later traces in front, so drawing one trace per group in
+    the order returned puts the points with a value in front of the faint
+    points without one.
+
+    Parameters
+    ----------
+    color : pl.Series
+        Numeric color value of every point, titled by the series name.
+    rows : np.ndarray | None, optional
+        Ascending row positions of the points drawn; all rows by default.
+        The color range spans all of ``color``, so figures drawing different
+        rows of the same series color them alike.
+
+    Returns
+    -------
+    list[tuple[np.ndarray, dict[str, object]]]
+        ``(rows, marker)`` of the drawn points without a finite value, marked
+        with ``MISSING_MARKER``, then of those with one, marked by
+        ``continuous_marker`` with its color bar. A group without points is
+        left out.
+    """
+    values = color.cast(pl.Float64).to_numpy()
+    drawn = np.arange(values.size) if rows is None else np.asarray(rows, dtype=np.intp)
+    finite = np.isfinite(values[drawn])
+    groups: list[tuple[np.ndarray, dict[str, object]]] = []
+    if not finite.all():
+        groups.append((drawn[~finite], dict(MISSING_MARKER)))
+    if finite.any():
+        groups.append((drawn[finite], continuous_marker(color, drawn[finite])))
+    return groups

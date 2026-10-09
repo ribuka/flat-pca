@@ -8,7 +8,13 @@ import plotly.graph_objects as go
 import polars as pl
 
 from .component_plane import apply_component_plane_layout
-from .marker_color import MISSING_COLOR, category_color, color_groups, continuous_marker
+from .marker_color import (
+    MISSING_COLOR,
+    category_color,
+    color_groups,
+    continuous_marker,
+    continuous_marker_groups,
+)
 
 
 def create_score_scatter(
@@ -39,8 +45,9 @@ def create_score_scatter(
         Label of the vertical axis.
     color : pl.Series | None, optional
         Value coloring each point, titled by the series name. A numeric
-        series is drawn with a continuous color scale; any other series
-        draws one trace per value. By default all points share one trace.
+        series is drawn with a continuous color scale, its missing points
+        faint in a trace behind the others; any other series draws one trace
+        per value. By default all points share one trace.
 
     Returns
     -------
@@ -52,19 +59,18 @@ def create_score_scatter(
     ys = np.asarray(y, dtype=np.float64)
     hover = "%{customdata}<br>" + f"{x_name}=%{{x:.4g}}<br>{y_name}=%{{y:.4g}}<extra></extra>"
     if color is None or color.dtype.is_numeric():
-        marker: dict[str, object] = {"size": 9}
-        if color is not None:
-            marker |= continuous_marker(color)
+        groups = [(np.arange(xs.size), {})] if color is None else continuous_marker_groups(color)
         traces = [
             go.Scatter(
-                x=xs,
-                y=ys,
+                x=xs[rows],
+                y=ys[rows],
                 mode="markers",
-                customdata=names,
-                marker=marker,
+                customdata=names[rows],
+                marker={"size": 9} | marker,
                 hovertemplate=hover,
                 showlegend=False,
             )
+            for rows, marker in groups
         ]
     else:
         traces = [

@@ -6,7 +6,7 @@ import numpy as np
 import plotly.graph_objects as go
 import polars as pl
 
-from .marker_color import category_color, color_groups, continuous_marker
+from .marker_color import category_color, color_groups, continuous_marker_groups
 
 UCL_COLOR = "#d62728"
 UCL_LINE = {"color": UCL_COLOR, "dash": "dash", "width": 1}
@@ -81,8 +81,9 @@ def _marker_traces(
         Extra hover text of each point.
     color : pl.Series | None, optional
         Value coloring each point, titled by the series name. A numeric
-        series is drawn with a continuous color scale; any other series
-        draws one trace per value, named by the value.
+        series is drawn with a continuous color scale, its missing points
+        faint in a trace behind the others; any other series draws one trace
+        per value, named by the value.
     rows : np.ndarray | None, optional
         Ascending positions of the points drawn; all points by default. The
         colors still follow all of ``color`` (the range of a numeric one,
@@ -92,18 +93,22 @@ def _marker_traces(
     Returns
     -------
     list[go.Scatter]
-        One trace of the drawn points without ``color`` or with a numeric
-        one; one trace of each value with drawn points with a categorical
+        One trace of the drawn points without ``color``; with a numeric
+        one, a trace of the drawn points missing it, then one of those with
+        a value; one trace of each value with drawn points with a categorical
         one.
     """
     drawn = np.arange(y.size) if rows is None else np.asarray(rows, dtype=np.intp)
     if color is None:
         return [_marker_trace(drawn, x, y, names, hover, text, marker=MARKER)]
     if color.dtype.is_numeric():
-        # Plotly.js cannot draw the color bar of a trace without a finite value.
-        finite = np.isfinite(color.cast(pl.Float64).to_numpy()[drawn])
-        marker = continuous_marker(color, drawn, showscale=bool(finite.any()))
-        return [_marker_trace(drawn, x, y, names, hover, text, marker=MARKER | marker)]
+        # The color bar explains the colors, so the split traces need no legend.
+        return [
+            _marker_trace(
+                group, x, y, names, hover, text, marker=MARKER | marker, showlegend=False
+            )
+            for group, marker in continuous_marker_groups(color, drawn)
+        ]
     is_drawn = np.zeros(y.size, dtype=bool)
     is_drawn[drawn] = True
     return [

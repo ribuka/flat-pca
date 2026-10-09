@@ -42,7 +42,7 @@ def test_categorical_color_draws_one_trace_per_value() -> None:
 
 
 def test_numeric_color_uses_a_color_scale() -> None:
-    """A numeric column colors one trace continuously."""
+    """A numeric column colors its points continuously, in front of faint missing ones."""
     scores = _scores()
     figure = create_score_scatter(
         scores["PC1"],
@@ -53,12 +53,52 @@ def test_numeric_color_uses_a_color_scale() -> None:
         color=scores["yield_pct"],
     )
 
-    assert len(figure.data) == 1
-    colors = np.asarray(figure.data[0].marker.color, dtype=np.float64)
-    np.testing.assert_array_equal(colors[[0, 1, 3]], [90.0, 80.0, 70.0])
-    assert np.isnan(colors[2])
-    assert figure.data[0].marker.showscale
-    assert list(figure.data[0].customdata) == ["a", "b", "c", "d"]
+    missing, valued = figure.data
+    assert list(missing.customdata) == ["c"]
+    assert (list(missing.x), list(missing.y)) == ([3.0], [-3.0])
+    assert (missing.marker.color, missing.marker.opacity) == ("lightgray", 0.5)
+    assert not missing.marker.showscale
+    assert list(valued.customdata) == ["a", "b", "d"]
+    assert (list(valued.x), list(valued.y)) == ([1.0, 2.0, 4.0], [-1.0, -2.0, -4.0])
+    assert list(valued.marker.color) == [90.0, 80.0, 70.0]
+    assert (valued.marker.cmin, valued.marker.cmax) == (70.0, 90.0)
+    assert valued.marker.showscale
+    assert valued.marker.colorbar.title.text == "yield_pct"
+
+
+def test_numeric_color_without_missing_values_draws_one_trace() -> None:
+    """A numeric column with every value draws only the colored trace."""
+    scores = _scores().drop_nulls("yield_pct")
+    figure = create_score_scatter(
+        scores["PC1"],
+        scores["PC2"],
+        labels=scores["stem"],
+        x_name="PC1",
+        y_name="PC2",
+        color=scores["yield_pct"],
+    )
+
+    (trace,) = figure.data
+    assert list(trace.customdata) == ["a", "b", "d"]
+    assert trace.marker.showscale
+
+
+def test_numeric_color_without_values_draws_faint_points() -> None:
+    """A numeric column missing everywhere draws every point faint without a color bar."""
+    scores = _scores()
+    figure = create_score_scatter(
+        scores["PC1"],
+        scores["PC2"],
+        labels=scores["stem"],
+        x_name="PC1",
+        y_name="PC2",
+        color=pl.Series("yield_pct", [None] * 4, dtype=pl.Float64),
+    )
+
+    (trace,) = figure.data
+    assert list(trace.customdata) == ["a", "b", "c", "d"]
+    assert (trace.marker.color, trace.marker.opacity) == ("lightgray", 0.5)
+    assert not trace.marker.showscale
 
 
 def test_without_color_draws_one_trace() -> None:
