@@ -10,7 +10,7 @@ from .component_reshape import reshape_pca_components
 from .loading_aggregation import (
     LOADING_AGGREGATIONS,
     LoadingAggregation,
-    aggregate_loadings_by_wavelength,
+    aggregate_loadings,
 )
 from .pca_scores import append_pca_scores
 from .unflatten import flatten_to_long, flatten_to_wide
@@ -18,7 +18,7 @@ from .unflatten import flatten_to_long, flatten_to_wide
 __all__ = [
     "LOADING_AGGREGATIONS",
     "LoadingAggregation",
-    "aggregate_loadings_by_wavelength",
+    "aggregate_loadings",
     "append_pca_scores",
     "flatten_pca",
     "flatten_to_long",

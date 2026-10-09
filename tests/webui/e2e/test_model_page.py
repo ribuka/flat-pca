@@ -51,7 +51,7 @@ def test_slider_moves_the_component_trends(page: Page, fitted_server_url: str) -
 
 
 def test_choices_reload_the_page(page: Page, fitted_server_url: str) -> None:
-    """Choosing another component k and aggregation reloads the page with them."""
+    """Choosing another component k, aggregation, and color reloads the page with them."""
     _open(page, fitted_server_url + MODEL_PATH)
 
     k_input = page.locator('input[name="k"]')
@@ -59,7 +59,7 @@ def test_choices_reload_the_page(page: Page, fitted_server_url: str) -> None:
     k_input.dispatch_event("change")
 
     expect(page).to_have_url(
-        f"{fitted_server_url}/model?x=1&y=2&aggregation=rms&view=component&k=3&segment=2%3A1"
+        f"{fitted_server_url}/model?x=1&y=2&aggregation=rms&color_by=wavelength&view=component&k=3&segment=2%3A1"
     )
     _open(page, page.url)
     expect(page.locator("#explore-heatmap")).to_have_attribute("data-heatmap-label", "PC3")
@@ -67,7 +67,16 @@ def test_choices_reload_the_page(page: Page, fitted_server_url: str) -> None:
     page.locator('select[name="aggregation"]').select_option("abs_mean")
 
     expect(page).to_have_url(
-        f"{fitted_server_url}/model?x=1&y=2&aggregation=abs_mean&view=component&k=3&segment=2%3A1"
+        f"{fitted_server_url}/model?x=1&y=2&aggregation=abs_mean&color_by=wavelength&view=component&k=3&segment=2%3A1"
     )
     expect(page.locator("#model-loadings")).to_have_attribute("data-plot-ready", "true")
     expect(page.locator("#model-loadings .gtitle")).to_have_text("Loadings (mean absolute)")
+
+    page.locator('select[name="color_by"]').select_option("StepTime")
+
+    expect(page).to_have_url(
+        f"{fitted_server_url}/model?x=1&y=2&aggregation=abs_mean&color_by=StepTime&view=component&k=3&segment=2%3A1"
+    )
+    expect(page.locator("#model-loadings")).to_have_attribute("data-plot-ready", "true")
+    expect(page.locator('select[name="color_by"]')).to_have_value("StepTime")
+    expect(page.locator("#model-loadings .cbtitle")).to_have_text("StepTime")

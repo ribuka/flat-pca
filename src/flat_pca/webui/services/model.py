@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast, get_args
 
 import numpy as np
 import polars as pl
@@ -12,7 +12,7 @@ import polars as pl
 from flat_pca.feature_engineering.flatten_pca import (
     LOADING_AGGREGATIONS,
     LoadingAggregation,
-    aggregate_loadings_by_wavelength,
+    aggregate_loadings,
 )
 from flat_pca.feature_engineering.pca import PcaModel
 
@@ -41,6 +41,9 @@ AGGREGATION_LABELS: dict[LoadingAggregation, str] = {
     "abs_mean": "mean absolute",
 }
 DEFAULT_AGGREGATION: LoadingAggregation = "rms"
+LoadingColor = Literal["wavelength", "StepTime"]
+LOADING_COLORS: tuple[LoadingColor, ...] = get_args(LoadingColor)
+DEFAULT_LOADING_COLOR: LoadingColor = "wavelength"
 COMPONENT_VALUE_NAME = "coefficient"
 COMPONENT_VIEW = "component"
 COMPONENT_VIEW_LABEL = "PCA component k"
@@ -60,6 +63,9 @@ class ModelRequest:
         1-based component number n of the loading plot's vertical axis.
     aggregation : str | None
         A key of ``AGGREGATION_LABELS``; ``None`` for the default.
+    color_by : str | None
+        One of ``LOADING_COLORS``, the column the loadings are aggregated
+        by and colored with; ``None`` for the default.
     view : str | None
         Values of the heatmap: ``COMPONENT_VIEW`` or a preprocessing
         parameter key; ``None`` for ``COMPONENT_VIEW``.
@@ -73,6 +79,7 @@ class ModelRequest:
     x: int | None = None
     y: int | None = None
     aggregation: str | None = None
+    color_by: str | None = None
     view: str | None = None
     component: int | None = None
     segment: str | None = None
@@ -121,6 +128,8 @@ class ModelView:
         Chosen component number n.
     aggregation : LoadingAggregation
         Chosen loading aggregation.
+    color_by : LoadingColor
+        Chosen column the loadings are aggregated by and colored with.
     view_options : dict[str, str]
         Labels of the heatmap's values keyed by ``COMPONENT_VIEW`` and the
         preprocessing parameter keys the run holds.
@@ -135,8 +144,8 @@ class ModelView:
     explained_variance : pl.DataFrame | None
         Result of ``PcaModel.get_explained_variance_table``.
     loadings : pl.DataFrame | None
-        ``wavelength`` with the aggregated ``PC{m}`` and ``PC{n}``
-        loadings.
+        ``color_by`` with the aggregated ``PC{m}`` and ``PC{n}`` loadings
+        (see ``aggregated_loadings``).
     matrices : dict[str, SpectralMatrix]
         Unbinned matrix of the heatmap, keyed by ``PC{k}`` or the
         parameter's label.
@@ -152,6 +161,7 @@ class ModelView:
     x: int = 1
     y: int = 1
     aggregation: LoadingAggregation = DEFAULT_AGGREGATION
+    color_by: LoadingColor = DEFAULT_LOADING_COLOR
     view_options: dict[str, str] = field(
         default_factory=lambda: {COMPONENT_VIEW: COMPONENT_VIEW_LABEL}
     )
@@ -181,10 +191,15 @@ class ModelView:
         return f"PC{self.y}"
 
 
-def wavelength_loadings(
-    artifacts: ModelArtifacts, x: int, y: int, method: LoadingAggregation
+def aggregated_loadings(
+    artifacts: ModelArtifacts,
+    x: int,
+    y: int,
+    method: LoadingAggregation,
+    color_by: LoadingColor,
+    segment: tuple[int, int],
 ) -> pl.DataFrame:
-    """Return two components' coefficients aggregated by wavelength.
+    """Return two components' coefficients aggregated by wavelength or StepTime.
 
     Parameters
     ----------
@@ -193,17 +208,24 @@ def wavelength_loadings(
     x, y : int
         1-based component numbers m and n.
     method : LoadingAggregation
-        Aggregation over the features of each wavelength.
+        Aggregation over the features sharing one ``color_by`` value.
+    color_by : LoadingColor
+        ``"wavelength"`` to aggregate the features of all ``(Step,
+        Sequence)`` pairs by wavelength, or ``"StepTime"`` to aggregate
+        the features of ``segment`` by ``StepTime`` (over the wavelengths).
+    segment : tuple[int, int]
+        ``(Step, Sequence)`` of the heatmap, used for ``"StepTime"`` only:
+        the same ``StepTime`` of different pairs is a different time.
 
     Returns
     -------
     pl.DataFrame
-        ``wavelength``, ``PC{m}``, and ``PC{n}``, one row per wavelength in
-        ascending order.
+        ``color_by``, ``PC{m}``, and ``PC{n}``, one row per ``color_by``
+        value in ascending order.
     """
     long = pl.concat(
         [
-            artifacts.features.select("wavelength").with_columns(
+            artifacts.features.select(color_by, "Step", "Sequence").with_columns(
                 pl.lit(component, dtype=pl.Int64).alias("component"),
                 # Read only this row of the memory-mapped components.
                 pl.Series(
@@ -214,19 +236,22 @@ def wavelength_loadings(
             for component in sorted({x, y})
         ]
     )
-    aggregated = aggregate_loadings_by_wavelength(long, method)
+    if color_by == "StepTime":
+        step, sequence = segment
+        long = long.filter((pl.col("Step") == step) & (pl.col("Sequence") == sequence))
+    aggregated = aggregate_loadings(long, method, by=color_by)
     by_component = {
         component: aggregated.filter(pl.col("component") == component).select(
-            "wavelength", pl.col("loading").alias(f"PC{component}")
+            color_by, pl.col("loading").alias(f"PC{component}")
         )
         for component in {x, y}
     }
     loadings = by_component[x]
     if y != x:
-        loadings = loadings.join(by_component[y], on="wavelength", how="inner")
+        loadings = loadings.join(by_component[y], on=color_by, how="inner")
     else:
         loadings = loadings.with_columns(pl.col(f"PC{x}").alias(f"PC{y}"))
-    return loadings.sort("wavelength")
+    return loadings.sort(color_by)
 
 
 def component_matrices(
@@ -349,6 +374,7 @@ def _run_view(
         if request.aggregation in LOADING_AGGREGATIONS
         else DEFAULT_AGGREGATION,
     )
+    color_by = cast(LoadingColor, request.color_by or DEFAULT_LOADING_COLOR)
     segment_options = feature_segments(artifacts)
     segment = choose_segment(segment_options, parse_segment(request.segment))
     assert segment is not None  # a fit run always has features
@@ -359,6 +385,7 @@ def _run_view(
         x=x,
         y=y,
         aggregation=aggregation,
+        color_by=color_by,
         component=component,
         segment_options=segment_options,
         segment=segment,
@@ -379,7 +406,7 @@ def _run_view(
         view_options=view_options,
         view=view,
         explained_variance=model.get_explained_variance_table(),
-        loadings=wavelength_loadings(artifacts, x, y, aggregation),
+        loadings=aggregated_loadings(artifacts, x, y, aggregation, color_by, segment),
         matrices=matrices,
         notice=notice,
     )
@@ -412,11 +439,13 @@ def resolve_model(
     Raises
     ------
     ValueError
-        If the run, the loading aggregation, the heatmap values, or the
-        segment format is invalid.
+        If the run, the loading aggregation or color, the heatmap values, or
+        the segment format is invalid.
     """
     if request.aggregation is not None and request.aggregation not in LOADING_AGGREGATIONS:
         raise ValueError(f"unknown aggregation: {request.aggregation!r}")
+    if request.color_by is not None and request.color_by not in LOADING_COLORS:
+        raise ValueError(f"unknown color_by: {request.color_by!r}")
     view = request.view
     if view is not None and view != COMPONENT_VIEW and not is_parameter_key(view):
         raise ValueError(f"unknown view: {request.view!r}")

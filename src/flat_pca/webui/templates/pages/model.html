@@ -64,11 +64,24 @@
             {% endfor %}
           </select>
         </label>
+        <label>Color by
+          <select name="color_by" form="model-form">
+            {% for key in loading_colors %}
+              <option value="{{ key }}" {% if key == shown.color_by %}selected{% endif %}>{{ key }}</option>
+            {% endfor %}
+          </select>
+        </label>
         <span class="muted">(1–{{ shown.component_count }})</span>
         <button type="submit" form="model-form">Show</button>
       </div>
       <div id="model-loadings" class="plot" data-plot="model-loadings-figure"></div>
-      <p class="muted">成分 m と n の係数を波長ごとに集計した値で、1 点が 1 波長です（平均は符号の異なる係数が打ち消し合います）。</p>
+      <p class="muted" data-loadings-description>
+        {%- if shown.color_by == "StepTime" -%}
+          成分 m と n の係数を、Heatmap で選んだ (Step, Sequence) = ({{ shown.segment[0] }}, {{ shown.segment[1] }}) の中で StepTime ごとに（波長方向に）集計した値で、1 点が 1 StepTime です（平均は符号の異なる係数が打ち消し合います）。
+        {%- else -%}
+          成分 m と n の係数を波長ごとに集計した値で、1 点が 1 波長です（平均は符号の異なる係数が打ち消し合います）。
+        {%- endif -%}
+      </p>
     </div>
   </details>
 

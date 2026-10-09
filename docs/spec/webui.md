@@ -274,12 +274,15 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 
 - fit runを選んだ時点で決まり、ファイルの選択で変わらない図をまとめる。fit run は transform 画面で選んだモデルを使い、表示ファイルの選択は使わない。fit run がなければ、その旨を表示する。
 - Model のカードの fit run の ID の下に、transform 画面と同じ設定の要約（`partials/model_settings.html`）を置く。
-- 選択項目：ローディングの成分番号m・n（既定はPC1・PC2。範囲外は既定に戻す）、ローディングの集計方法、ヒートマップの値（PCA成分kか前処理パラメータ。既定はPCA成分k）、成分番号k（既定は1。範囲外は既定に戻す）、`(Step, Sequence)`（`features.parquet`から求める。既定は先頭）。
-  - 選択は`/model?x={m}&y={n}&aggregation=…&view=…&k=…&segment={Step}:{Sequence}`のクエリで表す。
-  - ローディングの成分番号m・n・集計方法は Loadings のカードに、ヒートマップの値・成分番号k・`(Step, Sequence)`は Heatmap のカードに置く。
+- 選択項目：ローディングの成分番号m・n（既定はPC1・PC2。範囲外は既定に戻す）、ローディングの集計方法、ローディングの色（集計の単位。wavelength か StepTime。既定は wavelength）、ヒートマップの値（PCA成分kか前処理パラメータ。既定はPCA成分k）、成分番号k（既定は1。範囲外は既定に戻す）、`(Step, Sequence)`（`features.parquet`から求める。既定は先頭）。
+  - 選択は`/model?x={m}&y={n}&aggregation=…&color_by=…&view=…&k=…&segment={Step}:{Sequence}`のクエリで表す。
+  - ローディングの成分番号m・n・集計方法・色（Color by）は Loadings のカードに、ヒートマップの値・成分番号k・`(Step, Sequence)`は Heatmap のカードに置く。
 - 表示する図（上から順に）：
   1. 寄与率の表とスクリープロット（`get_explained_variance_table`）。
-  2. ローディング散布図：成分mとnの係数を、特徴量ごとに波長単位で集計し、1点を1波長として打つ。集計方法は平均・RMS・絶対値平均から選ぶ（既定はRMS。平均は符号の異なる寄与が打ち消し合うため）。
+  2. ローディング散布図：成分mとnの係数を、特徴量ごとに Color by で選んだ列の単位で集計し、1点をその列の1値として打ち、その列の値で色付けする（`create_loading_scatter`の`color`。ホバーにも出す）。集計方法は平均・RMS・絶対値平均から選ぶ（既定はRMS。平均は符号の異なる寄与が打ち消し合うため）。
+     - wavelength（既定）：全`(Step, Sequence)`の特徴量を波長ごとに集計し、1点を1波長とする。
+     - StepTime：Heatmap のカードで選んだ`(Step, Sequence)`の特徴量だけを StepTime ごとに（波長方向に）集計し、1点を1 StepTime とする。`(Step, Sequence)`が違えば同じ StepTime でも別の時刻のため、PCA成分のヒートマップと同じ`(Step, Sequence)`の中だけで集計する。そのため、`(Step, Sequence)`を変えるとローディング散布図も変わる。
+     - 図の下の説明文は、選んだ Color by に合わせて切り替える（StepTime では集計した`(Step, Sequence)`も示す）。
   3. ヒートマップとトレンド：「ヒートマップの値」で選んだ、特徴量（時刻 × 波長）ごとの値を`(Step, Sequence)`ごとのStepTime × 波長に並べる（`feature_segment_matrix`）。ヒートマップ・トレンドの描き方（スライダーとクリック、十字線、ビニング）はスペクトル探索と同じとする。トレンドは`/model/trend?run=…&view=…&k=…&segment=…`でビニング前の行列から切り出す。ページ表示時の行列を、run・値（view）・k・`(Step, Sequence)`をキーに表示キャッシュへ保持し（スペクトル探索と同じキャッシュ）、外れている場合は解決し直す。
      - PCA成分k（`view=component`）：`components.npy`の1行。0中心の発散カラースケールで描く。
      - 前処理パラメータ：`PcaModel`が保存している特徴量ごとの値（`model.columns`は`features.parquet`の行順）。連続カラースケールで描く（カラーバーは`value`）。
@@ -374,7 +377,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - 部分スコア軌跡：1ファイルの前処理済み行$\mathbf{x}$に対し、fit時と同じ規則で補完・外れ値処理・スケーリングを適用して中心化した$\mathbf{z}$を得る（`impute_model`→`outlier_model`→`scaling_model`の`apply`をこの順に呼び、`pca.mean_`を引く。`scaling_strategy="none"`では中心化をPCAに任せているため）。特徴量を`(Step, Sequence, StepTime)`の昇順に並べ（`(Step, Sequence)`は実際の時間順でなくStep・Sequenceの値の順とする）、その順の累積和$\tau \mapsto \sum_{f \le \tau} z_f w_{m,f}$（成分nも同様）を求める。各`(Step, Sequence, StepTime)`点を1点とする。終点は通常のスコアと一致する（`whiten=False`の場合）。累積和は`float64`で計算する。
 - Q寄与：1ファイルの前処理済み行に、fit時と同じ補完・外れ値処理・スケーリングを適用した$\mathbf{x}$（`pca.transform`へ渡す値）と、その再構成$\hat{\mathbf{x}}$との特徴量ごとの差の二乗$(x_f - \hat{x}_f)^2$とする（SPEC.md「Q統計量（SPE）仕様」と同じ空間）。再構成に使う成分数は、そのrunの`SpeConfig.cumulative_explained_variance`が選ぶ成分数に固定し、探索画面で選んだkは使わない。これにより、全特徴量（ビニング前）の寄与の総和は`scores.parquet`のQと一致する。`prepare_rows`の補完・外れ値処理後の値を`scale_rows`（`scaling_model.apply`と同じ値を `model.feature_arrays` の配列で計算する）でスケーリングし、再構成は`reconstruct_standardized`で求めてスケーリングの逆変換はしない（`pca/q_contribution.py::q_contribution`）。
   - `X.npy`・`components.npy`を`float32`で保存したrunでは、丸めで総和がQとずれることがある（大きなベースラインに小さな変動が乗るデータなど）。表示するファイルごとに、ビニング前の全特徴量の寄与の総和と`scores.parquet`のQ（`SpeConfig.spe_column`）を比べ、相対差（|総和 − Q| / |Q|）が1%を超えたら、両方の値と「`jobs.artifact_dtype = "float64"`で再実行する」旨（Run the fit again with jobs.artifact_dtype = "float64".）を警告として表示する（`services/q_consistency.py`）。
-- ローディングの波長集計：`reshape_pca_components`の結果（`component`・`wavelength`・`coefficient`列を持つlong形式）を成分と波長でgroup_byし、平均・RMS・絶対値平均のいずれかを求める（`aggregate_loadings_by_wavelength`）。モデル画面では、選んだ2成分だけを`features.parquet`と`components.npy`から同じlong形式にして渡す。
+- ローディングの集計：`reshape_pca_components`の結果（`component`・集計キーの列・`coefficient`列を持つlong形式）を成分と集計キー（`by`。既定は`wavelength`、ほかに`StepTime`）でgroup_byし、平均・RMS・絶対値平均のいずれかを求める（`aggregate_loadings`）。モデル画面では、選んだ2成分だけを`features.parquet`と`components.npy`から同じlong形式にして渡す（`services/model.py::aggregated_loadings`。StepTime では選んだ`(Step, Sequence)`の行に絞ってから渡す）。
 - ヒートマップのビニング：時間方向を等間隔のビンに分け、ビン内平均をとる。波長方向は間引かない（1200列程度を想定）。
 - 実行前のメモリ見積もり：catalogの行数・波長数と前処理設定から特徴量数$F$を求め、$N \times F \times 8$Bの係数倍を表示する。
   - $F$は、`(Step, Sequence)`ごとにファイル間で最大の行数を`target_steps`・`edge_trim`（`StepTime`が等間隔と仮定）・時間方向の間引きで減らした時刻数と、波長数が最大のファイルの波長を`wavelength_range`・波長方向の間引きで減らした数の積とする。sparse列除去前の値である。

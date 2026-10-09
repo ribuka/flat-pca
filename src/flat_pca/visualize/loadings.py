@@ -1,4 +1,4 @@
-"""Scatter plots of PCA loadings aggregated by wavelength."""
+"""Scatter plots of PCA loadings aggregated by a feature key."""
 
 import plotly.graph_objects as go
 import polars as pl
@@ -11,44 +11,45 @@ def create_loading_scatter(
     *,
     x: str,
     y: str,
-    wavelength: str = "wavelength",
+    color: str = "wavelength",
 ) -> go.Figure:
-    """Create a scatter plot of two loading columns, one point per wavelength.
+    """Create a scatter plot of two loading columns, one point per key value.
 
     Parameters
     ----------
     loadings : pl.DataFrame
-        One row per wavelength with the ``wavelength``, ``x``, and ``y``
-        columns, such as two components of
-        ``aggregate_loadings_by_wavelength`` side by side.
+        One row per key value with the ``color``, ``x``, and ``y`` columns,
+        such as two components of ``aggregate_loadings`` side by side.
     x : str
         Loading column of the horizontal axis.
     y : str
         Loading column of the vertical axis.
-    wavelength : str, default ``"wavelength"``
-        Column of the wavelengths, which color the points.
+    color : str, default ``"wavelength"``
+        Column of the key values the loadings are aggregated by, such as
+        ``"wavelength"`` or ``"StepTime"``. They color the points and are
+        shown on hover.
 
     Returns
     -------
     go.Figure
-        Loading scatter plot with a wavelength color bar.
+        Loading scatter plot with a color bar of the ``color`` column.
     """
-    wavelengths = loadings[wavelength].cast(pl.Float64).to_numpy()
+    keys = loadings[color].cast(pl.Float64).to_numpy()
     figure = go.Figure(
         go.Scatter(
             x=loadings[x].cast(pl.Float64).to_numpy(),
             y=loadings[y].cast(pl.Float64).to_numpy(),
             mode="markers",
-            customdata=wavelengths,
+            customdata=keys,
             marker={
                 "size": 7,
-                "color": wavelengths,
+                "color": keys,
                 "colorscale": "Turbo",
                 "showscale": True,
-                "colorbar": {"title": {"text": wavelength}},
+                "colorbar": {"title": {"text": color}},
             },
             hovertemplate=(
-                f"{wavelength}=%{{customdata:g}}<br>{x}=%{{x:.4g}}<br>{y}=%{{y:.4g}}<extra></extra>"
+                f"{color}=%{{customdata:g}}<br>{x}=%{{x:.4g}}<br>{y}=%{{y:.4g}}<extra></extra>"
             ),
             showlegend=False,
         )
