@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -25,6 +25,9 @@ WorkspaceDependency = Annotated[Workspace, Depends(get_workspace)]
 def _figures(shown: MonitoringView) -> dict[str, str]:
     """Build the figures of a resolved T² and Q screen.
 
+    Every figure gets the values of all scored files, so the colors match;
+    the control charts draw only the files of ``MonitoringView.chart_rows``.
+
     Parameters
     ----------
     shown : MonitoringView
@@ -37,31 +40,26 @@ def _figures(shown: MonitoringView) -> dict[str, str]:
     """
     points = shown.points
     assert points is not None
-    labels = points.samples["stem"].to_list()
-    order_values = (
-        None
-        if shown.order is None
-        else [format_value(value) for value in points.samples[shown.order].to_list()]
-    )
-    color = None if shown.color is None else points.samples[shown.color]
+    samples = points.samples
+    x_axis = shown.x_axis
+    labels = samples["stem"].to_list()
+    color = None if shown.color is None else samples[shown.color]
+    chart: dict[str, Any] = {
+        "labels": labels,
+        "x": samples[x_axis] if shown.numeric_axis and x_axis is not None else None,
+        "x_text": None
+        if x_axis is None
+        else [format_value(value) for value in samples[x_axis].to_list()],
+        "x_name": x_axis,
+        "color": color,
+        "rows": shown.chart_rows,
+    }
     figures = {
         "t2": create_control_chart(
-            points.t2,
-            ucl=points.t2_ucl,
-            labels=labels,
-            y_name="T²",
-            order_values=order_values,
-            order_name=shown.order,
-            color=color,
+            points.t2, ucl=points.t2_ucl, y_name="T²", **chart
         ).update_layout(title="T² control chart"),
         "q": create_control_chart(
-            points.q,
-            ucl=points.q_ucl,
-            labels=labels,
-            y_name="Q",
-            order_values=order_values,
-            order_name=shown.order,
-            color=color,
+            points.q, ucl=points.q_ucl, y_name="Q", **chart
         ).update_layout(title="Q control chart"),
         "scatter": create_t2_q_scatter(
             points.t2,
@@ -109,7 +107,8 @@ def _point_table(shown: MonitoringView) -> PointTable:
 def monitoring_page(
     request: Request,
     workspace: WorkspaceDependency,
-    order: str | None = None,
+    x_axis: str | None = None,
+    as_category: bool = False,
     color: str | None = None,
 ) -> HTMLResponse:
     """Render the T² and Q page of the fit run chosen in the sidebar.
@@ -120,9 +119,13 @@ def monitoring_page(
         Current request.
     workspace : Workspace
         Application workspace.
-    order : str | None, default None
-        Metadata column ordering the control charts; ``ui.default_order_by``
-        by default and the natural order of the stems for ``""``.
+    x_axis : str | None, default None
+        Metadata column on the horizontal axis of the control charts;
+        ``ui.default_x_axis`` by default and the natural order of the stems
+        for ``""``.
+    as_category : bool, default False
+        Whether a numeric, date, or datetime ``x_axis`` is drawn by rank
+        instead of on a numeric axis.
     color : str | None, default None
         Metadata column coloring the points of all three figures;
         ``ui.default_color_by`` by default and none for ``""``.
@@ -143,8 +146,10 @@ def monitoring_page(
         shown = resolve_monitoring(
             workspace.cache,
             choice.runs,
-            MonitoringRequest(run=choice.run_id, order=order, color=color),
-            workspace.settings.ui.default_order_by,
+            MonitoringRequest(
+                run=choice.run_id, x_axis=x_axis, as_category=as_category, color=color
+            ),
+            workspace.settings.ui.default_x_axis,
             workspace.settings.ui.default_color_by,
         )
     except ValueError as error:

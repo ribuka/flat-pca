@@ -16,4 +16,4 @@ yield_pct = { type = "number" }
 
 [ui]
 default_color_by = "lot"
-default_order_by = "date"
+default_x_axis = "date"

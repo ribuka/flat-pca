@@ -54,7 +54,8 @@ def _empty_spot(page: Page, target: str) -> tuple[float, float]:
 
 def test_clicking_a_point_shows_its_row_and_stays(page: Page, fitted_server_url: str) -> None:
     """A click on a point of each figure shows that file's row and keeps the page."""
-    url = f"{fitted_server_url}/monitoring"
+    # The files have no metadata values, so the default date axis would draw no point.
+    url = f"{fitted_server_url}/monitoring?x_axis="
     _open(page, url)
     table = page.locator("#point-table")
     expect(table.locator("tbody tr")).to_have_count(0)
@@ -88,7 +89,7 @@ def test_clicking_a_point_shows_its_row_and_stays(page: Page, fitted_server_url:
 
 def test_box_select_shows_every_chosen_row(page: Page, fitted_server_url: str) -> None:
     """A box over the whole chart shows every file; a double click clears the table."""
-    _open(page, f"{fitted_server_url}/monitoring")
+    _open(page, f"{fitted_server_url}/monitoring?x_axis=")
     table = page.locator("#point-table")
     expect(page.locator('#monitoring-scatter [data-title="Lasso Select"]')).to_have_count(1)
 
@@ -110,15 +111,33 @@ def test_box_select_shows_every_chosen_row(page: Page, fitted_server_url: str) -
     expect(table.locator("[data-point-table-empty]")).to_be_visible()
 
 
-def test_choosing_the_order_reloads_the_charts(page: Page, fitted_server_url: str) -> None:
-    """Choosing an ordering column reloads the page with it."""
+def test_choosing_the_x_axis_reloads_the_charts(page: Page, fitted_server_url: str) -> None:
+    """Choosing a category column reloads the page with it and disables ``As category``."""
     _open(page, f"{fitted_server_url}/monitoring")
+    as_category = page.locator('input[name="as_category"]')
+    expect(page.locator("#monitoring-q .xtitle")).to_have_text("date")
+    expect(as_category).to_be_enabled()
 
-    page.locator('select[name="order"]').select_option("lot")
+    page.locator('select[name="x_axis"]').select_option("lot")
 
-    expect(page).to_have_url(f"{fitted_server_url}/monitoring?color=lot&order=lot")
+    expect(page).to_have_url(f"{fitted_server_url}/monitoring?color=lot&x_axis=lot")
     _open(page, page.url)
     expect(page.locator("#monitoring-q .xtitle")).to_have_text("file order (lot)")
+    expect(as_category).to_be_disabled()
+
+
+def test_as_category_draws_the_rank(page: Page, fitted_server_url: str) -> None:
+    """Checking ``As category`` reloads the charts with the files at their rank."""
+    _open(page, f"{fitted_server_url}/monitoring")
+
+    page.locator('input[name="as_category"]').check()
+
+    expect(page).to_have_url(
+        f"{fitted_server_url}/monitoring?color=lot&x_axis=date&as_category=true"
+    )
+    _open(page, page.url)
+    expect(page.locator("#monitoring-q .xtitle")).to_have_text("file order (date)")
+    expect(page.locator('input[name="as_category"]')).to_be_checked()
 
 
 def test_choosing_the_color_recolors_every_figure(page: Page, fitted_server_url: str) -> None:
@@ -127,7 +146,7 @@ def test_choosing_the_color_recolors_every_figure(page: Page, fitted_server_url:
 
     page.locator('select[name="color"]').select_option("lot")
 
-    expect(page).to_have_url(f"{fitted_server_url}/monitoring?color=lot&order=date")
+    expect(page).to_have_url(f"{fitted_server_url}/monitoring?color=lot&x_axis=date")
     _open(page, page.url)
     for name in ("t2", "q", "scatter"):
         title = page.locator(f"#monitoring-{name}").evaluate("plot => plot.layout.legend.title.text")

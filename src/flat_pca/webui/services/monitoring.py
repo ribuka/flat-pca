@@ -8,8 +8,12 @@ import numpy as np
 import polars as pl
 
 from flat_pca.feature_engineering.pca import MahalanobisConfig, SpeConfig
-from flat_pca.utils import natural_keys
 
+from .control_chart_axis import (
+    control_chart_order,
+    missing_axis_values,
+    supports_numeric_axis,
+)
 from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError, artifact_error
 from .run_choice import choose_run
@@ -23,10 +27,6 @@ from .scored_samples import (
 )
 from .view_selection import NO_TRANSFORM_RUN
 
-_ROW = "row"
-_STEM_RANK = "stem_rank"
-_ORDER_VALUE = "order_value"
-
 
 @dataclass(frozen=True)
 class MonitoringRequest:
@@ -36,16 +36,21 @@ class MonitoringRequest:
     ----------
     run : str | None
         Transform run shown; ``None`` for the latest succeeded transform run.
-    order : str | None
-        Metadata column ordering the control charts; ``None`` for the
-        default column and ``""`` for the natural order of the stems.
+    x_axis : str | None
+        Metadata column on the horizontal axis of the control charts;
+        ``None`` for the default column and ``""`` for the natural order of
+        the stems.
+    as_category : bool
+        Whether a numeric, date, or datetime ``x_axis`` is drawn by rank
+        instead of on a numeric axis.
     color : str | None
         Column coloring the points (``stem`` or a metadata column);
         ``None`` for the default column and ``""`` for no coloring.
     """
 
     run: str | None = None
-    order: str | None = None
+    x_axis: str | None = None
+    as_category: bool = False
     color: str | None = None
 
 
@@ -95,11 +100,16 @@ class MonitoringView:
         Succeeded transform runs to choose from, newest first.
     run_id : str | None
         Transform run in use, or ``None`` when no transform run succeeded.
-    order_options : list[str]
+    x_axis_options : list[str]
         Metadata columns of the run's samples.
-    order : str | None
-        Chosen ordering column, or ``None`` for the natural order of the
-        stems.
+    x_axis : str | None
+        Chosen horizontal-axis column, or ``None`` for the natural order of
+        the stems.
+    x_axis_numeric : bool
+        Whether ``x_axis`` is a numeric, date, or datetime column, which
+        can be drawn on a numeric axis.
+    as_category : bool
+        Whether the ``As category`` choice is checked.
     color_options : list[str]
         Columns of the run's samples that can color the points: ``stem``
         and the metadata columns.
@@ -115,42 +125,43 @@ class MonitoringView:
 
     runs: list[dict[str, object]] = field(default_factory=list)
     run_id: str | None = None
-    order_options: list[str] = field(default_factory=list)
-    order: str | None = None
+    x_axis_options: list[str] = field(default_factory=list)
+    x_axis: str | None = None
+    x_axis_numeric: bool = False
+    as_category: bool = False
     color_options: list[str] = field(default_factory=list)
     color: str | None = None
     points: MonitoringPoints | None = None
     unscored: list[str] = field(default_factory=list)
     error: str | None = None
 
+    @property
+    def numeric_axis(self) -> bool:
+        """Return whether the control charts plot ``x_axis`` on a numeric axis."""
+        return self.x_axis_numeric and not self.as_category
 
-def control_chart_order(samples: pl.DataFrame, order_by: str | None) -> np.ndarray:
-    """Return the row order of the files in the control charts.
+    @property
+    def chart_rows(self) -> np.ndarray:
+        """Return the positions in ``points`` of the files drawn in the control charts.
 
-    Parameters
-    ----------
-    samples : pl.DataFrame
-        Frame with ``stem`` and the metadata columns.
-    order_by : str | None
-        Metadata column sorted in ascending order with missing values last;
-        ties and ``None`` fall back to the natural order of the stems.
+        On a numeric axis, files without an ``x_axis`` value are left out;
+        otherwise every scored file is drawn.
+        """
+        assert self.points is not None
+        if not self.numeric_axis:
+            return np.arange(self.points.samples.height)
+        assert self.x_axis is not None
+        return np.flatnonzero(~missing_axis_values(self.points.samples[self.x_axis]))
 
-    Returns
-    -------
-    np.ndarray
-        Zero-based row positions of ``samples`` in display order.
-    """
-    stems = samples["stem"].to_list()
-    by_stem = sorted(range(len(stems)), key=lambda row: natural_keys(str(stems[row])))
-    ranks = np.empty(len(stems), dtype=np.int64)
-    ranks[by_stem] = np.arange(len(stems))
-    # Only internal names, so no metadata column name can collide with them.
-    frame = pl.DataFrame({_ROW: np.arange(len(stems)), _STEM_RANK: ranks})
-    keys = [_STEM_RANK]
-    if order_by is not None:
-        frame = frame.with_columns(samples[order_by].alias(_ORDER_VALUE))
-        keys = [_ORDER_VALUE, _STEM_RANK]
-    return frame.sort(keys, nulls_last=True)[_ROW].to_numpy().astype(np.intp)
+    @property
+    def unplotted(self) -> list[str]:
+        """Return the stems of the scored files left out of the control charts."""
+        if self.points is None:
+            return []
+        stems = self.points.samples["stem"]
+        drawn = np.zeros(stems.len(), dtype=bool)
+        drawn[self.chart_rows] = True
+        return stems.filter(~drawn).to_list()
 
 
 def monitoring_points(
@@ -208,7 +219,7 @@ def resolve_monitoring(
     cache: DisplayCache,
     runs: list[dict[str, object]],
     request: MonitoringRequest,
-    default_order: str | None,
+    default_x_axis: str | None,
     default_color: str | None,
 ) -> MonitoringView:
     """Resolve the requested choices and load the data they show.
@@ -221,8 +232,8 @@ def resolve_monitoring(
         Succeeded transform runs to choose from, newest first.
     request : MonitoringRequest
         Requested choices.
-    default_order : str | None
-        Default ordering column (``ui.default_order_by``).
+    default_x_axis : str | None
+        Default horizontal-axis column (``ui.default_x_axis``).
     default_color : str | None
         Default coloring column (``ui.default_color_by``).
 
@@ -244,19 +255,22 @@ def resolve_monitoring(
         artifacts = cache.display_artifacts(run_dirs(run))
     except RunArtifactError as error:
         return MonitoringView(runs=runs, run_id=run_id, error=str(error))
-    order_options = metadata_columns(artifacts.samples)
-    order = choose_metadata_column(request.order, default_order, order_options)
+    x_axis_options = metadata_columns(artifacts.samples)
+    x_axis = choose_metadata_column(request.x_axis, default_x_axis, x_axis_options)
     color_options = color_columns(artifacts.samples)
     base = MonitoringView(
         runs=runs,
         run_id=run_id,
-        order_options=order_options,
-        order=order,
+        x_axis_options=x_axis_options,
+        x_axis=x_axis,
+        x_axis_numeric=x_axis is not None
+        and supports_numeric_axis(artifacts.samples.schema[x_axis]),
+        as_category=request.as_category,
         color_options=color_options,
         color=choose_metadata_column(request.color, default_color, color_options),
     )
     try:
-        points = monitoring_points(artifacts, *shown_statistic_configs(run), order)
+        points = monitoring_points(artifacts, *shown_statistic_configs(run), x_axis)
     except RunArtifactError as error:
         return replace(base, error=str(error))
     scored = set(points.samples["stem"].to_list())

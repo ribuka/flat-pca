@@ -40,7 +40,7 @@ def test_pending_page_shows_overlay_and_cancel_restores_the_conditions(
     """A pending load greys out the page; cancelling keeps the shown page."""
     url = f"{fitted_server_url}/monitoring"
     _open(page, url)
-    order = page.locator('select[name="order"]')
+    order = page.locator('select[name="x_axis"]')
     shown_order = order.input_value()
     _keep_submissions_pending(page)
 
@@ -65,11 +65,11 @@ def test_going_back_leaves_no_overlay(page: Page, fitted_server_url: str) -> Non
     """The page restored by "back" shows its own conditions without the overlay."""
     url = f"{fitted_server_url}/monitoring"
     _open(page, url)
-    order = page.locator('select[name="order"]')
+    order = page.locator('select[name="x_axis"]')
     shown_order = order.input_value()
 
     order.select_option("lot")
-    expect(page).to_have_url(f"{fitted_server_url}/monitoring?color=lot&order=lot")
+    expect(page).to_have_url(f"{fitted_server_url}/monitoring?color=lot&x_axis=lot")
     page.go_back()
 
     expect(page).to_have_url(url)
