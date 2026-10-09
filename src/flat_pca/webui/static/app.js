@@ -619,6 +619,25 @@ function attachLegendOpacity(gd) {
   });
 }
 
+// Returns the layout changes that make room for a legend of `legendHeight`
+// pixels above the plot area of a figure with the layout `base`, which has
+// none: the height and the top margin grow by it, so the plot area keeps its
+// height however many rows the legend wraps into. The width keeps following
+// the container, which a new height alone would stop.
+function legendRoomLayout(base, legendHeight) {
+  const room = Math.ceil(legendHeight);
+  return { height: base.height + room, "margin.t": base.margin.t + room, autosize: true };
+}
+
+// Gives a drawn figure, laid out by `base` with its legend above the plot
+// area, the room for its legend unless it already has it.
+async function fitLegendRoom(gd, base) {
+  const room = legendRoomLayout(base, gd._fullLayout.legend?._height ?? 0);
+  if (room.height !== gd.layout.height || room["margin.t"] !== gd.layout.margin.t) {
+    await Plotly.relayout(gd, room);
+  }
+}
+
 const TREND_DEBOUNCE_MS = 150;
 
 // Returns the index of the axis value closest to `value`.
@@ -752,15 +771,21 @@ function initExplore(root) {
   let timer = null;
   let latest = 0;
   let disposed = false;
-  // The trend figures whose legend listens, so a redraw adds none again.
-  const withLegend = new Set();
+  // A copy of the server layout of each trend figure, without room for the
+  // legend: Plotly keeps and changes the drawn layout object itself. A figure
+  // in it has its listeners, so a redraw adds none again.
+  const baseLayouts = new Map();
 
   async function drawTrend(gd, trend) {
-    await Plotly.react(gd, trend.data, trend.layout);
-    if (!withLegend.has(gd)) {
-      withLegend.add(gd);
+    const first = !baseLayouts.has(gd);
+    baseLayouts.set(gd, structuredClone(trend.layout));
+    await Plotly.react(gd, trend.data, trend.layout, { responsive: true });
+    if (first) {
       attachLegendOpacity(gd);
+      // A resize may wrap the legend into another number of rows.
+      gd.on("plotly_afterplot", () => fitLegendRoom(gd, baseLayouts.get(gd)));
     }
+    await fitLegendRoom(gd, baseLayouts.get(gd));
   }
 
   async function fetchTrends(wavelength, stepTime) {
