@@ -545,6 +545,80 @@ for (const type of ["input", "change"]) {
   });
 }
 
+const INACTIVE_OPACITY = 0.1;
+const INACTIVE_ZORDER = -1;
+
+// Returns whether a trace of a figure is made inactive from its legend.
+function isInactiveTrace(trace) {
+  return trace?.opacity === INACTIVE_OPACITY;
+}
+
+// Returns the indices of the traces toggled together with trace `index`:
+// those of its legend group, or the trace alone.
+function legendGroupIndices(gd, index) {
+  const group = gd.data[index].legendgroup;
+  if (!group) {
+    return [index];
+  }
+  return gd.data.flatMap((trace, i) => (trace.legendgroup === group ? [i] : []));
+}
+
+// Makes each of the traces `indices` active or inactive by `active`: an
+// inactive trace stays drawn, faint and behind the active ones.
+function setTracesActive(gd, indices, active) {
+  return Plotly.restyle(
+    gd,
+    {
+      opacity: active.map((on) => (on ? 1 : INACTIVE_OPACITY)),
+      zorder: active.map((on) => (on ? 0 : INACTIVE_ZORDER)),
+    },
+    indices,
+  );
+}
+
+// Makes the legend of a figure fade traces instead of hiding them. A click
+// on a legend item toggles its legend group between active and inactive; a
+// right click makes only that group active, or every trace again when only
+// that group already is. A double click does nothing, so that Plotly's
+// showing of one trace does not mix with the fading. The state lies in the
+// opacity of the traces, so a figure redrawn by `Plotly.react` with new
+// traces starts with every trace active. Call it once per figure, after it
+// is first drawn: the legend items are redrawn with the figure, so the
+// listeners sit on the figure itself.
+function attachLegendOpacity(gd) {
+  gd.on("plotly_legendclick", (event) => {
+    // Plotly reports a right click as a click too; the context menu handles it.
+    if (event.event?.button === 2) {
+      return false;
+    }
+    const indices = legendGroupIndices(gd, event.curveNumber);
+    const active = indices.some((index) => isInactiveTrace(gd.data[index]));
+    setTracesActive(gd, indices, indices.map(() => active));
+    return false;
+  });
+  gd.on("plotly_legenddoubleclick", () => false);
+  gd.addEventListener("contextmenu", (event) => {
+    const toggle = event.target.closest?.(".legendtoggle");
+    if (!toggle) {
+      return;
+    }
+    event.preventDefault();
+    // A legend item names the first trace of its group by Plotly's data of
+    // the item; the order of the items does not follow the traces when a
+    // group has several traces or a trace has no item.
+    const index = toggle.parentNode.__data__?.[0]?.trace?.index;
+    if (index === undefined) {
+      return;
+    }
+    const group = new Set(legendGroupIndices(gd, index));
+    const isolated = gd.data.every(
+      (trace, i) => isInactiveTrace(trace) !== group.has(i),
+    );
+    const indices = gd.data.map((_, i) => i);
+    setTracesActive(gd, indices, indices.map((i) => isolated || group.has(i)));
+  });
+}
+
 const TREND_DEBOUNCE_MS = 150;
 
 // Returns the index of the axis value closest to `value`.
@@ -678,6 +752,16 @@ function initExplore(root) {
   let timer = null;
   let latest = 0;
   let disposed = false;
+  // The trend figures whose legend listens, so a redraw adds none again.
+  const withLegend = new Set();
+
+  async function drawTrend(gd, trend) {
+    await Plotly.react(gd, trend.data, trend.layout);
+    if (!withLegend.has(gd)) {
+      withLegend.add(gd);
+      attachLegendOpacity(gd);
+    }
+  }
 
   async function fetchTrends(wavelength, stepTime) {
     const request = ++latest;
@@ -691,11 +775,11 @@ function initExplore(root) {
     if (request !== latest) {
       return;
     }
-    await Plotly.react(byStepTime, trends.by_step_time.data, trends.by_step_time.layout);
+    await drawTrend(byStepTime, trends.by_step_time);
     if (request !== latest) {
       return;
     }
-    await Plotly.react(byWavelength, trends.by_wavelength.data, trends.by_wavelength.layout);
+    await drawTrend(byWavelength, trends.by_wavelength);
     if (request !== latest) {
       return;
     }
@@ -803,6 +887,7 @@ function initPlot(target) {
   const figure = JSON.parse(document.getElementById(target.dataset.plot).textContent);
   const table = pointTables.get(target.dataset.pointTable);
   Plotly.newPlot(target, figure.data, figure.layout, { responsive: true }).then(() => {
+    attachLegendOpacity(target);
     target.dataset.plotReady = "true";
     if (table) {
       target.on("plotly_selected", (event) => table.show(eventStems(event)));
@@ -812,6 +897,10 @@ function initPlot(target) {
       target.on("plotly_doubleclick", () => table.show([]));
     }
     target.on("plotly_click", (event) => {
+      // A point of an inactive trace stays out of the way of the active ones.
+      if (isInactiveTrace(target.data[event.points[0]?.curveNumber])) {
+        return;
+      }
       const stems = eventStems(event).slice(0, 1);
       if (stems.length === 0) {
         return;
