@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 from playwright.sync_api import Page, expect
-from sidebar_choice import mark_page, wait_for_sidebar, wait_for_view_refresh
+from sidebar_choice import (
+    mark_page,
+    open_file_dialog,
+    wait_for_sidebar,
+    wait_for_view_refresh,
+)
 
 pytestmark = pytest.mark.e2e
 
@@ -12,6 +17,14 @@ CATALOG_STEMS = ["run-1", "run-2", "run-10"]
 # Long enough for a transform job, or every stage of the stand-in job, and
 # the polls after it.
 TRANSFORM_TIMEOUT_MS = 20_000
+
+
+def _expect_dialog_rows(page: Page, count: int) -> None:
+    """Check the number of files the shown-file dialog offers, then cancel it."""
+    dialog = open_file_dialog(page)
+    expect(dialog.locator("tr[data-dt-key]")).to_have_count(count)
+    dialog.get_by_role("button", name="Cancel").click()
+    expect(dialog).to_be_hidden()
 
 
 def _choose_targets(page: Page) -> None:
@@ -63,14 +76,14 @@ def test_transform_runs_only_on_demand_and_once_per_data(
     expect(rows.first.locator("td").nth(1)).to_have_text("fit-1")
     # The finished run is shown right away.
     expect(rows.first.locator("[data-shown-run]")).to_have_count(1)
-    expect(page.locator("#view-selection li[data-stem]")).to_have_count(len(CATALOG_STEMS))
+    _expect_dialog_rows(page, len(CATALOG_STEMS))
 
     mark_page(page)
     rows.nth(1).get_by_role("button", name="Show").click()
 
     wait_for_view_refresh(page)
     expect(page.locator("[data-transform-shown]")).to_contain_text("tr-1")
-    expect(page.locator("#view-selection li[data-stem]")).to_have_count(12)
+    _expect_dialog_rows(page, 12)
 
     # Checked again, the fit targets were already transformed by tr-1.
     mark_page(page)
@@ -80,7 +93,7 @@ def test_transform_runs_only_on_demand_and_once_per_data(
 
     expect(page.locator('[data-transform-reused="tr-1"]')).to_be_visible()
     expect(rows).to_have_count(2)
-    expect(page.locator("#view-selection li[data-stem]")).to_have_count(12)
+    _expect_dialog_rows(page, 12)
 
     page.goto(f"{fitted_server_url}/monitoring")
     expect(page.locator("body")).not_to_contain_text("run-10")

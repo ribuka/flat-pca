@@ -9,7 +9,9 @@ paged on the server and shown with htmx.
   another project.
 - In the browser it needs htmx (any 2.x) and `datatable.js` / `datatable.css`.
 - flat-pca's data selection and transform screens use it for the file table
-  (`services/file_table.py`, `routes/catalog.py`).
+  (`services/file_table.py`, `routes/catalog.py`), and the sidebar's
+  shown-file dialog for the transform targets of the shown run
+  (`services/view_file_table.py`, `routes/view_selection.py`).
 
 Update this document whenever the component gains a feature.
 

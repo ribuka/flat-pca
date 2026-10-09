@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Sequence
-from urllib.parse import urlencode
 
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Locator, Page, expect
 
 
 def choose_files(page: Page, base_url: str, stems: Sequence[str]) -> None:
-    """Choose the sidebar's shown files through the server, as a checkbox would.
+    """Choose the sidebar's shown files through the server, as the dialog would.
 
     Parameters
     ----------
@@ -20,17 +20,70 @@ def choose_files(page: Page, base_url: str, stems: Sequence[str]) -> None:
         Base URL of the running server.
     stems : Sequence[str]
         Shown files of the run in use. They are sent with the run of the
-        sidebar, as its form does.
+        shown-file dialog, as its form does.
     """
-    sidebar = page.request.get(f"{base_url}/sidebar/selection").text()
-    match = re.search(r'<input type="hidden" name="run" value="([^"]+)">', sidebar)
+    dialog = page.request.get(f"{base_url}/sidebar/selection/files/dialog").text()
+    match = re.search(r'<input type="hidden" name="run" value="([^"]+)">', dialog)
     assert match is not None
     response = page.request.post(
         f"{base_url}/sidebar/selection/files",
-        data=urlencode([("run", match.group(1)), *(("file", stem) for stem in stems)]),
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        form={"run": match.group(1), "stems": json.dumps(list(stems))},
     )
     assert response.ok
+
+
+def shown_files(page: Page) -> Locator:
+    """Return the items of the sidebar's read-only list of shown files.
+
+    Parameters
+    ----------
+    page : Page
+        Browser page showing a screen.
+
+    Returns
+    -------
+    Locator
+        One ``li[data-stem]`` per shown file.
+    """
+    return page.locator("#view-selection [data-view-file-list] li[data-stem]")
+
+
+def open_file_dialog(page: Page) -> Locator:
+    """Open the shown-file dialog and wait until its table has loaded.
+
+    Parameters
+    ----------
+    page : Page
+        Browser page showing a screen with the sidebar loaded.
+
+    Returns
+    -------
+    Locator
+        The open dialog.
+    """
+    page.get_by_role("button", name="Choose shown files").click()
+    dialog = page.locator("#view-files-dialog")
+    expect(dialog).to_be_visible()
+    expect(dialog.locator("tr[data-dt-key]").first).to_be_visible()
+    return dialog
+
+
+def select_in_dialog(page: Page, stems: Sequence[str]) -> None:
+    """Toggle files in the shown-file dialog and save them with "Select".
+
+    Parameters
+    ----------
+    page : Page
+        Browser page marked by ``mark_page``; wait for the refresh with
+        ``wait_for_view_refresh`` afterwards.
+    stems : Sequence[str]
+        Files whose row checkbox is clicked (checked or cleared).
+    """
+    dialog = open_file_dialog(page)
+    for stem in stems:
+        dialog.get_by_role("checkbox", name=f"Select {stem}", exact=True).click()
+    dialog.get_by_role("button", name="Select", exact=True).click()
+    expect(dialog).to_be_hidden()
 
 
 def wait_for_sidebar(page: Page) -> None:

@@ -237,17 +237,14 @@ window.addEventListener("pageshow", (event) => {
 });
 
 // The display screens' choices: the shown transform run and the model (chosen
-// on the transform page) and the shown files (in the sidebar or by a click on
-// a score point). A change refreshes the sidebar's choices and, when the main
+// on the transform page) and the shown files (in the sidebar's dialog or by a
+// click on a score point). A change refreshes the sidebar's choices and, when the main
 // element names the changed choice in data-view-swap, the main part from the
 // current URL; the page is not reloaded. The overlay covers the page meanwhile; cancelling stops the
 // requests and shows the choices the server holds.
 const VIEW_OWNER = "view-selection";
 // The pending refresh, aborted by a newer one or by cancelling.
 let viewRefresh = null;
-// The scroll position of the shown-file list kept over the next refresh of
-// the sidebar, or null to start at the top.
-let keptFileListScroll = null;
 // The stems shown by each point table (by id) after the next replacement of
 // the main part.
 let keptPointStems = {};
@@ -291,9 +288,6 @@ async function refreshView(changed, pointStems = {}) {
     if (viewRefresh !== controller) {
       return;
     }
-    // A changed run lists other files, so their list starts at the top.
-    const list = document.querySelector("#view-selection .view-file-list");
-    keptFileListScroll = changed === "files" && list ? list.scrollTop : null;
     htmx.swap("#view-selection", sidebar, { swapStyle: "innerHTML" });
     if (content !== null) {
       disposeMain(main);
@@ -323,6 +317,14 @@ document.addEventListener("htmx:beforeRequest", (event) => {
   if (!form) {
     return;
   }
+  // The modal dialog would cover the overlay, so a choice made in it closes
+  // it. Its contents stay until the request ends, since htmx triggers the
+  // response's events (HX-Trigger) on the form.
+  const dialog = form.closest("dialog");
+  if (dialog) {
+    dialog.dataset.submitting = "true";
+    dialog.close();
+  }
   busyOverlay.start(
     () => {
       htmx.trigger(form, "htmx:abort");
@@ -343,53 +345,67 @@ document.addEventListener("view-selection-changed", (event) => {
   refreshView(event.detail.changed);
 });
 
-const VIEW_FILE_SEARCH_KEY = "flat-pca:view-file-search";
+// Once settled, the sidebar's choices are processed by htmx and marked ready.
+document.addEventListener("htmx:afterSettle", (event) => {
+  if (event.detail.elt.id === "view-selection") {
+    event.detail.elt.dataset.ready = "true";
+  }
+});
 
-// Hides the shown-file choices whose names do not contain the search text.
-function filterViewFiles(input) {
-  const text = input.value.trim().toLowerCase();
-  for (const item of document.querySelectorAll("#view-selection li[data-stem]")) {
-    item.hidden = text !== "" && !item.dataset.stem.toLowerCase().includes(text);
+// The dialog choosing the shown files. Its contents are fetched each time it
+// opens, so it starts from the chosen files, not from a cancelled selection.
+// "Select" posts the selection (a [data-view-choice] form, handled above);
+// Cancel, the close button, and Esc close it without saving.
+function openViewFilesDialog() {
+  const dialog = document.getElementById("view-files-dialog");
+  const content = dialog.querySelector("[data-dialog-content]");
+  delete dialog.dataset.submitting;
+  content.innerHTML = '<p class="muted">Loading…</p>';
+  dialog.showModal();
+  htmx.ajax("GET", "/sidebar/selection/files/dialog", {
+    source: content,
+    target: content,
+    swap: "innerHTML",
+  });
+}
+
+// A closed dialog drops its contents, so that its table and inputs do not
+// stay in the page; one closed by "Select" drops them when its request ends.
+function dropClosedDialogContents(dialog) {
+  if (!dialog.open && !dialog.dataset.submitting) {
+    dialog.querySelector("[data-dialog-content]").replaceChildren();
   }
 }
 
-// The search text survives each refresh of the sidebar and, in this tab, the
-// reload of a page.
-document.addEventListener("input", (event) => {
-  if (!event.target.matches("[data-view-file-search]")) {
-    return;
-  }
-  try {
-    sessionStorage.setItem(VIEW_FILE_SEARCH_KEY, event.target.value);
-  } catch {
-    // Without storage the search text is simply not kept.
-  }
-  filterViewFiles(event.target);
+document.getElementById("view-files-dialog").addEventListener("close", (event) => {
+  dropClosedDialogContents(event.target);
 });
 
-// Once settled, the sidebar's choices are processed by htmx and marked ready.
-// The search text filters them again, and then the list scrolls back to
-// where it was before a refresh after a change of the shown files.
-document.addEventListener("htmx:afterSettle", (event) => {
-  if (event.detail.elt.id !== "view-selection") {
+// Also drops what a request of a closed dialog brought in after it closed.
+document.addEventListener("htmx:afterRequest", (event) => {
+  const dialog = event.detail.elt.closest("dialog");
+  if (!dialog) {
     return;
   }
-  const scroll = keptFileListScroll;
-  keptFileListScroll = null;
-  event.detail.elt.dataset.ready = "true";
-  const input = event.detail.elt.querySelector("[data-view-file-search]");
-  if (!input) {
-    return;
+  if (event.detail.elt.closest("[data-view-choice]")) {
+    delete dialog.dataset.submitting;
   }
-  try {
-    input.value = sessionStorage.getItem(VIEW_FILE_SEARCH_KEY) ?? "";
-  } catch {
-    input.value = "";
+  dropClosedDialogContents(dialog);
+});
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest("[data-view-files-open]")) {
+    openViewFilesDialog();
+  } else if (event.target.closest("[data-dialog-close]")) {
+    event.target.closest("dialog").close();
   }
-  filterViewFiles(input);
-  const list = event.detail.elt.querySelector(".view-file-list");
-  if (scroll !== null && list) {
-    list.scrollTop = scroll;
+});
+
+// The dialog's count follows the selection of its table.
+document.addEventListener("datatable:selection-change", (event) => {
+  const count = event.target.closest("dialog")?.querySelector("[data-view-dialog-count]");
+  if (count) {
+    count.textContent = `${event.detail.keys.length} / ${event.detail.max}`;
   }
 });
 

@@ -7,6 +7,7 @@ import re
 
 import pytest
 from playwright.sync_api import FloatRect, Page, expect
+from sidebar_choice import shown_files
 
 pytestmark = pytest.mark.e2e
 
@@ -84,7 +85,7 @@ def test_clicking_a_point_shows_its_row_and_stays(page: Page, fitted_server_url:
         ["file", "lot", "date", "yield_pct", "T²", "Q", "T² above UCL", "Q above UCL"]
     )
     assert page.url == url
-    expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(0)
+    expect(shown_files(page)).to_have_count(0)
 
 
 def test_box_select_shows_every_chosen_row(page: Page, fitted_server_url: str) -> None:

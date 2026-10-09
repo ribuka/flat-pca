@@ -9,6 +9,9 @@ from playwright.sync_api import Page, expect
 from sidebar_choice import (
     choose_files,
     mark_page,
+    open_file_dialog,
+    select_in_dialog,
+    shown_files,
     wait_for_sidebar,
     wait_for_view_refresh,
 )
@@ -38,7 +41,7 @@ def test_clicking_a_score_point_adds_the_file(page: Page, fitted_server_url: str
     """A click on a score point adds the file to the sidebar without a reload."""
     url = f"{fitted_server_url}/scores?color="
     _open(page, url)
-    expect(page.locator("#view-selection input[name=file]")).to_have_count(12)
+    expect(shown_files(page)).to_have_count(0)
 
     mark_page(page)
     _click_point(page, 1)
@@ -49,8 +52,7 @@ def test_clicking_a_score_point_adds_the_file(page: Page, fitted_server_url: str
     rows = page.locator("#point-table tbody tr")
     expect(rows).to_have_count(1)
     expect(rows.first.locator("td").first).to_have_text("s-01")
-    expect(page.locator('#view-selection input[value="s-01"]')).to_be_checked()
-    expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(1)
+    expect(shown_files(page)).to_have_text(["s-01"])
     expect(page.locator("#scores-trajectories")).to_have_attribute("data-plot-ready", "true")
     legend = page.locator("#scores-trajectories .legend .traces")
     expect(legend).to_have_count(1)
@@ -62,6 +64,10 @@ def test_clicking_a_score_point_adds_the_file(page: Page, fitted_server_url: str
     assert box is not None
     page.mouse.dblclick(box["x"] + 4, box["y"] + 4)
     expect(page.locator("#point-table")).to_have_attribute("data-shown-count", "0")
+    # The dialog starts from the added file.
+    dialog = open_file_dialog(page)
+    expect(dialog.locator("[data-dt-row-check]:checked")).to_have_count(1)
+    expect(dialog.get_by_label("Select s-01", exact=True)).to_be_checked()
 
 
 def test_clicking_a_point_at_the_limit_warns(page: Page, one_file_server_url: str) -> None:
@@ -69,7 +75,7 @@ def test_clicking_a_point_at_the_limit_warns(page: Page, one_file_server_url: st
     choose_files(page, one_file_server_url, ["s-00"])
     url = f"{one_file_server_url}/scores?color="
     _open(page, url)
-    expect(page.locator('#view-selection input[value="s-00"]')).to_be_checked()
+    expect(shown_files(page)).to_have_text(["s-00"])
 
     _click_point(page, 1)
 
@@ -78,7 +84,7 @@ def test_clicking_a_point_at_the_limit_warns(page: Page, one_file_server_url: st
     expect(warning).to_contain_text("Up to 1 shown files")
     expect(warning).to_contain_text("s-01")
     assert page.url == url
-    expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(1)
+    expect(shown_files(page)).to_have_count(1)
     rows = page.locator("#point-table tbody tr")
     expect(rows).to_have_count(1)
     expect(rows.first.locator("td").first).to_have_text("s-01")
@@ -112,7 +118,7 @@ def test_lasso_select_shows_the_rows_without_adding(
         ["file", "lot", "date", "yield_pct", "PC1", "PC2"]
     )
     assert page.url == url
-    expect(page.locator("#view-selection input[name=file]:checked")).to_have_count(0)
+    expect(shown_files(page)).to_have_count(0)
 
 
 def test_choices_redraw_the_trajectories(page: Page, fitted_server_url: str) -> None:
@@ -124,7 +130,7 @@ def test_choices_redraw_the_trajectories(page: Page, fitted_server_url: str) -> 
 
     mark_page(page)
     for stem in ("s-00", SHORT):
-        page.locator(f'#view-selection input[value="{stem}"]').check()
+        select_in_dialog(page, [stem])
         wait_for_view_refresh(page)
     expect(page.locator("#scores-scatter")).to_have_attribute("data-plot-ready", "true")
     y_input = page.locator('input[name="trajectory_y"]')
