@@ -12,10 +12,6 @@ from .config import TableConfig
 from .pagination import Page, paginate
 from .state import Bound, TableState
 
-# The range of the integer literals compared with integer columns: Int64 and UInt64.
-INT64_MIN = -(2**63)
-UINT64_MAX = 2**64 - 1
-
 
 @dataclass(frozen=True)
 class TableView:
@@ -67,32 +63,46 @@ def key_text(config: TableConfig) -> pl.Expr:
     return pl.col(config.key).cast(pl.String)
 
 
-def bound_literal(bound: Bound, dtype: pl.DataType) -> pl.Expr:
-    """Return a range bound as a literal fit for comparing with a column.
+def bound_condition(name: str, bound: Bound, dtype: pl.DataType, *, lower: bool) -> pl.Expr:
+    """Return the condition that a column is on the inner side of a bound.
 
     Parameters
     ----------
+    name : str
+        Column name.
     bound : Bound
         Bound from ``parse_state``; not ``None``.
     dtype : pl.DataType
-        Type of the compared column.
+        Type of the column.
+    lower : bool
+        Whether the bound is the lower one (``>=``) or the upper one (``<=``).
 
     Returns
     -------
     pl.Expr
-        An ``int`` bound stays an integer literal against an integer column
-        when it fits 64 bits, so it keeps its precision; otherwise it becomes
-        a float (``±inf`` past the float range). Other bounds are used as
-        they are.
+        Inclusive comparison of the column with the bound. An ``int`` bound
+        is compared exactly with an integer column; one past every integer
+        type of polars is outside any integer column, so every non-null value is
+        on the inner side of it or none is. Against other columns an ``int`` bound
+        is compared as a float (``±inf`` past the float range).
     """
-    if not isinstance(bound, int):
-        return pl.lit(bound)
-    if dtype.is_integer() and INT64_MIN <= bound <= UINT64_MAX:
-        return pl.lit(bound)
-    try:
-        return pl.lit(float(bound))
-    except OverflowError:
-        return pl.lit(math.inf if bound > 0 else -math.inf)
+    column = pl.col(name)
+    if isinstance(bound, int):
+        if dtype.is_integer():
+            try:
+                literal = pl.lit(bound)
+            except (OverflowError, pl.exceptions.InvalidOperationError):
+                # Every value is above a bound below every integer type, and
+                # below one above them; null values match no filter.
+                return column.is_not_null() if (bound < 0) == lower else pl.lit(False)
+        else:
+            try:
+                literal = pl.lit(float(bound))
+            except OverflowError:
+                literal = pl.lit(math.inf if bound > 0 else -math.inf)
+    else:
+        literal = pl.lit(bound)
+    return column >= literal if lower else column <= literal
 
 
 def filter_expression(state: TableState, schema: Mapping[str, pl.DataType]) -> pl.Expr:
@@ -105,7 +115,7 @@ def filter_expression(state: TableState, schema: Mapping[str, pl.DataType]) -> p
         ``parse_state``.
     schema : Mapping[str, pl.DataType]
         Column types of the filtered frame, which decide the type of the
-        range bounds (``bound_literal``).
+        range bounds (``bound_condition``).
 
     Returns
     -------
@@ -125,9 +135,9 @@ def filter_expression(state: TableState, schema: Mapping[str, pl.DataType]) -> p
         conditions.append(pl.col(name).cast(pl.String) == value)
     for name, (lower, upper) in state.ranges.items():
         if lower is not None:
-            conditions.append(pl.col(name) >= bound_literal(lower, schema[name]))
+            conditions.append(bound_condition(name, lower, schema[name], lower=True))
         if upper is not None:
-            conditions.append(pl.col(name) <= bound_literal(upper, schema[name]))
+            conditions.append(bound_condition(name, upper, schema[name], lower=False))
     return pl.all_horizontal(conditions).fill_null(False)
 
 

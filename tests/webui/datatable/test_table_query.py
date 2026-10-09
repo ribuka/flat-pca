@@ -202,3 +202,60 @@ def test_apply_state_shows_binary_keys_of_a_table_without_selection() -> None:
 
     assert [row["label"] for row in view.rows] == ["a", "b"]
     assert view.row_keys == [str(b"\xff"), str(b"\xfe")]
+
+
+INT64_MIN = -(2**63)
+UINT64_MAX = 2**64 - 1
+
+
+@pytest.mark.parametrize(
+    ("dtype", "values", "side", "bound", "expected"),
+    [
+        # Bounds just past the limits of the column type.
+        (pl.Int64, [INT64_MIN, INT64_MIN + 1], "max", INT64_MIN - 1, []),
+        (pl.Int64, [INT64_MIN, INT64_MIN + 1], "min", INT64_MIN - 1, ["a", "b"]),
+        (pl.Int64, [INT64_MIN, INT64_MIN + 1], "max", INT64_MIN, ["a"]),
+        (pl.UInt64, [UINT64_MAX - 1, UINT64_MAX], "min", UINT64_MAX + 1, []),
+        (pl.UInt64, [UINT64_MAX - 1, UINT64_MAX], "max", UINT64_MAX + 1, ["a", "b"]),
+        (pl.UInt64, [UINT64_MAX - 1, UINT64_MAX], "min", UINT64_MAX, ["b"]),
+        # Bounds inside a 128-bit column.
+        (pl.Int128, [2**70, 2**70 + 1], "min", 2**70 + 1, ["b"]),
+        # Bounds past every integer type of polars.
+        (pl.Int64, [1, 2], "min", 2**200, []),
+        (pl.Int64, [1, 2], "max", 2**200, ["a", "b"]),
+        (pl.Int64, [1, 2], "min", -(2**200), ["a", "b"]),
+        (pl.Int64, [1, 2], "max", -(2**200), []),
+    ],
+)
+def test_apply_state_compares_integer_columns_exactly(
+    dtype: pl.DataType, values: list[int], side: str, bound: int, expected: list[str]
+) -> None:
+    """Integer bounds keep their precision against integer columns of any width."""
+    frame = pl.DataFrame({"key": ["a", "b"], "value": pl.Series(values, dtype=dtype)})
+    config = TableConfig(
+        table_id="t",
+        key="key",
+        columns=(ColumnConfig("key"), ColumnConfig("value", filter="number")),
+        url="/",
+        selectable=True,
+    )
+
+    state = parse_state({f"t.{side}__value": [str(bound)]}, config)
+
+    assert apply_state(frame, state, config).matching_keys == expected
+
+
+def test_apply_state_out_of_range_bounds_skip_nulls() -> None:
+    """A bound past every integer type still matches no null value."""
+    frame = pl.DataFrame({"key": ["a", "b"], "value": [1, None]})
+    config = TableConfig(
+        table_id="t",
+        key="key",
+        columns=(ColumnConfig("key"), ColumnConfig("value", filter="number")),
+        url="/",
+        selectable=True,
+    )
+
+    state = parse_state({"t.min__value": [str(-(2**200))]}, config)
+
+    assert apply_state(frame, state, config).matching_keys == ["a"]
