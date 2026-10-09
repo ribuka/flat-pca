@@ -546,7 +546,7 @@ for (const type of ["input", "change"]) {
 }
 
 const INACTIVE_OPACITY = 0.1;
-const INACTIVE_ZINDEX = -1;
+const INACTIVE_ZORDER = -1;
 
 // Returns whether a trace of a figure is made inactive from its legend.
 function isInactiveTrace(trace) {
@@ -570,7 +570,7 @@ function setTracesActive(gd, indices, active) {
     gd,
     {
       opacity: active.map((on) => (on ? 1 : INACTIVE_OPACITY)),
-      zindex: active.map((on) => (on ? 0 : INACTIVE_ZINDEX)),
+      zorder: active.map((on) => (on ? 0 : INACTIVE_ZORDER)),
     },
     indices,
   );

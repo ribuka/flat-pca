@@ -53,11 +53,36 @@ def test_legend_click_fades_the_trace(page: Page, fitted_server_url: str) -> Non
         target,
     )
     assert visible == [True, True, True]
-    expect(page.locator(f"{target} .scatterlayer .trace")).to_have_count(3)
+    expect(page.locator(f"{target} .cartesianlayer .trace.scatter")).to_have_count(3)
 
     _click_legend(page, target, 1)
 
     assert _opacities(page, target) == [1, 1, 1]
+
+
+def _drawn_order(page: Page, target: str) -> list[int]:
+    """Return the trace indices of a figure's scatter traces in drawing order."""
+    return page.evaluate(
+        """(target) => [...document.querySelectorAll(`${target} .cartesianlayer .trace.scatter`)]
+          .map((node) => node.__data__[0].trace.index)""",
+        target,
+    )
+
+
+def test_inactive_trace_is_drawn_behind(page: Page, fitted_server_url: str) -> None:
+    """An inactive trace is drawn before, so behind, the active traces."""
+    choose_files(page, fitted_server_url, ["s-00", "s-01", "s-02"])
+    _open_scores(page, f"{fitted_server_url}/scores")
+    target = "#scores-trajectories"
+    assert _drawn_order(page, target) == [0, 1, 2]
+
+    _click_legend(page, target, 2)
+
+    assert _drawn_order(page, target) == [2, 0, 1]
+
+    _click_legend(page, target, 2)
+
+    assert _drawn_order(page, target) == [0, 1, 2]
 
 
 def test_legend_right_click_isolates_the_trace(page: Page, fitted_server_url: str) -> None:
@@ -99,7 +124,7 @@ def test_legend_double_click_changes_nothing(page: Page, fitted_server_url: str)
     page.wait_for_timeout(DOUBLE_CLICK_DELAY_MS)
 
     assert _opacities(page, target) == [1, 1, 1]
-    expect(page.locator(f"{target} .scatterlayer .trace")).to_have_count(3)
+    expect(page.locator(f"{target} .cartesianlayer .trace.scatter")).to_have_count(3)
 
 
 def test_legend_toggles_the_whole_group(page: Page, fitted_server_url: str) -> None:
