@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/color_by.html" import color_by_options %}
 {% block title %}Scores - flat-pca{% endblock %}
 {% block view_swap %}run files{% endblock %}
 {% block scripts %}
@@ -14,7 +15,7 @@
     {% if shown.error %}
       <p class="error" data-scores-error>{{ shown.error }}</p>
     {% endif %}
-    {#- The controls sit in the score scatter card and join this form with form="scores-form". -#}
+    {#- The controls sit in the score scatter and trajectory cards and join this form with form="scores-form". -#}
     {% if shown.runs %}
       <form id="scores-form" class="explore-form" method="get" action="/scores" data-auto-submit></form>
     {% endif %}
@@ -37,10 +38,7 @@
         {% endif %}
         <label>Color by
           <select name="color" form="scores-form">
-            <option value="" {% if shown.color is none %}selected{% endif %}>none</option>
-            {% for column in shown.color_options %}
-              <option value="{{ column }}" {% if column == shown.color %}selected{% endif %}>{{ column }}</option>
-            {% endfor %}
+            {{ color_by_options(shown.color_options, shown.color) }}
           </select>
         </label>
         <button type="submit" form="scores-form">Show</button>
@@ -56,6 +54,23 @@
   <details class="card" data-group="trajectories" open>
     <summary><h2>Partial score trajectories</h2></summary>
     <div class="card-body">
+      <div class="field-row">
+        {% if shown.component_count %}
+          <label>X axis PCm
+            <input type="number" name="trajectory_x" form="scores-form" min="1" max="{{ shown.component_count }}" value="{{ shown.trajectory_x }}">
+          </label>
+          <label>Y axis PCn
+            <input type="number" name="trajectory_y" form="scores-form" min="1" max="{{ shown.component_count }}" value="{{ shown.trajectory_y }}">
+          </label>
+          <span class="muted">(1–{{ shown.component_count }})</span>
+        {% endif %}
+        <label>Color by
+          <select name="trajectory_color" form="scores-form">
+            {{ color_by_options(shown.color_options, shown.trajectory_color) }}
+          </select>
+        </label>
+        <button type="submit" form="scores-form">Show</button>
+      </div>
       <p class="muted">
         サイドバーで選んだ表示ファイル（未選択なら先頭のファイル）について、
         fit 時と同じ補完・スケーリングを適用して中心化した値 z を (Step, Sequence, StepTime) の昇順に並べ、

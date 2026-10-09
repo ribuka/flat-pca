@@ -231,3 +231,83 @@ def test_invalid_parameters_are_rejected(
     response = client.get("/scores", params=params)
 
     assert response.status_code in (400, 422)
+
+
+@pytest.mark.usefixtures("run_dir")
+def test_color_by_offers_the_file_name(client: TestClient) -> None:
+    """Both Color by selects offer the file name; the scatter plot can be colored by it."""
+    html = client.get("/scores", params={"color": "stem"}).text
+
+    assert html.count('<option value="stem"') == 2
+    assert '<option value="stem" selected>file name</option>' in html
+    traces = _traces(html, "scatter")
+    assert len(traces) == 12
+    assert _figure(html, "scatter")["layout"]["legend"]["title"]["text"] == "stem"  # type: ignore[index]
+
+
+def test_trajectories_have_their_own_components(client: TestClient, run_dir: Path) -> None:
+    """The trajectories' PCm and PCn are chosen apart from the scatter plot's."""
+    choose_view(client, files=["s-00"])
+    html = client.get(
+        "/scores", params={"x": 1, "y": 2, "trajectory_x": 3, "trajectory_y": 1}
+    ).text
+
+    assert 'name="trajectory_x" form="scores-form" min="1" max="3" value="3"' in html
+    assert 'name="trajectory_y" form="scores-form" min="1" max="3" value="1"' in html
+    layout = _figure(html, "trajectories")["layout"]
+    assert layout["xaxis"]["title"]["text"] == "PC3"  # type: ignore[index]
+    assert layout["yaxis"]["title"]["text"] == "PC1"  # type: ignore[index]
+    assert _figure(html, "scatter")["layout"]["xaxis"]["title"]["text"] == "PC1"  # type: ignore[index]
+    trace = _traces(html, "trajectories")[0]
+    saved = _scores_by_stem(run_dir).filter(pl.col("stem") == "s-00")
+    np.testing.assert_allclose(
+        (_decode(trace["x"])[-1], _decode(trace["y"])[-1]),
+        saved.select("pca-3", "pca-1").row(0),
+        rtol=1e-5,
+    )
+
+
+@pytest.mark.usefixtures("run_dir")
+def test_out_of_range_trajectory_components_fall_back_to_the_defaults(
+    client: TestClient,
+) -> None:
+    """Unavailable trajectory components are replaced by PC1 and PC2."""
+    html = client.get("/scores", params={"trajectory_x": 9, "trajectory_y": 0}).text
+
+    assert 'name="trajectory_x" form="scores-form" min="1" max="3" value="1"' in html
+    assert 'name="trajectory_y" form="scores-form" min="1" max="3" value="2"' in html
+
+
+@pytest.mark.usefixtures("run_dir")
+def test_trajectories_are_colored_by_file_name_by_default(client: TestClient) -> None:
+    """Without a choice, each trajectory has its own color, whatever ``ui.default_color_by`` is."""
+    choose_view(client, files=["s-00", "s-01", "s-02"])
+    html = client.get("/scores").text
+
+    select = html.split('name="trajectory_color"', 1)[1].split("</select>", 1)[0]
+    assert '<option value="stem" selected>file name</option>' in select
+    traces = _traces(html, "trajectories")
+    assert [trace["name"] for trace in traces] == ["s-00", "s-01", "s-02"]
+    assert len({trace["line"]["color"] for trace in traces}) == 3  # type: ignore[index]
+
+
+@pytest.mark.usefixtures("run_dir")
+def test_trajectories_follow_the_scatter_coloring_rules(client: TestClient) -> None:
+    """A text column groups trajectories by value, a numeric one uses a color scale."""
+    choose_view(client, files=["s-00", "s-01", "s-02"])
+
+    by_lot = _traces(client.get("/scores", params={"trajectory_color": "lot"}).text, "trajectories")
+    assert [trace["name"] for trace in by_lot] == ["A", "B", "A"]
+    assert [trace["showlegend"] for trace in by_lot] == [True, True, False]
+    assert by_lot[0]["line"]["color"] == by_lot[2]["line"]["color"]  # type: ignore[index]
+
+    by_yield = _traces(
+        client.get("/scores", params={"trajectory_color": "yield_pct"}).text, "trajectories"
+    )
+    assert by_yield[0]["marker"]["colorscale"]  # type: ignore[index]
+    assert [trace["marker"]["showscale"] for trace in by_yield] == [True, False, False]  # type: ignore[index]
+
+    uncolored = _traces(
+        client.get("/scores", params={"trajectory_color": ""}).text, "trajectories"
+    )
+    assert not any(trace["showlegend"] for trace in uncolored)

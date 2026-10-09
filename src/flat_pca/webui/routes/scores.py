@@ -52,8 +52,9 @@ def _figures(shown: ScoresView) -> dict[str, str]:
                 stem: (trajectory.x, trajectory.y, trajectory.points)
                 for stem, trajectory in shown.trajectories.items()
             },
-            x_name=shown.x_name,
-            y_name=shown.y_name,
+            x_name=shown.trajectory_x_name,
+            y_name=shown.trajectory_y_name,
+            color=shown.trajectory_colors,
         ).update_layout(title="Partial score trajectories")
     return {name: script_json(figure.to_json()) for name, figure in figures.items()}
 
@@ -85,6 +86,9 @@ def scores_page(
     x: int | None = None,
     y: int | None = None,
     color: str | None = None,
+    trajectory_x: int | None = None,
+    trajectory_y: int | None = None,
+    trajectory_color: str | None = None,
 ) -> HTMLResponse:
     """Render the score page.
 
@@ -99,12 +103,23 @@ def scores_page(
     workspace : Workspace
         Application workspace.
     x : int | None, default None
-        1-based component number m of the horizontal axes; 1 by default.
+        1-based component number m of the score scatter plot's horizontal
+        axis; 1 by default.
     y : int | None, default None
-        1-based component number n of the vertical axes; 2 by default.
+        1-based component number n of the score scatter plot's vertical
+        axis; 2 by default.
     color : str | None, default None
-        Metadata column coloring the score points; ``ui.default_color_by``
-        by default and none for ``""``.
+        Column (``stem`` or a metadata column) coloring the score points;
+        ``ui.default_color_by`` by default and none for ``""``.
+    trajectory_x : int | None, default None
+        1-based component number m of the trajectories' horizontal axis; 1
+        by default.
+    trajectory_y : int | None, default None
+        1-based component number n of the trajectories' vertical axis; 2 by
+        default.
+    trajectory_color : str | None, default None
+        Column coloring the trajectories; ``stem`` by default and none for
+        ``""``.
 
     Returns
     -------
@@ -119,7 +134,14 @@ def scores_page(
     """
     choice = current_view_choice(workspace)
     scores_request = ScoresRequest(
-        run=choice.run_id, x=x, y=y, color=color, files=tuple(choice.files)
+        run=choice.run_id,
+        x=x,
+        y=y,
+        color=color,
+        files=tuple(choice.files),
+        trajectory_x=trajectory_x,
+        trajectory_y=trajectory_y,
+        trajectory_color=trajectory_color,
     )
     try:
         shown = resolve_scores(

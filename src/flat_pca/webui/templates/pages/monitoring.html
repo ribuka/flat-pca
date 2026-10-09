@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/color_by.html" import color_by_options %}
 {% block title %}T² / Q - flat-pca{% endblock %}
 {% block view_swap %}run{% endblock %}
 {% block scripts %}
@@ -15,10 +16,7 @@
           <div class="field-row">
             <label>Color by
               <select name="color">
-                <option value="" {% if shown.color is none %}selected{% endif %}>none</option>
-                {% for column in shown.color_options %}
-                  <option value="{{ column }}" {% if column == shown.color %}selected{% endif %}>{{ column }}</option>
-                {% endfor %}
+                {{ color_by_options(shown.color_options, shown.color) }}
               </select>
             </label>
             <button type="submit">Show</button>

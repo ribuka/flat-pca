@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from playwright.sync_api import Page, expect
 from sidebar_choice import (
@@ -125,17 +127,41 @@ def test_choices_redraw_the_trajectories(page: Page, fitted_server_url: str) -> 
         page.locator(f'#view-selection input[value="{stem}"]').check()
         wait_for_view_refresh(page)
     expect(page.locator("#scores-scatter")).to_have_attribute("data-plot-ready", "true")
-    y_input = page.locator('input[name="y"]')
+    y_input = page.locator('input[name="trajectory_y"]')
     y_input.fill("3")
     y_input.dispatch_event("change")
 
-    expect(page).to_have_url(f"{fitted_server_url}/scores?x=1&y=3&color=lot")
+    expect(page).to_have_url(
+        f"{fitted_server_url}/scores?x=1&y=2&color=lot"
+        "&trajectory_x=1&trajectory_y=3&trajectory_color=stem"
+    )
     expect(page.locator("#scores-trajectories")).to_have_attribute("data-plot-ready", "true")
     legend = page.locator("#scores-trajectories .legend .traces")
     expect(legend).to_have_count(2)
     expect(legend.nth(1)).to_contain_text(SHORT)
     expect(page.locator("#scores-trajectories .xtitle")).to_have_text("PC1")
     expect(page.locator("#scores-trajectories .ytitle")).to_have_text("PC3")
+    # The score scatter plot keeps its own components.
+    expect(page.locator("#scores-scatter .ytitle")).to_have_text("PC2")
+
+
+def test_trajectory_color_groups_the_files(page: Page, fitted_server_url: str) -> None:
+    """Coloring the trajectories by a column shows one legend entry per value.
+
+    The files of this workspace have no lot, so all three share the missing value.
+    """
+    choose_files(page, fitted_server_url, ["s-00", "s-01", "s-02"])
+    _open(page, f"{fitted_server_url}/scores")
+    expect(page.locator("#scores-trajectories .legend .traces")).to_have_count(3)
+
+    page.locator('select[name="trajectory_color"]').select_option("lot")
+
+    expect(page).to_have_url(re.compile(r"trajectory_color=lot"))
+    expect(page.locator("#scores-trajectories")).to_have_attribute("data-plot-ready", "true")
+    legend = page.locator("#scores-trajectories .legend .traces")
+    expect(legend).to_have_count(1)
+    expect(legend.first).to_contain_text("(missing)")
+    expect(page.locator("#scores-trajectories .legendtitletext")).to_have_text("lot")
 
 
 def test_a_failed_click_request_releases_the_page(

@@ -1,0 +1,8 @@
+{#- Options of a Color by select: none, the file name (stem), and the metadata
+    columns in options; chosen is the selected column or none. -#}
+{% macro color_by_options(options, chosen) -%}
+<option value="" {% if chosen is none %}selected{% endif %}>none</option>
+{%- for column in options %}
+<option value="{{ column }}" {% if column == chosen %}selected{% endif %}>{{ "file name" if column == "stem" else column }}</option>
+{%- endfor %}
+{%- endmacro %}
