@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 PROGRESS_FILE = "progress.json"
 ERROR_FILE = "error.txt"
 LOG_FILE = "log.txt"
+REPLACE_ATTEMPTS = 10
+REPLACE_RETRY_DELAY_S = 0.05
 
 
 @dataclass(frozen=True)
@@ -80,7 +83,40 @@ def write_progress(run_dir: Path, stage: str, done: int, total: int) -> None:
     temporary.write_text(
         json.dumps({"stage": stage, "done": done, "total": total}), encoding="utf-8"
     )
-    os.replace(temporary, run_dir / PROGRESS_FILE)
+    replace_progress_file(temporary, run_dir / PROGRESS_FILE)
+
+
+def replace_progress_file(
+    source: Path, target: Path, attempts: int = REPLACE_ATTEMPTS
+) -> bool:
+    """Move ``source`` onto ``target``, retrying while the target is in use.
+
+    On Windows the replacement fails with ``PermissionError`` while the app is
+    reading ``target``. Progress is informational, so when every attempt fails
+    this update is dropped and the next one takes its place.
+
+    Parameters
+    ----------
+    source : Path
+        Freshly written temporary file.
+    target : Path
+        File to replace.
+    attempts : int
+        Maximum number of replacement attempts.
+
+    Returns
+    -------
+    bool
+        ``True`` if ``target`` was replaced, ``False`` if the update was dropped.
+    """
+    for attempt in range(attempts):
+        try:
+            os.replace(source, target)
+            return True
+        except PermissionError:
+            if attempt + 1 < attempts:
+                time.sleep(REPLACE_RETRY_DELAY_S)
+    return False
 
 
 def read_progress(run_dir: Path) -> Progress | None:
