@@ -18,7 +18,7 @@ from flat_pca.webui.app import create_app
 from flat_pca.webui.routes.view_selection import current_model_run, current_view_choice
 from flat_pca.webui.run_layout import SCORES_FILE
 from flat_pca.webui.services.monitoring import MonitoringRequest, resolve_monitoring
-from flat_pca.webui.services.runs import insert_run, list_runs, update_run
+from flat_pca.webui.services.runs import get_run, insert_run, list_runs, update_run
 from flat_pca.webui.settings import Settings
 from flat_pca.webui.workspace import TRANSFORM_JOB, Workspace
 
@@ -155,6 +155,47 @@ def test_page_with_a_fit_run_locks_the_fit_targets(
     )
     assert not re.search(r'<button id="run-transform"[^>]*disabled', html)
     assert 'hx-get="/transform/runs"' in html
+
+
+def test_page_summarizes_the_chosen_model_settings(
+    client: TestClient, settings: Settings, spectra_paths: list[Path]
+) -> None:
+    """The chosen fit run's settings are summarized under the model choice."""
+    _register_fit(client, settings, spectra_paths)
+    _register_fit(client, settings, spectra_paths, "fit-2")
+    _settings(client, "fit-1", use_same_data=True)
+
+    html = client.get("/transform").text
+
+    assert 'data-model-settings="fit-1"' in html
+    assert html.index("data-transform-model") < html.index("data-model-settings")
+    assert html.index("data-model-settings") < html.index("data-transform-targets")
+    assert "<span data-model-settings-headline>3 components · scaling z-score</span>" in html
+    assert "<th scope=\"row\">Intensity transform</th><td>sqrt</td>" in html
+    assert "<th scope=\"row\">Wavelength range</th><td>なし</td>" in html
+    assert 'href="/fit?run=fit-1" data-model-settings-link' in html
+
+
+def test_page_reports_unreadable_model_settings(
+    client: TestClient, settings: Settings, spectra_paths: list[Path]
+) -> None:
+    """Unreadable settings show an error in the summary; the page still renders."""
+    _register_fit(client, settings, spectra_paths)
+    database = _workspace(client).database
+    run = get_run(database, "fit-1")
+    assert run is not None
+    config = json.loads(str(run["config_json"]))
+    del config["pca"]
+    database.execute(
+        "UPDATE runs SET config_json = ? WHERE run_id = ?", [json.dumps(config), "fit-1"]
+    )
+
+    response = client.get("/transform")
+
+    assert response.status_code == 200
+    assert "data-model-settings-error" in response.text
+    assert "Cannot read the settings of fit-1: missing &#39;pca&#39;" in response.text
+    assert "data-transform-targets" in response.text
 
 
 def test_fit_alone_transforms_nothing(

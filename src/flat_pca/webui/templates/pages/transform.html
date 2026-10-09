@@ -23,6 +23,7 @@
           use same data for fit
         </label>
       </form>
+      {% include "partials/model_settings.html" %}
     {% else %}
       <p class="muted" data-no-model>No succeeded fit run. Run a fit on <a href="/fit">Preprocess / PCA</a> first.</p>
     {% endif %}

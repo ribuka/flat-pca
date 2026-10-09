@@ -19,6 +19,7 @@ from ..services.model import (
     heatmap_request,
     resolve_model,
 )
+from ..services.model_settings import model_settings
 from ..templating import script_json
 from ..workspace import Workspace
 from .dependencies import get_workspace
@@ -163,6 +164,7 @@ def model_page(
     context: dict[str, object] = {
         "shown": shown,
         "aggregation_labels": AGGREGATION_LABELS,
+        "model_settings": None if model_run is None else model_settings(model_run),
     }
     key = heatmap_request(shown)
     if shown.error is None and key is not None:

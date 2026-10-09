@@ -65,6 +65,7 @@ def test_navigation_links_to_the_page(client: TestClient) -> None:
     assert 'href="/model" aria-current="page"' in html
     assert "data-model-error" in html
     assert "No succeeded fit run" in html
+    assert "data-model-settings" not in html
     response = client.get("/model/trend", params={"wavelength": 0, "step_time": 0})
     assert response.status_code == 404
 
@@ -172,7 +173,12 @@ def test_page_shows_the_model_chosen_on_the_transform_screen(
     response = client.post("/transform/settings", data={"model": "fit-1", "use_same_data": "true"})
 
     assert response.status_code == 200
-    assert 'data-model-run="fit-1"' in client.get("/model").text
+    html = client.get("/model").text
+    assert 'data-model-run="fit-1"' in html
+    assert 'data-model-settings="fit-1"' in html
+    assert html.index('data-model-run="fit-1"') < html.index("data-model-settings")
+    assert "<span data-model-settings-headline>3 components · scaling z-score</span>" in html
+    assert 'href="/fit?run=fit-1" data-model-settings-link' in html
 
 
 @pytest.mark.parametrize("view", ["scaling_scale", "impute_median", "outlier_lower"])

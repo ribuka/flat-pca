@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, Response
 from ..jobs.transform_run import build_transform_config
 from ..services.catalog_query import list_files
 from ..services.file_table import file_table_config
+from ..services.model_settings import model_settings
 from ..services.run_dirs import fit_run_reference
 from ..services.runs import get_run, latest_run, list_runs, run_status
 from ..services.selection import parse_stems_json
@@ -117,6 +118,7 @@ def transform_page(request: Request, workspace: WorkspaceDependency) -> HTMLResp
         {
             "model_runs": model_runs(workspace, model_run_id),
             "model_run_id": model_run_id,
+            "model_settings": None if model_run is None else model_settings(model_run),
             "use_same_data": use_same_data,
             "fit_targets": fit_targets,
             "selected": fit_targets if use_same_data else workspace.transform_selection.stems,

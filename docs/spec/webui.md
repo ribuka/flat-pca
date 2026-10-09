@@ -258,6 +258,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 ### 3. transform
 
 - `/transform`。transform に使うモデル（成功した fit run。新しい順。表示は`run_id（作成日時）`）の選択欄と、`use same data for fit`のチェックボックスを置く。モデルの既定は最新の fit run（選んでいた fit run がなくなったときも最新に戻す）、チェックボックスの既定はチェックあり。どちらも workspace（`TransformSettings`）に持ち、変えると`POST /transform/settings`で保存して`{"changed": "model"}`を知らせ、メイン部分を差し替える。チェックなしのときの表の選択も、このとき workspace に保存する。
+- モデルの選択欄の下に、選んだ fit run の設定の要約（`partials/model_settings.html`）を置く。モデルを変えるとメイン部分ごと差し替わるため、要約も切り替わる。
 - transform 対象を選ぶ表と「Run transform」ボタンは、チェックの有無にかかわらず常に表示する。
   - 表はデータ選択と同じもの（`/catalog/files`の絞り込み・ソート・ページング、ページやフィルタをまたいだ選択、ヘッダのチェックボックスでの一括選択）とする。
   - チェックありのときは、モデルの fit 対象（fit run の`config.json`のファイル）を選んだ状態で表示し、表のチェックボックスを無効にしてグレーアウトする（`#files`の`data-dt-locked`。絞り込み・ソート・ページングは使える）。
@@ -271,6 +272,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 ### 4. モデル
 
 - fit runを選んだ時点で決まり、ファイルの選択で変わらない図をまとめる。fit run は transform 画面で選んだモデルを使い、表示ファイルの選択は使わない。fit run がなければ、その旨を表示する。
+- Model のカードの fit run の ID の下に、transform 画面と同じ設定の要約（`partials/model_settings.html`）を置く。
 - 選択項目：ローディングの成分番号m・n（既定はPC1・PC2。範囲外は既定に戻す）、ローディングの集計方法、ヒートマップの値（PCA成分kか前処理パラメータ。既定はPCA成分k）、成分番号k（既定は1。範囲外は既定に戻す）、`(Step, Sequence)`（`features.parquet`から求める。既定は先頭）。
   - 選択は`/model?x={m}&y={n}&aggregation=…&view=…&k=…&segment={Step}:{Sequence}`のクエリで表す。
   - ローディングの成分番号m・n・集計方法は Loadings のカードに、ヒートマップの値・成分番号k・`(Step, Sequence)`は Heatmap のカードに置く。
@@ -285,6 +287,14 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
        - 補完値：`impute_strategy="median"`の中央値（`impute_median`）、`"kmeans"`のクラスタ重心（`kmeans_centroid_{c}`。cは1始まり）。
        - 外れ値処理の閾値（`outlier_lower`・`outlier_upper`）とwinsorizeの上下限（`winsor_lower`・`winsor_upper`）：外れ値処理をしたとき。Web UIのfitは`outlier_strategy=None`のため、通常は持たない。
      - 選択肢にはそのrunが持つ値だけを出す。runが持たないパラメータを`view`で指定した場合は、持たない旨を表示してPCA成分kを表示する。前処理パラメータとして不正な`view`は400とする。
+
+### モデルの設定の要約
+
+- transform 画面と Model 画面に、選んだ fit run の設定を要約して表示する（`services/model_settings.py::model_settings`）。表示用の行は保存した`config.json`から`form_values_from_config`でフォームの値に直して作り、ラベルと並び順は前処理・PCA画面のフォームにそろえる。
+- グループは Targets（`runs`の行のファイル数・特徴量数・成分数）、Target Steps、Preprocessing、PCA、T² / Q、Artifacts（`artifact_dtype`）とする。
+- 設定の有無にかかわらず、すべての行を出す。無効な範囲・窓・端の切り落としと、`runs`の行にない件数は「なし」、自動の成分数は`auto`、`kmeans`以外の補完の`impute_kmeans_n_clusters`は「なし」（`kmeans`で未指定なら`default`）とする。
+- 既定では折りたたみ（`<details>`）、見出しに成分数と`scaling_strategy`を出す。要約の下に`/fit?run={run_id}`へのリンク（「Preprocess / PCA で開く」）を置く。
+- 保存した設定が読めない（JSONでない・キーがない・型が不正）ときは、要約の場所にエラーを表示し、画面のほかの部分はそのまま表示する。
 
 ### 5. スペクトル探索
 

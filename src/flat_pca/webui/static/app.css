@@ -630,6 +630,27 @@ p.error {
   align-items: center;
 }
 
+/* The settings of the chosen fit run on the transform and model pages. */
+.model-settings {
+  margin-top: 0.75rem;
+}
+
+.model-settings summary {
+  cursor: pointer;
+}
+
+.settings-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 2rem;
+  align-items: flex-start;
+}
+
+.settings-table th {
+  font-weight: 400;
+  color: var(--muted);
+}
+
 .stem-list {
   max-height: 10rem;
   overflow-y: auto;
