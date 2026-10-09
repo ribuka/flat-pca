@@ -6,7 +6,6 @@ import numpy as np
 import polars as pl
 
 from flat_pca.visualize import create_control_chart, create_t2_q_scatter
-from flat_pca.visualize.marker_color import MISSING_COLOR
 from flat_pca.visualize.monitoring import MARKER
 
 
@@ -116,27 +115,33 @@ def test_categorical_color_draws_one_trace_per_value() -> None:
 
 
 def test_numeric_color_draws_one_scale() -> None:
-    """A numeric color draws one trace with the full value range and its color bar."""
+    """A numeric color draws the missing points faint, behind those on one color scale."""
     figure = create_t2_q_scatter(
-        [1.0, 9.0, 2.0],
-        [1.0, 1.0, 2.0],
+        [1.0, 9.0, 2.0, 3.0],
+        [1.0, 1.0, 2.0, 3.0],
         t2_ucl=5.0,
         q_ucl=5.0,
-        labels=["a", "b", "c"],
-        color=pl.Series("yield_pct", [90.0, 70.0, None]),
+        labels=["a", "b", "c", "d"],
+        color=pl.Series("yield_pct", [90.0, None, 70.0, float("nan")]),
     )
 
-    (trace,) = figure.data
-    colors = np.asarray(trace.marker.color, dtype=np.float64)
-    assert colors[:2].tolist() == [90.0, 70.0] and np.isnan(colors[2])
-    assert (trace.marker.cmin, trace.marker.cmax) == (70.0, 90.0)
-    assert trace.marker.showscale is True
-    assert trace.marker.colorbar.title.text == "yield_pct"
+    missing, valued = figure.data
+    assert list(missing.customdata) == ["b", "d"]
+    assert (list(missing.x), list(missing.y)) == ([9.0, 3.0], [1.0, 3.0])
+    assert (missing.marker.color, missing.marker.opacity) == ("lightgray", 0.5)
+    assert missing.marker.size == MARKER["size"]
+    assert missing.marker.showscale is None
+    assert list(valued.customdata) == ["a", "c"]
+    assert (list(valued.x), list(valued.y)) == ([1.0, 2.0], [1.0, 2.0])
+    assert list(valued.marker.color) == [90.0, 70.0]
+    assert (valued.marker.cmin, valued.marker.cmax) == (70.0, 90.0)
+    assert valued.marker.showscale is True
+    assert valued.marker.colorbar.title.text == "yield_pct"
     assert figure.layout.legend.title.text is None
 
 
 def test_numeric_color_without_values_draws_no_scale() -> None:
-    """A numeric column missing everywhere colors the points grey without a color bar."""
+    """A numeric column missing everywhere draws the points faint without a color bar."""
     figure = create_t2_q_scatter(
         [1.0, 9.0],
         [1.0, 1.0],
@@ -147,8 +152,9 @@ def test_numeric_color_without_values_draws_no_scale() -> None:
     )
 
     (trace,) = figure.data
-    assert trace.marker.color == MISSING_COLOR
-    assert trace.marker.showscale is False
+    assert list(trace.customdata) == ["a", "b"]
+    assert (trace.marker.color, trace.marker.opacity) == ("lightgray", 0.5)
+    assert trace.marker.showscale is None
     assert trace.marker.colorbar.title.text is None
 
 
@@ -169,6 +175,13 @@ def test_control_chart_rows_keep_the_colors_of_every_point() -> None:
     assert list(trace.x) == [1.0, 3.0, 4.0]
     assert list(trace.marker.color) == [10.0, 20.0, 30.0]
     assert (trace.marker.cmin, trace.marker.cmax) == (10.0, 99.0)
+
+    missing = create_control_chart(
+        [1.0, 5.0, 2.0, 7.0], color=pl.Series("pct", [10.0, 99.0, None, 30.0]), **common
+    )
+    assert [list(trace.customdata) for trace in missing.data] == [["c"], ["a", "d"]]
+    assert [list(trace.x) for trace in missing.data] == [[3.0], [1.0, 4.0]]
+    assert (missing.data[1].marker.cmin, missing.data[1].marker.cmax) == (10.0, 99.0)
 
     categorical = create_control_chart(
         [1.0, 5.0, 2.0, 7.0], color=pl.Series("lot", ["L1", "L2", "L3", "L1"]), **common
