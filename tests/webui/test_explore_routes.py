@@ -17,6 +17,7 @@ from fit_runs import register_shown_run
 from spectra import SPECTRA_SHORT_FILE, SPECTRA_WAVELENGTHS
 from view_choice import choose_view
 
+from flat_pca.visualize.trend import TREND_FRAME_HEIGHT, trend_height
 from flat_pca.webui.app import create_app
 from flat_pca.webui.services.display_cache import DisplayCache
 from flat_pca.webui.services.runs import insert_run, update_run
@@ -255,6 +256,21 @@ def test_trend_overlays_files_at_the_nearest_point(
     by_wavelength = trends["by_wavelength"]["data"]
     assert _decode(by_wavelength[0]["x"]) == list(SPECTRA_WAVELENGTHS)
     np.testing.assert_allclose(_decode(by_wavelength[0]["y"]), raw[1])
+    for figure in (trends["by_step_time"], trends["by_wavelength"]):
+        assert figure["layout"]["legend"]["orientation"] == "h"
+        assert figure["layout"]["height"] == trend_height(TREND_FRAME_HEIGHT)
+
+
+def test_trends_are_stacked_in_order(client: TestClient, fit_run: str) -> None:
+    """The StepTime trend comes first and the wavelength trend below it, in one column."""
+    html = client.get("/explore").text
+
+    stack = re.search(r'<div class="plot-stack">(.*?)</div>\s*</div>', html, re.DOTALL)
+    assert stack is not None
+    assert re.findall(r'id="(explore-trend-[\w-]+)"', stack.group(1)) == [
+        "explore-trend-step-time",
+        "explore-trend-wavelength",
+    ]
 
 
 def test_preprocessed_view_shows_x_rows_and_the_transform(

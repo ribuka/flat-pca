@@ -3,6 +3,7 @@
 import numpy as np
 
 from flat_pca.visualize import create_trend
+from flat_pca.visualize.trend import TREND_FRAME_HEIGHT, TREND_MARGIN, trend_height
 
 
 def test_create_trend_draws_one_trace_per_label() -> None:
@@ -22,3 +23,23 @@ def test_create_trend_draws_one_trace_per_label() -> None:
     assert figure.layout.xaxis.title.text == "StepTime"
     assert figure.layout.yaxis.title.text == "intensity"
     assert figure.layout.title.text == "wavelength = 400"
+
+
+def test_trend_height_adds_the_margins_and_the_legend() -> None:
+    """The figure height is the plot area plus the margins and the legend."""
+    assert trend_height(300) == TREND_MARGIN["t"] + 300 + TREND_MARGIN["b"]
+    assert trend_height(300, legend_height=45) == trend_height(300) + 45
+
+
+def test_create_trend_puts_the_legend_above_the_plot_area() -> None:
+    """A horizontal legend sits above the plot area, and the height leaves no room for it."""
+    figure = create_trend({"run-1": ([0.0], [1.0])}, x_name="StepTime", frame_height=250)
+
+    legend = figure.layout.legend
+    assert legend.orientation == "h"
+    assert (legend.y, legend.yanchor) == (1, "bottom")
+    assert figure.layout.margin.t == TREND_MARGIN["t"]
+    assert figure.layout.margin.b == TREND_MARGIN["b"]
+    assert figure.layout.height == trend_height(250)
+    assert figure.layout.autosize is True
+    assert create_trend({}, x_name="StepTime").layout.height == trend_height(TREND_FRAME_HEIGHT)
