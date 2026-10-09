@@ -9,8 +9,10 @@ from flat_pca.spectral.schema import SOURCE_COLUMN
 
 from .fit_artifacts import DisplayArtifacts
 
+# Column of samples.parquet holding each file's name.
+FILE_NAME_COLUMN = "stem"
 # Columns of samples.parquet that are not metadata.
-SAMPLE_KEY_COLUMNS = (SOURCE_COLUMN, "stem")
+SAMPLE_KEY_COLUMNS = (SOURCE_COLUMN, FILE_NAME_COLUMN)
 
 
 def metadata_columns(samples: pl.DataFrame) -> list[str]:
@@ -29,6 +31,22 @@ def metadata_columns(samples: pl.DataFrame) -> list[str]:
     return [column for column in samples.columns if column not in SAMPLE_KEY_COLUMNS]
 
 
+def color_columns(samples: pl.DataFrame) -> list[str]:
+    """Return the columns of ``samples.parquet`` that can color a figure.
+
+    Parameters
+    ----------
+    samples : pl.DataFrame
+        ``samples.parquet`` of a run.
+
+    Returns
+    -------
+    list[str]
+        ``FILE_NAME_COLUMN`` followed by the metadata columns.
+    """
+    return [FILE_NAME_COLUMN, *metadata_columns(samples)]
+
+
 def choose_metadata_column(
     requested: str | None, default: str | None, options: list[str]
 ) -> str | None:
@@ -39,9 +57,9 @@ def choose_metadata_column(
     requested : str | None
         Requested column; ``""`` for none and ``None`` for the default.
     default : str | None
-        Default column from the settings.
+        Default column, such as a setting's.
     options : list[str]
-        Metadata columns of the run's samples.
+        Columns of the run's samples to choose from.
 
     Returns
     -------

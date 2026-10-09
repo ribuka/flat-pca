@@ -15,7 +15,12 @@ from .fit_artifacts import DisplayArtifacts, RunArtifactError, artifact_error
 from .run_choice import choose_run
 from .run_dirs import run_dirs
 from .run_statistics import shown_statistic_configs
-from .scored_samples import choose_metadata_column, metadata_columns, scored_samples
+from .scored_samples import (
+    choose_metadata_column,
+    color_columns,
+    metadata_columns,
+    scored_samples,
+)
 from .view_selection import NO_TRANSFORM_RUN
 
 _ROW = "row"
@@ -35,8 +40,8 @@ class MonitoringRequest:
         Metadata column ordering the control charts; ``None`` for the
         default column and ``""`` for the natural order of the stems.
     color : str | None
-        Metadata column coloring the points; ``None`` for the default
-        column and ``""`` for no coloring.
+        Column coloring the points (``stem`` or a metadata column);
+        ``None`` for the default column and ``""`` for no coloring.
     """
 
     run: str | None = None
@@ -96,7 +101,8 @@ class MonitoringView:
         Chosen ordering column, or ``None`` for the natural order of the
         stems.
     color_options : list[str]
-        Metadata columns of the run's samples that can color the points.
+        Columns of the run's samples that can color the points: ``stem``
+        and the metadata columns.
     color : str | None
         Chosen coloring column, or ``None`` for no coloring.
     points : MonitoringPoints | None
@@ -240,13 +246,14 @@ def resolve_monitoring(
         return MonitoringView(runs=runs, run_id=run_id, error=str(error))
     order_options = metadata_columns(artifacts.samples)
     order = choose_metadata_column(request.order, default_order, order_options)
+    color_options = color_columns(artifacts.samples)
     base = MonitoringView(
         runs=runs,
         run_id=run_id,
         order_options=order_options,
         order=order,
-        color_options=order_options,
-        color=choose_metadata_column(request.color, default_color, order_options),
+        color_options=color_options,
+        color=choose_metadata_column(request.color, default_color, color_options),
     )
     try:
         points = monitoring_points(artifacts, *shown_statistic_configs(run), order)

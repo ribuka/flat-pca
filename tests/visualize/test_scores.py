@@ -91,3 +91,105 @@ def test_trajectories_mark_their_end_points() -> None:
     assert sizes[-1] > sizes[0]
     assert figure.layout.xaxis.title.text == "PC1"
     assert figure.layout.yaxis.title.text == "PC3"
+
+
+def _four_trajectories() -> dict[str, tuple[list[float], list[float], list[str]]]:
+    """Return two-point trajectories of the files ``a`` to ``d``."""
+    return {
+        stem: ([0.0, float(index)], [0.0, -float(index)], ["p1", "p2"])
+        for index, stem in enumerate(["a", "b", "c", "d"])
+    }
+
+
+def test_trajectories_colored_by_stem_get_one_color_each() -> None:
+    """Colored by the file name, every trajectory has its own color and legend entry."""
+    scores = _scores()
+    figure = create_partial_score_trajectories(
+        _four_trajectories(), x_name="PC1", y_name="PC2", color=scores["stem"]
+    )
+
+    assert [trace.name for trace in figure.data] == ["a", "b", "c", "d"]
+    assert all(trace.showlegend for trace in figure.data)
+    colors = [trace.line.color for trace in figure.data]
+    assert len(set(colors)) == 4
+    assert [trace.marker.color for trace in figure.data] == colors
+    assert figure.layout.legend.title.text == "stem"
+
+
+def test_trajectories_colored_by_a_category_share_the_value_color() -> None:
+    """Trajectories of one value share a color and a single legend entry."""
+    scores = _scores()
+    figure = create_partial_score_trajectories(
+        _four_trajectories(), x_name="PC1", y_name="PC2", color=scores["lot"]
+    )
+
+    assert [trace.name for trace in figure.data] == ["L1", "L2", MISSING_LABEL, "L1"]
+    assert [trace.showlegend for trace in figure.data] == [True, True, True, False]
+    assert [trace.legendgroup for trace in figure.data] == ["L1", "L2", MISSING_LABEL, "L1"]
+    colors = [trace.line.color for trace in figure.data]
+    assert colors[0] == colors[3]
+    assert len(set(colors)) == 3
+    # The hover text still names the file.
+    assert figure.data[3].hovertemplate.startswith("d<br>")
+
+
+def test_trajectories_colored_by_a_number_share_one_scale() -> None:
+    """A numeric value colors lines and points on one scale with one color bar."""
+    scores = _scores()
+    figure = create_partial_score_trajectories(
+        _four_trajectories(), x_name="PC1", y_name="PC2", color=scores["yield_pct"]
+    )
+
+    assert not any(trace.showlegend for trace in figure.data)
+    assert [bool(trace.marker.showscale) for trace in figure.data] == [True, False, False, False]
+    assert figure.data[0].marker.colorbar.title.text == "yield_pct"
+    assert list(figure.data[0].marker.color) == [90.0, 90.0]
+    assert (figure.data[0].marker.cmin, figure.data[0].marker.cmax) == (70.0, 90.0)
+    lines = [trace.line.color for trace in figure.data]
+    # The ends of Viridis, and grey for the missing value.
+    assert lines[0] == "rgb(253, 231, 37)"
+    assert lines[3] == "rgb(68, 1, 84)"
+    assert lines[2] == "#9e9e9e"
+
+
+def test_trajectories_without_color_share_one_color() -> None:
+    """Without a color value, every trajectory has the same color and no legend."""
+    figure = create_partial_score_trajectories(
+        _four_trajectories(), x_name="PC1", y_name="PC2"
+    )
+
+    assert len({trace.line.color for trace in figure.data}) == 1
+    assert not any(trace.showlegend for trace in figure.data)
+    assert [trace.name for trace in figure.data] == ["a", "b", "c", "d"]
+
+
+def test_trajectories_with_a_missing_number_are_grey() -> None:
+    """A trajectory without a value is grey, and the first one with a value draws the bar."""
+    figure = create_partial_score_trajectories(
+        _four_trajectories(),
+        x_name="PC1",
+        y_name="PC2",
+        color=pl.Series("yield_pct", [None, 1.0, None, 2.0]),
+    )
+
+    for missing in (figure.data[0], figure.data[2]):
+        assert missing.line.color == "#9e9e9e"
+        assert missing.marker.color == "#9e9e9e"
+        assert not missing.marker.showscale
+    assert [bool(trace.marker.showscale) for trace in figure.data] == [False, True, False, False]
+    assert figure.data[1].marker.colorbar.title.text == "yield_pct"
+    assert (figure.data[3].marker.cmin, figure.data[3].marker.cmax) == (1.0, 2.0)
+
+
+def test_trajectories_without_any_number_are_all_grey() -> None:
+    """A numeric value missing for every trajectory draws them grey without a color bar."""
+    figure = create_partial_score_trajectories(
+        _four_trajectories(),
+        x_name="PC1",
+        y_name="PC2",
+        color=pl.Series("yield_pct", [None] * 4, dtype=pl.Float64),
+    )
+
+    assert {trace.marker.color for trace in figure.data} == {"#9e9e9e"}
+    assert {trace.line.color for trace in figure.data} == {"#9e9e9e"}
+    assert not any(trace.marker.showscale for trace in figure.data)

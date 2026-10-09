@@ -392,3 +392,17 @@ def test_q_contributions_add_up_to_the_saved_q(
 
     saved = _scores_by_stem(run_dir).filter(pl.col("stem") == stem)["spe"][0]
     assert total == pytest.approx(saved, rel=1e-5)
+
+
+@pytest.mark.usefixtures("run_dir")
+def test_points_can_be_colored_by_file_name(client: TestClient) -> None:
+    """Color by offers the file name, which the order choices do not."""
+    html = client.get("/monitoring", params={"color": "stem"}).text
+
+    assert '<option value="stem" selected>file name</option>' in html
+    order = html.split('name="order"', 1)[1].split("</select>", 1)[0]
+    assert 'value="stem"' not in order
+    scatter = _figure(html, "monitoring-scatter-figure")
+    groups = {trace["legendgroup"] for trace in scatter["data"]}  # type: ignore[index, union-attr]
+    assert groups == {f"s-{index:02d}" for index in range(SPECTRA_FILE_COUNT)}
+    assert scatter["layout"]["legend"]["title"]["text"] == "stem"  # type: ignore[index]

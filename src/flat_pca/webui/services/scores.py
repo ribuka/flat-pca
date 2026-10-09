@@ -16,7 +16,12 @@ from .display_cache import DisplayCache
 from .fit_artifacts import DisplayArtifacts, RunArtifactError, artifact_error
 from .run_choice import choose_run
 from .run_dirs import RunDirs, run_dirs
-from .scored_samples import choose_metadata_column, metadata_columns, scored_samples
+from .scored_samples import (
+    FILE_NAME_COLUMN,
+    choose_metadata_column,
+    color_columns,
+    scored_samples,
+)
 from .view_selection import NO_TRANSFORM_RUN
 
 
@@ -33,10 +38,17 @@ class ScoresRequest:
     y : int | None
         1-based component number n of the vertical axis.
     color : str | None
-        Metadata column coloring the score points; ``None`` for the
-        default column and ``""`` for no coloring.
+        Column coloring the score points (``stem`` or a metadata column);
+        ``None`` for the default column and ``""`` for no coloring.
     files : tuple[str, ...]
         Stems whose partial score trajectories are drawn.
+    trajectory_x : int | None
+        1-based component number m of the trajectories' horizontal axis.
+    trajectory_y : int | None
+        1-based component number n of the trajectories' vertical axis.
+    trajectory_color : str | None
+        Column coloring the trajectories; ``None`` for ``stem`` and ``""``
+        for no coloring.
     """
 
     run: str | None = None
@@ -44,6 +56,9 @@ class ScoresRequest:
     y: int | None = None
     color: str | None = None
     files: tuple[str, ...] = ()
+    trajectory_x: int | None = None
+    trajectory_y: int | None = None
+    trajectory_color: str | None = None
 
 
 @dataclass(frozen=True)
@@ -103,17 +118,29 @@ class ScoresView:
     y : int
         Chosen component number n.
     color_options : list[str]
-        Metadata columns of the run's samples.
+        Columns of the run's samples that can color a figure: ``stem`` and
+        the metadata columns.
     color : str | None
-        Chosen coloring column, or ``None`` for no coloring.
+        Chosen column coloring the score points, or ``None`` for no
+        coloring.
     file_options : list[str]
         Stems of the run's samples (its transform targets) in natural order.
     files : list[str]
         Stems whose trajectories are drawn, in option order.
+    trajectory_x : int
+        Chosen component number m of the trajectories.
+    trajectory_y : int
+        Chosen component number n of the trajectories.
+    trajectory_color : str | None
+        Chosen column coloring the trajectories, or ``None`` for no
+        coloring.
     scores : ScorePoints | None
         Scores of components m and n with each file's metadata.
     trajectories : dict[str, Trajectory]
         Trajectories keyed by stem.
+    trajectory_colors : pl.Series | None
+        Value of ``trajectory_color`` of each trajectory, in
+        ``trajectories`` order, or ``None`` for no coloring.
     dropped : list[str]
         Chosen stems whose rows the run's ``impute_strategy="drop"`` drops.
     error : str | None
@@ -129,8 +156,12 @@ class ScoresView:
     color: str | None = None
     file_options: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
+    trajectory_x: int = 1
+    trajectory_y: int = 1
+    trajectory_color: str | None = None
     scores: ScorePoints | None = None
     trajectories: dict[str, Trajectory] = field(default_factory=dict)
+    trajectory_colors: pl.Series | None = None
     dropped: list[str] = field(default_factory=list)
     error: str | None = None
 
@@ -143,6 +174,16 @@ class ScoresView:
     def y_name(self) -> str:
         """Return the label of component n, such as ``"PC2"``."""
         return f"PC{self.y}"
+
+    @property
+    def trajectory_x_name(self) -> str:
+        """Return the label of the trajectories' component m."""
+        return f"PC{self.trajectory_x}"
+
+    @property
+    def trajectory_y_name(self) -> str:
+        """Return the label of the trajectories' component n."""
+        return f"PC{self.trajectory_y}"
 
 
 def score_table(
@@ -245,6 +286,28 @@ def score_trajectories(
     return trajectories, dropped
 
 
+def trajectory_color_values(samples: pl.DataFrame, stems: list[str], column: str) -> pl.Series:
+    """Return the values of a coloring column for the drawn trajectories.
+
+    Parameters
+    ----------
+    samples : pl.DataFrame
+        ``samples.parquet`` of the run.
+    stems : list[str]
+        Stems of the drawn trajectories, each in ``samples``.
+    column : str
+        Coloring column of ``samples``.
+
+    Returns
+    -------
+    pl.Series
+        Value of ``column`` for each stem in ``stems`` order, named
+        ``column``.
+    """
+    positions = {stem: position for position, stem in enumerate(samples["stem"].to_list())}
+    return samples[column].gather([positions[stem] for stem in stems])
+
+
 def _run_view(
     run: dict[str, object],
     artifacts: DisplayArtifacts,
@@ -279,7 +342,12 @@ def _run_view(
     component_count = artifacts.components.shape[0]
     x = choose_component(request.x, 1, component_count)
     y = choose_component(request.y, 2, component_count)
-    color_options = metadata_columns(artifacts.samples)
+    trajectory_x = choose_component(request.trajectory_x, 1, component_count)
+    trajectory_y = choose_component(request.trajectory_y, 2, component_count)
+    color_options = color_columns(artifacts.samples)
+    trajectory_color = choose_metadata_column(
+        request.trajectory_color, FILE_NAME_COLUMN, color_options
+    )
     options = sorted(artifacts.samples["stem"].to_list(), key=natural_keys)
     wanted = set(request.files)
     files = [stem for stem in options if stem in wanted] or options[:1]
@@ -293,17 +361,25 @@ def _run_view(
         color=choose_metadata_column(request.color, default_color, color_options),
         file_options=options,
         files=files,
+        trajectory_x=trajectory_x,
+        trajectory_y=trajectory_y,
+        trajectory_color=trajectory_color,
     )
     try:
         model = cache.pca_model(dirs.model)
         scores = score_table(artifacts, model.pca_column_names, x, y)
-        trajectories, dropped = score_trajectories(dirs, artifacts, cache, files, x, y)
+        trajectories, dropped = score_trajectories(
+            dirs, artifacts, cache, files, trajectory_x, trajectory_y
+        )
     except RunArtifactError as error:
         return replace(base, error=str(error))
     return replace(
         base,
         scores=scores,
         trajectories=trajectories,
+        trajectory_colors=None
+        if trajectory_color is None
+        else trajectory_color_values(artifacts.samples, list(trajectories), trajectory_color),
         dropped=dropped,
     )
 
