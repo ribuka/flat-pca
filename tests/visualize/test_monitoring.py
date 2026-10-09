@@ -137,6 +137,7 @@ def test_numeric_color_draws_one_scale() -> None:
     assert (valued.marker.cmin, valued.marker.cmax) == (70.0, 90.0)
     assert valued.marker.showscale is True
     assert valued.marker.colorbar.title.text == "yield_pct"
+    assert [trace.showlegend for trace in figure.data] == [False, False]
     assert figure.layout.legend.title.text is None
 
 
@@ -181,6 +182,7 @@ def test_control_chart_rows_keep_the_colors_of_every_point() -> None:
     )
     assert [list(trace.customdata) for trace in missing.data] == [["c"], ["a", "d"]]
     assert [list(trace.x) for trace in missing.data] == [[3.0], [1.0, 4.0]]
+    assert [trace.showlegend for trace in missing.data] == [False, False]
     assert (missing.data[1].marker.cmin, missing.data[1].marker.cmax) == (10.0, 99.0)
 
     categorical = create_control_chart(

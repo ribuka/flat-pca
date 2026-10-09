@@ -102,8 +102,11 @@ def _marker_traces(
     if color is None:
         return [_marker_trace(drawn, x, y, names, hover, text, marker=MARKER)]
     if color.dtype.is_numeric():
+        # The color bar explains the colors, so the split traces need no legend.
         return [
-            _marker_trace(group, x, y, names, hover, text, marker=MARKER | marker)
+            _marker_trace(
+                group, x, y, names, hover, text, marker=MARKER | marker, showlegend=False
+            )
             for group, marker in continuous_marker_groups(color, drawn)
         ]
     is_drawn = np.zeros(y.size, dtype=bool)
