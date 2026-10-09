@@ -13,6 +13,7 @@ from flat_pca.visualize import create_loading_scatter, create_scree_plot
 from ..services.display_cache import ShownMatrices
 from ..services.model import (
     AGGREGATION_LABELS,
+    LOADING_COLORS,
     HeatmapRequest,
     ModelRequest,
     ModelView,
@@ -81,7 +82,7 @@ def _figures(shown: ModelView) -> dict[str, str]:
             title="Scree plot"
         ),
         "loadings": create_loading_scatter(
-            shown.loadings, x=shown.x_name, y=shown.y_name
+            shown.loadings, x=shown.x_name, y=shown.y_name, color=shown.color_by
         ).update_layout(title=f"Loadings ({AGGREGATION_LABELS[shown.aggregation]})"),
     }
     return {name: script_json(figure.to_json()) for name, figure in figures.items()}
@@ -112,6 +113,7 @@ def model_page(
     x: int | None = None,
     y: int | None = None,
     aggregation: str | None = None,
+    color_by: str | None = None,
     view: str | None = None,
     k: int | None = None,
     segment: str | None = None,
@@ -133,6 +135,10 @@ def model_page(
     aggregation : str | None, default None
         ``"mean"``, ``"rms"``, or ``"abs_mean"`` loading aggregation;
         ``"rms"`` by default.
+    color_by : str | None, default None
+        ``"wavelength"`` or ``"StepTime"``, the column the loadings are
+        aggregated by and colored with; ``"wavelength"`` by default.
+        ``"StepTime"`` aggregates within the heatmap's ``segment``.
     view : str | None, default None
         Values of the heatmap: ``"component"`` (component k) or a
         preprocessing parameter key; ``"component"`` by default and when
@@ -156,6 +162,7 @@ def model_page(
             x=x,
             y=y,
             aggregation=aggregation,
+            color_by=color_by,
             view=view,
             component=k,
             segment=segment,
@@ -164,6 +171,7 @@ def model_page(
     context: dict[str, object] = {
         "shown": shown,
         "aggregation_labels": AGGREGATION_LABELS,
+        "loading_colors": LOADING_COLORS,
         "model_settings": None if model_run is None else model_settings(model_run),
     }
     key = heatmap_request(shown)

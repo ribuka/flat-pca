@@ -82,6 +82,7 @@ def test_default_page_draws_every_figure_from_the_run(client: TestClient) -> Non
     assert 'name="x" form="model-form" min="1" max="3" value="1"' in html
     assert 'name="y" form="model-form" min="1" max="3" value="2"' in html
     assert '<option value="rms" selected>' in html
+    assert '<option value="wavelength" selected>' in html
     assert 'name="k" form="model-form" min="1" max="3" value="1"' in html
     assert '<option value="1:1" selected>' in html
     assert 'name="file"' not in html
@@ -246,6 +247,47 @@ def test_loadings_aggregate_the_components_by_wavelength(
         mask = wavelengths == wavelength
         assert _decode(trace["x"])[index] == pytest.approx(reduce(components[1, mask]))
         assert _decode(trace["y"])[index] == pytest.approx(reduce(components[2, mask]))
+    assert trace["marker"]["colorbar"]["title"]["text"] == "wavelength"
+    assert '<option value="wavelength" selected>' in html
+    assert "1 点が 1 波長です" in html
+
+
+@pytest.mark.parametrize(
+    ("aggregation", "reduce"),
+    [
+        ("mean", np.mean),
+        ("rms", lambda values: np.sqrt(np.mean(values**2))),
+    ],
+)
+def test_loadings_by_step_time_aggregate_within_the_heatmap_segment(
+    client: TestClient,
+    run_dir: Path,
+    aggregation: str,
+    reduce: Callable[[np.ndarray], float],
+) -> None:
+    """Colored by StepTime, each point aggregates one time of the chosen segment."""
+    params = {"x": 1, "y": 3, "aggregation": aggregation, "color_by": "StepTime"}
+    html = client.get("/model", params=params | {"segment": "2:1"}).text
+
+    assert '<option value="StepTime" selected>' in html
+    assert "1 点が 1 StepTime です" in html
+    assert "(Step, Sequence) = (2, 1)" in html
+    trace = _embedded(html, "model-loadings-figure")["data"][0]  # type: ignore[index]
+    assert trace["marker"]["colorbar"]["title"]["text"] == "StepTime"
+    features = pl.read_parquet(run_dir / "features.parquet")
+    in_segment = ((features["Step"] == 2) & (features["Sequence"] == 1)).to_numpy()
+    step_times = features["StepTime"].to_numpy()
+    components = np.load(run_dir / "components.npy").astype(np.float64)
+    expected = sorted(set(step_times[in_segment].tolist()))
+    assert _decode(trace["customdata"]) == expected
+    for index, step_time in enumerate(expected):
+        mask = in_segment & (step_times == step_time)
+        assert _decode(trace["x"])[index] == pytest.approx(reduce(components[0, mask]))
+        assert _decode(trace["y"])[index] == pytest.approx(reduce(components[2, mask]))
+
+    other = client.get("/model", params=params | {"segment": "1:1"}).text
+    other_trace = _embedded(other, "model-loadings-figure")["data"][0]  # type: ignore[index]
+    assert _decode(other_trace["x"]) != _decode(trace["x"])
 
 
 def test_component_heatmap_reshapes_the_chosen_component(
@@ -305,6 +347,7 @@ def test_out_of_range_choices_fall_back_to_the_defaults(client: TestClient) -> N
     "params",
     [
         {"aggregation": "median"},
+        {"color_by": "Step"},
         {"segment": "a:b"},
         {"k": "one"},
         {"view": "scale"},

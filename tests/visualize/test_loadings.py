@@ -20,3 +20,18 @@ def test_loading_scatter_draws_one_point_per_wavelength() -> None:
     assert list(trace.marker.color) == [400.0, 410.0]
     assert list(trace.customdata) == [400.0, 410.0]
     assert figure.layout.xaxis.title.text == "PC1"
+    assert trace.marker.colorbar.title.text == "wavelength"
+    assert trace.hovertemplate.startswith("wavelength=")
+
+
+def test_loading_scatter_colors_by_the_given_column() -> None:
+    """Points aggregated by StepTime are colored and hovered by StepTime."""
+    loadings = pl.DataFrame({"StepTime": [0.0, 0.5, 1.0], "PC1": [1.0, 2.0, 3.0]})
+
+    figure = create_loading_scatter(loadings, x="PC1", y="PC1", color="StepTime")
+
+    trace = figure.data[0]
+    assert list(trace.marker.color) == [0.0, 0.5, 1.0]
+    assert list(trace.customdata) == [0.0, 0.5, 1.0]
+    assert trace.marker.colorbar.title.text == "StepTime"
+    assert trace.hovertemplate.startswith("StepTime=")
