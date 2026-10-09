@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .datatable import STATIC_DIR as DATATABLE_STATIC_DIR
 from .routes import (
     catalog,
     explore,
@@ -76,6 +77,9 @@ def create_app(settings: Settings) -> FastAPI:
         "/static/vendor/plotly.min.js", plotly_js, include_in_schema=False
     )
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount(
+        "/datatable", StaticFiles(directory=DATATABLE_STATIC_DIR), name="datatable"
+    )
     app.include_router(catalog.router)
     app.include_router(fit.router)
     app.include_router(transform.router)

@@ -14,7 +14,7 @@ from ..jobs.fit_run import (
     build_fit_config,
 )
 from ..run_config import run_config
-from ..services.catalog_query import FileQuery, list_files, selection_ranges
+from ..services.catalog_query import list_files, selection_ranges
 from ..services.fit_estimate import estimate_fit
 from ..services.fit_form import (
     IMPUTE_STRATEGIES,
@@ -230,7 +230,7 @@ async def submit_fit(request: Request, workspace: WorkspaceDependency) -> HTMLRe
         return templates.TemplateResponse(request, "partials/fit_form.html", context)
 
     selected = set(stems)
-    files = [file for file in list_files(workspace.database, FileQuery()) if file["stem"] in selected]
+    files = [file for file in list_files(workspace.database) if file["stem"] in selected]
     run_id = workspace.submit_fit(
         build_fit_config(
             workspace.settings,

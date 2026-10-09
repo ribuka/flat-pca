@@ -88,8 +88,8 @@ def _settings(
 
 
 def _selected_stems(html: str) -> list[str]:
-    """Return the chosen stems of the page's ``#selected-stems``."""
-    match = re.search(r"id=\"selected-stems\" name=\"stems\" value='([^']*)'", html)
+    """Return the chosen stems of the page's ``#files-selection``."""
+    match = re.search(r"id=\"files-selection\" name=\"stems\" value='([^']*)'", html)
     assert match is not None
     return json.loads(match.group(1))
 
@@ -146,12 +146,12 @@ def test_page_with_a_fit_run_locks_the_fit_targets(
     assert re.search(r'<option value="fit-1" selected>fit-1（', html)
     assert re.search(r"data-use-same-data checked", html)
     assert "<details class=\"card\" data-group=\"targets\" data-transform-targets open>" in html
-    assert re.search(r'<div id="file-table"[^>]*data-locked>', html)
+    assert re.search(r'<div id="files"[^>]*data-dt-locked>', html)
     assert f'data-fit-targets="{SPECTRA_FILE_COUNT}"' in html
     assert _selected_stems(html) == [path.stem for path in spectra_paths]
     assert 'hx-post="/transform/settings"' in html
     assert re.search(
-        r'<button id="run-transform"[^>]*hx-include="#selected-stems, #transform-settings-form"[^>]*>', html
+        r'<button id="run-transform"[^>]*hx-include="#files-selection, #transform-settings-form"[^>]*>', html
     )
     assert not re.search(r'<button id="run-transform"[^>]*disabled', html)
     assert 'hx-get="/transform/runs"' in html
@@ -184,7 +184,7 @@ def test_settings_choose_the_model_and_the_kind_of_targets(
     html = cataloged_client.get("/transform").text
     assert re.search(r'<option value="fit-1" selected>', html)
     assert not re.search(r"data-use-same-data checked", html)
-    assert "data-locked" not in html
+    assert "data-dt-locked" not in html
     assert "data-fit-targets" not in html
     assert _selected_stems(html) == []
 

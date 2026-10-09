@@ -3,42 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from functools import partial
 from pathlib import Path
 
 import plotly
 from fastapi.templating import Jinja2Templates
 
+from .datatable import STATIC_DIR as DATATABLE_STATIC_DIR
+from .datatable import configure_environment, format_value
 from .services.system_status import app_version, format_gib
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
 
 
-def format_value(value: object) -> str:
-    """Format a table cell value for display.
-
-    Parameters
-    ----------
-    value : object
-        Cell value.
-
-    Returns
-    -------
-    str
-        Empty text for ``None``, ``YYYY-mm-dd HH:MM:SS`` for datetimes,
-        up to six significant digits for floats, and ``str(value)`` otherwise.
-    """
-    if value is None:
-        return ""
-    if isinstance(value, datetime):
-        return f"{value:%Y-%m-%d %H:%M:%S}"
-    if isinstance(value, float):
-        return f"{value:.6g}"
-    return str(value)
-
-
-def static_version(path: str) -> str:
+def static_version(path: str, directory: Path = STATIC_DIR) -> str:
     """Return a version of a static file for its URL's query string.
 
     Static URLs carry ``?v={static_version(path)}``, so a browser that kept
@@ -48,14 +27,16 @@ def static_version(path: str) -> str:
     Parameters
     ----------
     path : str
-        Path of the file under ``STATIC_DIR``.
+        Path of the file under ``directory``.
+    directory : Path, default STATIC_DIR
+        Directory of the served files.
 
     Returns
     -------
     str
         The file's modification time in nanoseconds.
     """
-    return str((STATIC_DIR / path).stat().st_mtime_ns)
+    return str((directory / path).stat().st_mtime_ns)
 
 
 def script_json(text: str) -> str:
@@ -106,6 +87,10 @@ templates.env.filters["gib"] = format_gib
 templates.env.globals["nav_items"] = NAV_ITEMS
 templates.env.globals["app_version"] = app_version()
 templates.env.globals["static_version"] = static_version
+templates.env.globals["datatable_static_version"] = partial(
+    static_version, directory=DATATABLE_STATIC_DIR
+)
+configure_environment(templates.env)
 # plotly.min.js is served from the plotly package (see ``app.plotly_js``), so
 # its URL carries the package version instead of a ``static_version``.
 templates.env.globals["plotly_version"] = plotly.__version__

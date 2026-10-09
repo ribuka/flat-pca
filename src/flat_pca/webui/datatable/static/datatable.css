@@ -1,0 +1,167 @@
+/* Data tables. Every class starts with `dt-`. The look comes from the
+   `--dt-*` variables below; a page overrides them on `.dt-root` (or an
+   ancestor). The defaults follow the system color scheme; `data-dt-theme`
+   ("light" or "dark") on the container or an ancestor fixes one. The default
+   rules use :where() so that any override wins. */
+:where(.dt-root) {
+  --dt-fg: #1f2328;
+  --dt-muted: #5f6b7a;
+  --dt-border: #d8dee4;
+  --dt-header-bg: #f8fafc;
+  --dt-row-hover-bg: #f8fafc;
+  --dt-accent: #1a73e8;
+  --dt-accent-fg: #ffffff;
+  --dt-radius: 8px;
+  --dt-font: inherit;
+  --dt-font-size: 0.875rem;
+  --dt-cell-padding: 0.35rem 0.75rem;
+  /* The header and about 12 rows; the header stays while the rows scroll. */
+  --dt-max-height: 33.5rem;
+  --dt-filter-max-width: 12rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :where(.dt-root:not([data-dt-theme="light"], [data-dt-theme="light"] *)) {
+    --dt-fg: #e6edf3;
+    --dt-muted: #9aa5b1;
+    --dt-border: #30363d;
+    --dt-header-bg: #161b22;
+    --dt-row-hover-bg: #1c2128;
+    --dt-accent: #4c9aff;
+    --dt-accent-fg: #0d1117;
+  }
+}
+
+:where(.dt-root[data-dt-theme="dark"], [data-dt-theme="dark"] .dt-root) {
+  --dt-fg: #e6edf3;
+  --dt-muted: #9aa5b1;
+  --dt-border: #30363d;
+  --dt-header-bg: #161b22;
+  --dt-row-hover-bg: #1c2128;
+  --dt-accent: #4c9aff;
+  --dt-accent-fg: #0d1117;
+}
+
+.dt-root {
+  color: var(--dt-fg);
+  font-family: var(--dt-font);
+}
+
+.dt-loading,
+.dt-page-range,
+.dt-gap {
+  color: var(--dt-muted);
+}
+
+.dt-scroll {
+  align-self: start;
+  width: fit-content;
+  max-width: 100%;
+  max-height: var(--dt-max-height);
+  overflow: auto;
+  border: 1px solid var(--dt-border);
+  border-radius: var(--dt-radius);
+}
+
+.dt-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--dt-font-size);
+}
+
+.dt-table th,
+.dt-table td {
+  padding: var(--dt-cell-padding);
+  border-bottom: 1px solid var(--dt-border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.dt-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  vertical-align: top;
+  font-weight: 600;
+  color: var(--dt-muted);
+  background: var(--dt-header-bg);
+}
+
+.dt-table .dt-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: none;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  background: none;
+  cursor: pointer;
+}
+
+.dt-table .dt-sort:hover:not(:disabled) {
+  color: var(--dt-fg);
+  background: none;
+}
+
+.dt-sort-mark {
+  display: inline-block;
+  min-width: 0.75em;
+  font-size: 0.75em;
+  color: var(--dt-accent);
+}
+
+.dt-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+  font-weight: 400;
+}
+
+.dt-filter input:not([type="checkbox"]),
+.dt-filter select {
+  min-height: 1.75rem;
+  max-width: var(--dt-filter-max-width);
+  padding: 0.15rem 0.4rem;
+}
+
+.dt-table tbody tr:hover {
+  background: var(--dt-row-hover-bg);
+}
+
+.dt-table .dt-check {
+  width: 1px;
+  padding-right: 0.25rem;
+}
+
+/* A locked table: the selection is shown grayed out and not editable. */
+.dt-root[data-dt-locked] .dt-table tbody {
+  color: var(--dt-muted);
+}
+
+.dt-pager {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  margin-top: 0.5rem;
+  font-size: var(--dt-font-size);
+}
+
+.dt-pager button {
+  padding: 0.2rem 0.6rem;
+}
+
+.dt-pager .dt-page-range {
+  margin-right: 0.5rem;
+}
+
+.dt-pager .dt-page-current {
+  border-color: var(--dt-accent);
+  color: var(--dt-accent-fg);
+  background: var(--dt-accent);
+  opacity: 1;
+  cursor: default;
+}

@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 
 from ..jobs.transform_run import build_transform_config
-from ..services.catalog_query import FileQuery, list_files
+from ..services.catalog_query import list_files
+from ..services.file_table import file_table_config
 from ..services.run_dirs import fit_run_reference
 from ..services.runs import get_run, latest_run, list_runs, run_status
 from ..services.selection import parse_stems_json
@@ -119,6 +120,7 @@ def transform_page(request: Request, workspace: WorkspaceDependency) -> HTMLResp
             "use_same_data": use_same_data,
             "fit_targets": fit_targets,
             "selected": fit_targets if use_same_data else workspace.transform_selection.stems,
+            "file_table": file_table_config(workspace.settings.metadata_columns),
             "status": run_status(latest_run(workspace.database, TRANSFORM_JOB)),
         },
     )
@@ -232,7 +234,7 @@ def submit_transform(
     else:
         wanted = set(workspace.transform_selection.replace(workspace.database, requested))
         files = [
-            file for file in list_files(workspace.database, FileQuery()) if file["stem"] in wanted
+            file for file in list_files(workspace.database) if file["stem"] in wanted
         ]
     if not files:
         return _submit_message(request, {"error": "Choose the files to transform."})

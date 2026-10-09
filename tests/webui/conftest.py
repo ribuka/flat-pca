@@ -11,6 +11,8 @@ import pytest
 from spectra import write_spectra
 
 from flat_pca.webui.database import Database
+from flat_pca.webui.jobs.catalog import build_catalog_config, run_catalog
+from flat_pca.webui.services.catalog_store import apply_catalog_result
 from flat_pca.webui.services.runs import get_run
 from flat_pca.webui.settings import Settings, load_settings
 from flat_pca.webui.workspace import Workspace
@@ -58,6 +60,17 @@ def database(settings: Settings) -> Iterator[Database]:
     opened = Database(settings.database_path, settings.metadata_columns)
     yield opened
     opened.close()
+
+
+@pytest.fixture
+def cataloged(settings: Settings, database: Database, tmp_path: Path) -> Database:
+    """Return the database after one catalog run over the fixtures."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    config = build_catalog_config(settings, {})
+    run_catalog(config, run_dir)
+    apply_catalog_result(database, config, run_dir)
+    return database
 
 
 @pytest.fixture

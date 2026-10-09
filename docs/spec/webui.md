@@ -27,6 +27,7 @@ src/flat_pca/
     workspace.py                Workspace（DB接続・キャッシュ・ジョブ実行器）
     routes/                     画面・機能単位のAPIRouter（薄く保つ）
     services/                   routesから呼ぶ処理本体（catalog, runs, 表示用の行列・ビニング・キャッシュ）
+    datatable/                  polarsの表をサーバー側で絞り込み・ソート・ページングしてhtmxで表示する部品（他のflat_pcaモジュールに依存しない。使い方はdatatable/README.md）
     jobs/                       サブプロセスで実行するジョブ関数
     templates/{pages,partials}/ フルページとhtmxが差し替える断片
     templates/macros/           テンプレートから呼ぶJinjaマクロ（icon）
@@ -37,7 +38,7 @@ tests/webui/
 - UI固有の依存（`fastapi`、`uvicorn`、`jinja2`、`duckdb`、`pydantic`）はoptional dependency `webui`とし、ライブラリ本体の依存に加えない。
 - htmxは`static/vendor/`に同梱する。Plotly.jsはPythonの`plotly`パッケージに同梱された`plotly.min.js`を`/static/vendor/plotly.min.js`で配信し、Python側とバージョンを揃える。いずれもCDNに依存しない。
 - アイコンはMaterial Symbols（Outlined）のうち使うアイコンだけを含むサブセットのwoff2を`static/vendor/`に同梱し、`templates/macros/icon.html`の`icon`マクロで表示する。アイコンを増やすときは`scripts/fetch_material_symbols.py`で取得し直す（手順は`static/vendor/README.md`）。
-- テンプレートから読む static ファイルの URL には、ファイルの更新時刻を版として付ける（`?v={{ static_version(path) }}`。`templating.py::static_version`。plotlyパッケージから配信する`plotly.min.js`には、plotly の版`plotly_version`を付ける）。`app.js`などを変えたあと、ブラウザがキャッシュした古いファイルを新しいページに使わないようにするため。
+- テンプレートから読む static ファイルの URL には、ファイルの更新時刻を版として付ける（`?v={{ static_version(path) }}`。`templating.py::static_version`。`datatable/static/`の`datatable.js`・`datatable.css`は`/datatable/`で配信し、`datatable_static_version(path)`を付ける。plotlyパッケージから配信する`plotly.min.js`には、plotly の版`plotly_version`を付ける）。`app.js`などを変えたあと、ブラウザがキャッシュした古いファイルを新しいページに使わないようにするため。
 - フォーム送信の解析に使う`python-multipart`も`webui`に含める。
 - `--reload`のファイル監視に使う`watchfiles`も`webui`に含める。`uvicorn[standard]`にはしない（`httptools`などが入ると、`--reload`なしのHTTP実装やイベントループまで変わるため）。
 
@@ -59,6 +60,7 @@ tests/webui/
 | `visualize/` | polars/NumPy → `go.Figure` | ファイルI/O、UI状態への依存 |
 | `webui/services/` | 対象データの選択、ビニング、キャッシュ、成果物の読み書き | 図の見た目の決定 |
 | `webui/routes/` | リクエスト検証、service呼び出し、テンプレート描画 | 計算ロジック |
+| `webui/datatable/` | 表の状態（ソート・フィルタ・ページ）の解析と、polarsの表への適用、表のテンプレート・`datatable.js`・`datatable.css` | `flat_pca`の他のモジュール・Webフレームワークへの依存 |
 | `webui/static/app.js` | `Plotly.newPlot`、クリック・スライダー → htmx/fetchの橋渡し | データ加工 |
 
 - 図はサーバーで`figure.to_json()`し、テンプレートに埋め込んでブラウザで描画する。UI専用の描画コードは書かず、Notebookと同じ図を使う。
@@ -225,9 +227,10 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - catalogのファイル一覧を表示する（ファイル名、メタデータ列、Step/Sequence数）。
   - 列名のクリックでその列の昇順にソートし、もう一度クリックすると降順にする（以降トグル）。ソート中の列と向きを列名の横に▲ / ▼で示す。
   - 列名の下に列ごとのフィルタを置く。ファイル名は部分一致、category列はプルダウン、数値・日時の列は下限と上限。Step数・(Step, Sequence)数・行数にはフィルタを置かない。
-  - ソート・フィルタ・ページングはサーバー側（`/catalog/files`の`sort`・`order`・`page`・各フィルタのクエリ）で行う。ソートやフィルタを変えると1ページ目に戻す。
+  - 表は`webui/datatable/`の部品（表のid`files`）で、`services/file_table.py`がその設定と行（polarsの表）を作る。
+  - ソート・フィルタ・ページングはサーバー側（`/catalog/files`の`files.sort`・`files.order`・`files.page`・各フィルタ`files.q__stem`・`files.eq__<列>`・`files.min__<列>`・`files.max__<列>`のクエリ）で行う。ソートやフィルタを変えると1ページ目に戻す。
   - 表はヘッダと12行ほどの高さを上限とし、はみ出す行は表の中でスクロールする（ヘッダは固定）。1000行ごとにページを分け、表の下にページの移動と「a–b of N」を表示する。
-  - 選択はページやフィルタをまたいで保持する（表の外の1つのhiddenのinputにJSON配列で持つ）。ヘッダのチェックボックスは、表示していないページも含めて今のフィルタに合う全行を対象に選択・解除し、その状態（チェック・一部・なし）を表示する。
+  - 選択はページやフィルタをまたいで保持する（表の外の1つのhiddenのinput`#files-selection`にJSON配列で持つ）。ヘッダのチェックボックスは、表示していないページも含めて今のフィルタに合う全行を対象に選択・解除し、その状態（チェック・一部・なし）を表示する。
   - 表の下の`Select`で、全ページの選択をまとめて保存する。選択はJSON配列の1つのフォームフィールドとして送り、フォームのフィールド数の上限（Starletteの既定で1000）に掛からないようにする。
 - 「Update catalog」でcatalogジョブを起動する。
 - 選択したファイル集合を次の画面へ渡す。
@@ -257,7 +260,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - `/transform`。transform に使うモデル（成功した fit run。新しい順。表示は`run_id（作成日時）`）の選択欄と、`use same data for fit`のチェックボックスを置く。モデルの既定は最新の fit run（選んでいた fit run がなくなったときも最新に戻す）、チェックボックスの既定はチェックあり。どちらも workspace（`TransformSettings`）に持ち、変えると`POST /transform/settings`で保存して`{"changed": "model"}`を知らせ、メイン部分を差し替える。チェックなしのときの表の選択も、このとき workspace に保存する。
 - transform 対象を選ぶ表と「Run transform」ボタンは、チェックの有無にかかわらず常に表示する。
   - 表はデータ選択と同じもの（`/catalog/files`の絞り込み・ソート・ページング、ページやフィルタをまたいだ選択、ヘッダのチェックボックスでの一括選択）とする。
-  - チェックありのときは、モデルの fit 対象（fit run の`config.json`のファイル）を選んだ状態で表示し、表のチェックボックスを無効にしてグレーアウトする（`#file-table`の`data-locked`。絞り込み・ソート・ページングは使える）。
+  - チェックありのときは、モデルの fit 対象（fit run の`config.json`のファイル）を選んだ状態で表示し、表のチェックボックスを無効にしてグレーアウトする（`#files`の`data-dt-locked`。絞り込み・ソート・ページングは使える）。
   - チェックなしのときは、catalog から自由に選べる。選択は送信時に workspace（`Workspace.transform_selection`）へ保存し、画面を開き直しても残す。
 - fit を実行しただけでは transform しない。「Run transform」（`POST /transform`）を押したときにだけ、選んだモデルで transformジョブ（種別`transform`）を投入する。モデルとチェックの有無は、画面を描いたときのもの（設定フォームの値）を要求に含めて使い、別のタブで設定を変えても、その画面で選んだものとは別のモデル・対象を transform しない。要求のモデルがもう成功した fit run でなければ、画面の読み直しを促すエラーを表示する。チェックありのときは fit 対象を、チェックなしのときは表で選んだ catalog のファイルを対象とする。fit run がない・対象がないときは、ボタンの横にエラーを表示する。
   - チェックの有無を問わず、同じ fit run で同じ対象ファイルの集合（順序は問わない）を transform した成功済みの transform run があり、その後どのファイルも変わっていなければ（`config.json`に保存したファイルごとのパス・サイズ・更新時刻`size`・`mtime_ns`が今と同じなら）、ジョブを作らずにその run を表示する run にし、その旨をボタンの横に表示する（`services/transform_targets.py::find_transform_run`）。チェックなしで fit 対象と同じファイルを手で選んだ場合も同じ。
