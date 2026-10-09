@@ -141,7 +141,7 @@ def test_trajectories_colored_by_a_number_share_one_scale() -> None:
     )
 
     assert not any(trace.showlegend for trace in figure.data)
-    assert [trace.marker.showscale for trace in figure.data] == [True, False, False, False]
+    assert [bool(trace.marker.showscale) for trace in figure.data] == [True, False, False, False]
     assert figure.data[0].marker.colorbar.title.text == "yield_pct"
     assert list(figure.data[0].marker.color) == [90.0, 90.0]
     assert (figure.data[0].marker.cmin, figure.data[0].marker.cmax) == (70.0, 90.0)
@@ -161,3 +161,35 @@ def test_trajectories_without_color_share_one_color() -> None:
     assert len({trace.line.color for trace in figure.data}) == 1
     assert not any(trace.showlegend for trace in figure.data)
     assert [trace.name for trace in figure.data] == ["a", "b", "c", "d"]
+
+
+def test_trajectories_with_a_missing_number_are_grey() -> None:
+    """A trajectory without a value is grey, and the first one with a value draws the bar."""
+    figure = create_partial_score_trajectories(
+        _four_trajectories(),
+        x_name="PC1",
+        y_name="PC2",
+        color=pl.Series("yield_pct", [None, 1.0, None, 2.0]),
+    )
+
+    for missing in (figure.data[0], figure.data[2]):
+        assert missing.line.color == "#9e9e9e"
+        assert missing.marker.color == "#9e9e9e"
+        assert not missing.marker.showscale
+    assert [bool(trace.marker.showscale) for trace in figure.data] == [False, True, False, False]
+    assert figure.data[1].marker.colorbar.title.text == "yield_pct"
+    assert (figure.data[3].marker.cmin, figure.data[3].marker.cmax) == (1.0, 2.0)
+
+
+def test_trajectories_without_any_number_are_all_grey() -> None:
+    """A numeric value missing for every trajectory draws them grey without a color bar."""
+    figure = create_partial_score_trajectories(
+        _four_trajectories(),
+        x_name="PC1",
+        y_name="PC2",
+        color=pl.Series("yield_pct", [None] * 4, dtype=pl.Float64),
+    )
+
+    assert {trace.marker.color for trace in figure.data} == {"#9e9e9e"}
+    assert {trace.line.color for trace in figure.data} == {"#9e9e9e"}
+    assert not any(trace.marker.showscale for trace in figure.data)

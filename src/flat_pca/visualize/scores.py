@@ -93,18 +93,16 @@ def _scale_color(value: float, marker: dict[str, object]) -> str:
     Parameters
     ----------
     value : float
-        Color value.
+        Finite color value.
     marker : dict[str, object]
-        Marker settings from ``continuous_marker``.
+        Marker settings from ``continuous_marker`` for a series with a
+        finite value, so it has a color scale.
 
     Returns
     -------
     str
-        Color of ``value`` on the marker's color scale, or ``MISSING_COLOR``
-        for a missing value or a marker without a scale.
+        Color of ``value`` on the marker's color scale.
     """
-    if not np.isfinite(value) or "colorscale" not in marker:
-        return MISSING_COLOR
     low, high = float(marker["cmin"]), float(marker["cmax"])  # type: ignore[arg-type]
     fraction = (value - low) / (high - low) if high > low else 0.5
     return plotly.colors.sample_colorscale(str(marker["colorscale"]), [fraction])[0]
@@ -137,11 +135,17 @@ def _trajectory_styles(
         ]
     if color.dtype.is_numeric():
         values = color.cast(pl.Float64).to_numpy()
+        scaled = np.flatnonzero(np.isfinite(values))
         styles: list[dict[str, object]] = []
         for index, count in enumerate(point_counts):
-            # One row per point, so the color scale colors every point.
+            if not np.isfinite(values[index]):
+                missing = {"color": MISSING_COLOR}
+                styles.append({"line": missing, "marker": missing, "showlegend": False})
+                continue
+            # One row per point, so the color scale colors every point. The
+            # first trajectory with a value draws the shared color bar.
             rows = np.full(count, index, dtype=np.intp)
-            marker = continuous_marker(color, rows, showscale=index == 0)
+            marker = continuous_marker(color, rows, showscale=index == int(scaled[0]))
             styles.append(
                 {
                     "line": {"color": _scale_color(float(values[index]), marker)},
