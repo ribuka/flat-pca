@@ -163,6 +163,21 @@ def test_trajectories_without_color_share_one_color() -> None:
     assert [trace.name for trace in figure.data] == ["a", "b", "c", "d"]
 
 
+def test_trajectories_colored_by_numbers_near_the_float_limit() -> None:
+    """A finite range wider than the float limit still colors the ends of the scale."""
+    figure = create_partial_score_trajectories(
+        {name: _four_trajectories()[name] for name in ("a", "b")},
+        x_name="PC1",
+        y_name="PC2",
+        color=pl.Series("value", [-1e308, 1e308]),
+    )
+
+    assert [trace.line.color for trace in figure.data] == [
+        "rgb(68, 1, 84)",
+        "rgb(253, 231, 37)",
+    ]
+
+
 def test_trajectories_with_a_missing_number_are_grey() -> None:
     """A trajectory without a value is grey, and the first one with a value draws the bar."""
     figure = create_partial_score_trajectories(
