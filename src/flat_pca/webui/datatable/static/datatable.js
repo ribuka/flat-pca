@@ -330,14 +330,16 @@
   const queryTimers = new WeakMap();
 
   // Sets query values of a table and reloads it from the server. `values`
-  // are keyed by control name without the table's prefix.
-  function reload(root, values) {
+  // are keyed by control name without the table's prefix. `detail` goes
+  // with the `dt-reload` event, so it belongs to this request only (its
+  // response reads it in htmx:beforeSwap).
+  function reload(root, values, detail = {}) {
     clearTimeout(queryTimers.get(root));
     const prefix = `${root.id}.`;
     for (const [name, value] of Object.entries(values)) {
       root.querySelector(`[data-dt-query][name="${CSS.escape(prefix + name)}"]`).value = value;
     }
-    htmx.trigger(root, RELOAD_EVENT);
+    htmx.trigger(root, RELOAD_EVENT, detail);
   }
 
   // Typing in the search box of the whole table reloads the first page
@@ -387,19 +389,17 @@
   });
 
   // The choice of the rows per page reloads the page holding the first row
-  // of the page shown (`data-dt-start` of "a–b of N"), and shows that row at
-  // the top of the table (`keptRows`, used by swapParts), so the view stays
-  // where it was.
-  const keptRows = new WeakMap();
-
+  // of the page shown (`data-dt-start` of "a–b of N"), and its response
+  // shows that row at the top of the table (`keptRow` of the reload, used
+  // by swapParts), so the view stays where it was. A failed or replaced
+  // request leaves no position for the next reload.
   document.addEventListener("change", (event) => {
     const root = tableOf(event.target);
     if (!root || !event.target.matches("[data-dt-page-size]")) {
       return;
     }
     const start = Number(root.querySelector("[data-dt-page-range]")?.dataset.dtStart) || 1;
-    keptRows.set(root, start);
-    reload(root, { page: String(Math.floor((start - 1) / Number(event.target.value)) + 1) });
+    reload(root, { page: String(Math.floor((start - 1) / Number(event.target.value)) + 1) }, { keptRow: start });
   });
 
   document.addEventListener("keydown", (event) => {
@@ -1125,7 +1125,7 @@
   // laid out again but what changed, and htmx neither cleans up nor
   // processes the rows. Returns false, changing nothing, when the response
   // has other parts or columns (then htmx swaps the whole fragment).
-  function swapParts(root, html) {
+  function swapParts(root, html, keptRow) {
     const template = document.createElement("template");
     template.innerHTML = html;
     const fresh = new Map([...template.content.querySelectorAll("[data-dt-part]")].map((part) => [part.dataset.dtPart, part]));
@@ -1166,8 +1166,7 @@
         target.focus({ preventScroll: true });
       }
     }
-    scrollToRow(root, keptRows.get(root));
-    keptRows.delete(root);
+    scrollToRow(root, keptRow);
     syncColumns(root, false);
     if (root.dataset.dtSelection) {
       syncChecks(root);
@@ -1200,7 +1199,8 @@
       || event.detail.requestConfig?.triggeringEvent?.type !== RELOAD_EVENT) {
       return;
     }
-    if (swapParts(root, event.detail.serverResponse)) {
+    const reloaded = event.detail.requestConfig.triggeringEvent;
+    if (swapParts(root, event.detail.serverResponse, reloaded.detail?.keptRow)) {
       event.detail.shouldSwap = false;
     }
   });

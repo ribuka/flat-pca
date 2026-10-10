@@ -197,3 +197,37 @@ def test_rows_per_page_show_the_first_row_at_the_top(
     )
     assert abs(gap) <= 1
     assert _scroll_top(page) > 0
+
+
+def test_a_failed_change_of_rows_per_page_keeps_no_position(
+    page: Page,
+    cataloged_server_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+    expected_console_errors: list[str],
+) -> None:
+    """After a change of the rows per page fails, a sort still shows its rows from the first one."""
+    expected_console_errors.extend(["500", "htmx:responseError"])
+    monkeypatch.setattr(file_table, "FILE_PAGE_SIZE", 1)
+    monkeypatch.setattr(file_table, "FILE_PAGE_SIZES", (3,))
+    page.goto(cataloged_server_url)
+    stems = _file_stems(page)
+    _short_table(page)
+    page.get_by_role("button", name="Next page").click()
+    expect(stems).to_have_text(["run-2"])
+    failed: list[str] = []
+
+    def fail(route: Route) -> None:
+        """Answer the change of the rows per page with a server error."""
+        failed.append(route.request.url)
+        route.fulfill(status=500, body="boom")
+
+    page.route("**/catalog/files?*page_size=3*", fail)
+    page.get_by_label("Rows per page").select_option("3")
+    expect(page.locator("#files")).not_to_have_attribute("aria-busy", "true")
+    assert len(failed) == 1
+    page.unroute("**/catalog/files?*page_size=3*", fail)
+
+    open_column_menu(_table(page), "file").get_by_role("button", name="Desc").click()
+
+    expect(stems).to_have_text(["run-10", "run-2", "run-1"])
+    assert _scroll_top(page) == 0
