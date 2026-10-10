@@ -28,14 +28,15 @@ from .histograms import (
     TopValue,
     TopValues,
     column_histograms,
+    count_histograms,
     float_bins,
     integer_bins,
+    mark_histograms,
 )
 from .pagination import Page, paginate
 from .query import (
     TableView,
     apply_state,
-    choice_options,
     filter_expression,
     key_text,
     matching_rows,
@@ -44,6 +45,7 @@ from .query import (
     sort_frame,
 )
 from .state import NullFilter, TableState, parameter_name, parse_state
+from .summary import TableSummary, choice_options, summarize_table
 
 __all__ = [
     "STATIC_DIR",
@@ -63,6 +65,7 @@ __all__ = [
     "Page",
     "TableConfig",
     "TableState",
+    "TableSummary",
     "TableView",
     "TopValue",
     "TopValues",
@@ -70,6 +73,7 @@ __all__ = [
     "choice_options",
     "column_histograms",
     "configure_environment",
+    "count_histograms",
     "count_values",
     "dtype_label",
     "export_file",
@@ -82,6 +86,7 @@ __all__ = [
     "format_value",
     "integer_bins",
     "key_text",
+    "mark_histograms",
     "matching_rows",
     "paginate",
     "parameter_name",
@@ -91,4 +96,5 @@ __all__ = [
     "search_columns",
     "search_terms",
     "sort_frame",
+    "summarize_table",
 ]

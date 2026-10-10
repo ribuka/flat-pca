@@ -21,6 +21,7 @@ from flat_pca.webui.datatable import (
     search_columns,
     search_terms,
     sort_frame,
+    summarize_table,
 )
 
 
@@ -304,8 +305,10 @@ def test_choice_options_come_from_the_frame_or_the_caller(
     """Choices are the sorted distinct values unless the caller gives them."""
     assert choice_options(frame, config) == {"group": ["a", "b"]}
     assert apply_state(frame, TableState(), config).options == {"group": ["a", "b"]}
-    given = apply_state(frame, TableState(), config, {"group": ("b", "z")})
+    summary = summarize_table(frame, config, {"group": ("b", "z")})
+    given = apply_state(frame, TableState(), config, summary)
     assert given.options == {"group": ["b", "z"]}
+    assert given.counts.values == {"group": {"a": 2, "b": 1}}
 
 
 def test_apply_state_keeps_integer_bounds_exact() -> None:

@@ -8,8 +8,8 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
-from ..datatable import apply_state, parse_state
-from ..services.catalog_query import category_options
+from ..datatable import apply_state, parse_state, summarize_table
+from ..services.file_table_cache import catalog_snapshot
 from ..services.runs import list_succeeded_runs
 from ..services.selection import parse_stems_json
 from ..services.view_file_table import view_file_frame, view_file_table_config
@@ -228,12 +228,9 @@ def file_table(request: Request, workspace: WorkspaceDependency) -> HTMLResponse
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     choice = current_view_choice(workspace)
-    view = apply_state(
-        view_file_frame(workspace.database, choice.file_options),
-        state,
-        config,
-        category_options(workspace.database),
-    )
+    frame = view_file_frame(workspace.database, choice.file_options)
+    options = catalog_snapshot(workspace.database).options
+    view = apply_state(frame, state, config, summarize_table(frame, config, options))
     return templates.TemplateResponse(
         request,
         "partials/file_table.html",

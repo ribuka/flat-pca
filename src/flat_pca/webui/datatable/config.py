@@ -84,8 +84,11 @@ class TableConfig:
         Shown columns, in display order.
     url : str
         URL that returns the table fragment for the table's query parameters.
-    page_size : int, default 1000
-        Rows per page.
+    page_size : int, default 100
+        Rows per page until the page size is chosen.
+    page_sizes : tuple[int, ...], default ()
+        Rows per page offered by a "Rows per page" choice under the table
+        besides ``page_size`` (``page_size_choices``); empty for no choice.
     selectable : bool, default False
         Whether rows have checkboxes and the header has one for every row
         matching the filters.
@@ -136,7 +139,8 @@ class TableConfig:
     key: str
     columns: tuple[ColumnConfig, ...]
     url: str
-    page_size: int = 1000
+    page_size: int = 100
+    page_sizes: tuple[int, ...] = ()
     selectable: bool = False
     selection_name: str = "selection"
     selection_form: str | None = None
@@ -157,13 +161,16 @@ class TableConfig:
         Raises
         ------
         ValueError
-            If the page size is not positive, a column name repeats, the
+            If the page size or an offered page size is not positive, a
+            column name repeats, the
             default sort column is not a sortable column, or the selection
             limit is not a positive integer or is set on a table without
             selection.
         """
         if self.page_size < 1:
             raise ValueError(f"page_size must be positive: {self.page_size}")
+        if any(size < 1 for size in self.page_sizes):
+            raise ValueError(f"page_sizes must be positive: {self.page_sizes}")
         names = [column.name for column in self.columns]
         if len(set(names)) != len(names):
             raise ValueError(f"column names must be unique: {names}")
@@ -187,6 +194,20 @@ class TableConfig:
             ``"<table_id>."``.
         """
         return f"{self.table_id}."
+
+    @property
+    def page_size_choices(self) -> tuple[int, ...]:
+        """Return the rows per page offered under the table.
+
+        Returns
+        -------
+        tuple[int, ...]
+            ``page_sizes`` and ``page_size`` in ascending order without
+            repeats; empty without ``page_sizes``.
+        """
+        if not self.page_sizes:
+            return ()
+        return tuple(sorted({*self.page_sizes, self.page_size}))
 
     @property
     def sortable_columns(self) -> dict[str, ColumnConfig]:

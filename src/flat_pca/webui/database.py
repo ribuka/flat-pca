@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import duckdb
+import polars as pl
 
 from .settings import MetadataColumnSettings, MetadataColumnType
 
@@ -82,7 +83,10 @@ class Database:
     Only the application (parent) process opens the database; job child
     processes never write to it. A single lock serializes every statement
     because request handlers and the job monitor thread share the
-    connection.
+    connection. ``generation`` counts the statements run through
+    ``execute`` and ``transaction``, so a reader can tell whether the
+    tables may have changed since it last read them; ``fetch_dicts`` and
+    ``fetch_frame`` are for reading the catalog and do not count.
 
     Parameters
     ----------
@@ -100,6 +104,7 @@ class Database:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = duckdb.connect(str(path))
         self._lock = threading.RLock()
+        self._generation = 0
         self.metadata_columns = dict(metadata_columns)
         self._create_schema()
 
@@ -144,6 +149,18 @@ class Database:
         )
         return ", ".join(definitions)
 
+    @property
+    def generation(self) -> int:
+        """Return the number of writing statements and transactions run so far.
+
+        Returns
+        -------
+        int
+            Increased by every ``execute`` and ``transaction`` (also a failed
+            one), so equal values mean that no write ran in between.
+        """
+        return self._generation
+
     @contextmanager
     def transaction(self) -> Iterator[duckdb.DuckDBPyConnection]:
         """Run statements atomically while holding the connection lock.
@@ -154,6 +171,7 @@ class Database:
             The locked connection inside an open transaction.
         """
         with self._lock:
+            self._generation += 1
             self._connection.execute("BEGIN TRANSACTION")
             try:
                 yield self._connection
@@ -173,6 +191,7 @@ class Database:
             Positional ``?`` parameters.
         """
         with self._lock:
+            self._generation += 1
             self._connection.execute(sql, list(parameters))
 
     def fetch_dicts(
@@ -196,6 +215,25 @@ class Database:
             cursor = self._connection.execute(sql, list(parameters))
             names = [description[0] for description in cursor.description]
             return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
+
+    def fetch_frame(self, sql: str) -> pl.DataFrame:
+        """Run a query and return its rows as a polars frame.
+
+        The rows pass from DuckDB to polars as Arrow data, without Python
+        objects per value.
+
+        Parameters
+        ----------
+        sql : str
+            SQL query without parameters.
+
+        Returns
+        -------
+        pl.DataFrame
+            The rows with the column types DuckDB gives them.
+        """
+        with self._lock:
+            return pl.DataFrame(self._connection.sql(sql))
 
     def close(self) -> None:
         """Close the connection."""

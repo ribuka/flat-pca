@@ -6,15 +6,18 @@ from collections.abc import Mapping
 
 import polars as pl
 
+from flat_pca.utils import natural_keys
+
 from ..database import Database
 from ..datatable import ColumnConfig, FilterKind, TableConfig
 from ..settings import MetadataColumnSettings, MetadataColumnType
-from .catalog_query import list_files
+from .catalog_query import files_query
 
 FILE_TABLE_ID = "files"
 FILE_TABLE_URL = "/catalog/files"
 FILE_EXPORT_URL = "/catalog/files/export"
-FILE_PAGE_SIZE = 1000
+FILE_PAGE_SIZE = 100
+FILE_PAGE_SIZES = (50, 100, 200, 500, 1000)
 METADATA_FILTERS: dict[MetadataColumnType, FilterKind] = {
     "category": "choice",
     "number": "number",
@@ -39,7 +42,8 @@ def file_table_config(columns: Mapping[str, MetadataColumnSettings]) -> TableCon
     any text column), the chips list the filters in use, and the "Columns"
     menu shows or hides columns. Each header shows the distribution of its
     column over every cataloged file. Rows are selected by stem into the hidden
-    input ``stems``, ``FILE_PAGE_SIZE`` rows per page. The "Export" menu
+    input ``stems``, ``FILE_PAGE_SIZE`` rows per page until another of
+    ``FILE_PAGE_SIZES`` is chosen under the table. The "Export" menu
     posts to ``FILE_EXPORT_URL`` for the files ``catalog_<time>.csv`` or
     ``.parquet``.
 
@@ -69,6 +73,7 @@ def file_table_config(columns: Mapping[str, MetadataColumnSettings]) -> TableCon
         ),
         url=FILE_TABLE_URL,
         page_size=FILE_PAGE_SIZE,
+        page_sizes=FILE_PAGE_SIZES,
         selectable=True,
         selection_name="stems",
         select_all_label="Select all filtered files",
@@ -94,8 +99,10 @@ def file_frame(database: Database) -> pl.DataFrame:
     Returns
     -------
     pl.DataFrame
-        The rows of ``list_files`` (stems in natural order) with typed
-        columns, also without files.
+        One row per file with ``stem``, ``path``, ``n_rows``, ``n_steps``,
+        ``n_segments``, and every metadata column (null without a CSV row),
+        stems in natural order, with typed columns, also without files. The
+        rows come from DuckDB as Arrow data (``Database.fetch_frame``).
     """
     schema = {
         "stem": pl.String(),
@@ -108,4 +115,7 @@ def file_frame(database: Database) -> pl.DataFrame:
             for name, column in database.metadata_columns.items()
         },
     }
-    return pl.DataFrame(list_files(database), schema=schema)
+    frame = database.fetch_frame(files_query(database))
+    stems = frame.get_column("stem").to_list()
+    order = sorted(range(len(stems)), key=lambda index: natural_keys(stems[index]))
+    return frame[order].select(pl.col(name).cast(dtype) for name, dtype in schema.items())

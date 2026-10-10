@@ -314,7 +314,7 @@ def test_files_beyond_the_limit_are_not_kept(
     table = _table(limited_client)
     assert _checked(table) == ["s-00", "s-01"]
     assert 'value="s-02" aria-label="Select s-02" data-dt-row-check disabled' in table
-    assert re.search(r"<p class=\"dt-limit\"[^>]*data-dt-limit>", table) is not None
+    assert re.search(r"<p class=\"dt-limit\"[^>]*data-dt-part=\"limit\">", table) is not None
 
 
 def test_adding_a_file_stops_at_the_limit(

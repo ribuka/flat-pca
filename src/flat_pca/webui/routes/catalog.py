@@ -9,9 +9,9 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, Response
 
-from ..datatable import apply_state, export_file, parse_export, parse_state
-from ..services.catalog_query import category_options, metadata_warnings
-from ..services.file_table import file_frame, file_table_config
+from ..datatable import export_file, parse_export, parse_state
+from ..services.file_table import file_table_config
+from ..services.file_table_cache import catalog_snapshot, file_table_context
 from ..services.runs import latest_run_status
 from ..services.selection import parse_stems_json
 from ..templating import templates
@@ -38,16 +38,24 @@ def data_selection_page(
     Returns
     -------
     HTMLResponse
-        Full page with the catalog status and the file table, which loads
-        separately, and the saved selection.
+        Full page with the catalog status, the first page of the file table
+        in its default state (in the same response, so the table needs no
+        request of its own to show), and the saved selection.
     """
+    config = file_table_config(workspace.settings.metadata_columns)
     return templates.TemplateResponse(
         request,
         "pages/data_selection.html",
         {
             **latest_run_status(workspace.database, CATALOG_JOB),
+            **file_table_context(
+                workspace.database,
+                config,
+                parse_state({}, config),
+                workspace.settings.metadata is not None,
+            ),
             "selected": workspace.selection.stems,
-            "file_table": file_table_config(workspace.settings.metadata_columns),
+            "file_table": config,
         },
     )
 
@@ -141,19 +149,13 @@ def file_table(request: Request, workspace: WorkspaceDependency) -> HTMLResponse
         state = parse_state(parameters, config)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    warnings = (
-        metadata_warnings(workspace.database) if workspace.settings.metadata else None
-    )
-    view = apply_state(
-        file_frame(workspace.database), state, config, category_options(workspace.database)
-    )
     return templates.TemplateResponse(
         request,
         "partials/file_table.html",
         {
-            "table": config,
-            "view": view,
-            "warnings": warnings,
+            **file_table_context(
+                workspace.database, config, state, workspace.settings.metadata is not None
+            ),
             "selected": set(workspace.selection.stems),
         },
     )
@@ -197,7 +199,9 @@ async def export_files(request: Request, workspace: WorkspaceDependency) -> Resp
     # Reading the catalog and writing the file block, so they run in a
     # worker thread and other requests are answered meanwhile.
     file = await run_in_threadpool(
-        lambda: export_file(file_frame(workspace.database), export, config, datetime.now().astimezone())
+        lambda: export_file(
+            catalog_snapshot(workspace.database).frame, export, config, datetime.now().astimezone()
+        )
     )
     return Response(file.content, media_type=file.media_type, headers=file.headers)
 

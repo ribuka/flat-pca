@@ -13,8 +13,10 @@
   <summary><h2>Files</h2></summary>
   <div class="card-body">
     {#- The selection over all pages and filters is kept as a JSON array in
-        the hidden input #files-selection, outside the reloaded table. -#}
-    {{ container(file_table, selected, triggers="catalog-updated from:body") }}
+        the hidden input #files-selection, outside the reloaded table. The
+        first page comes with the page, so the table needs no request of its
+        own to show. -#}
+    {% call container(file_table, selected, triggers="catalog-updated from:body") %}{% include "partials/file_table.html" %}{% endcall %}
     <div class="selection-actions">
       {% include "partials/selection_summary.html" %}
       <button id="select-files" type="button" class="button-primary" hx-post="/catalog/selection" hx-include="#files-selection"
