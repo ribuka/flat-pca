@@ -21,7 +21,9 @@ Update this document whenever the component gains a feature.
 | --- | --- |
 | `config.py` | `TableConfig` and `ColumnConfig`: what the application decides. |
 | `state.py` | `TableState` and `parse_state`: query parameters → table state. |
-| `query.py` | `apply_state`: table state + frame → `TableView` (rows of one page, the page, matching keys, choices, counts, column types, filter chips); `filter_expression`, `search_columns`, and `search_terms`. A `LazyFrame` is collected only for the page's rows, for the matching keys (or their count), and for the counts. |
+| `query.py` | `apply_state`: table state + frame → `TableView` (rows of one page, the page, matching keys, choices, counts, column types, filter chips, histograms); `filter_expression`, `search_columns`, and `search_terms`. A `LazyFrame` is collected only for the page's rows, for the matching keys (or their count), and for the counts. |
+| `bounds.py` | `bound_condition`: a column compared with a lower or upper bound, exactly for integers. |
+| `histograms.py` | `column_histograms`: the distribution of each column under its name (`Histogram` of bins, or `TopValues`); `integer_bins` and `float_bins`. |
 | `chips.py` | `FilterChip` and `filter_chips`: the column filters in use as chips above the table. |
 | `counts.py` | `ColumnCounts` and `count_values`: rows of each choice value and null values per filtered column, for the column menus. |
 | `pagination.py` | `Page` and `paginate`: the page among the rows. |
@@ -68,6 +70,7 @@ Update this document whenever the component gains a feature.
        search=True,                   # search box of the whole table
        filter_chips=True,             # chips of the filters in use
        column_chooser=True,           # "Columns" menu showing or hiding columns
+       histograms=True,               # distribution of each column in its header
    )
    ```
 
@@ -99,9 +102,10 @@ Update this document whenever the component gains a feature.
 
    The frame is every row in its default order. `apply_state` takes the
    choices of `"choice"` filters as its fourth argument; without it they are
-   the sorted distinct values of the frame. The counts beside the choices
-   and the null counts are always taken over every row of the frame (not
-   only the filtered ones); a given choice missing from the frame counts 0.
+   the sorted distinct values of the frame. The counts beside the choices,
+   the null counts, and the histograms are always taken over every row of
+   the frame (not only the filtered ones); a given choice missing from the
+   frame counts 0.
 
 ## Columns
 
@@ -171,6 +175,27 @@ included).
   while a filter (values, bounds, search, or null filter) uses the column,
   and the column type under the name (`dtype_label`: polars' short names such
   as `str`, `cat`, `i64`, `f64`, `datetime[μs]`).
+- `histograms`: under the type, the distribution of the column over every
+  row of the frame (`column_histograms`), counted on the server and drawn
+  without a script, so its shape stays the same while the filters change
+  and reads as a base. Turn it off when every row of the frame is not a
+  meaningful base (the shown-file dialog of flat-pca, whose rows are the
+  chosen files, has none).
+  - Integer (up to 64 bits), float, date, and datetime columns: an inline
+    SVG histogram with the smallest and largest value under it. Integers,
+    dates, and datetimes are binned by their integer value (a datetime in its
+    time unit): one bin per value when the range has at most 20 values,
+    otherwise at most 20 bins of `ceil(values / 20)` values. Floats get 20
+    bins of equal width, half open but the last (one bin when every value is
+    the same); NaN and infinite values are not counted. Bins that do not
+    overlap the lower and upper bounds in use are faded (`dt-out`). Each bin's
+    tooltip gives its first and last value and rows (`2 – 3: 4 rows`).
+  - Categorical, enum, and boolean columns: the five most frequent values
+    (ties by value) with bars as long as their rows relative to the first,
+    and `Others` with the rows of the other values. Values not checked in
+    the column's filter are faded.
+  - Nulls are not counted (the null filter shows them); a column without a
+    non-null value, or of another type (text, for example), has none.
 - Clicking the column name (or Enter / Space on it) opens the column menu,
   a popover (`popover`, `popovertarget`) holding the column's controls:
   sort (Asc, Desc, Clear sort), the filter (search, values with their
@@ -251,6 +276,9 @@ container, so several tables can share a page.
 | `.dt-head`, `.dt-column[data-dt-column]`, `.dt-label` | Header line and the column name button opening the menu. |
 | `.dt-sort-mark`, `.dt-menu-mark`, `.dt-filter-mark[data-dt-filtered]` | ▲ / ▼, the menu's ⋯, and the funnel of a filtered column. |
 | `.dt-type` | Column type under the name. |
+| `.dt-histogram[data-dt-histogram]`, `.dt-bins`, `.dt-bin`, `.dt-bin-bar`, `.dt-bin-hit`, `.dt-ticks` | A column's histogram: the SVG (`role="img"`, named `Histogram of <label>, <min> to <max>`), a bin (`<g>` with its `<title>`), its bar and its full-height hover area, and the smallest and largest value. |
+| `.dt-top-values[data-dt-top-values]`, `.dt-top-value`, `.dt-top-bar`, `.dt-top-label`, `.dt-top-others` | Most frequent values (a list named `Most frequent values of <label>`), a value with its bar, text, and `.dt-count`, and the `Others` line. |
+| `.dt-out` | A bin outside the bounds in use, or a value not checked, shown faded. |
 | `.dt-toolbar` | Line above the table holding the search box and the `Columns` button. |
 | `.dt-search` | Search box of the whole table (`id` `<table_id>-search`). |
 | `.dt-columns-button`, `.dt-menu[data-dt-columns-menu]`, `[data-dt-show-column]` | `Columns` button, its menu (`id` `<table_id>-columns-menu`, named `Columns`), and the checkbox of each column. |
@@ -290,5 +318,7 @@ container or an ancestor fixes the scheme.
 | `--dt-menu-bg`, `--dt-menu-shadow`, `--dt-menu-max-width` | Menu background, shadow, and width limit. |
 | `--dt-search-width` | Width of the search box. |
 | `--dt-chip-bg` | Background of the filter chips. |
+| `--dt-histogram-width`, `--dt-histogram-height` | Width of a histogram or of the top values, and height of a histogram's bars. |
+| `--dt-histogram-fg`, `--dt-histogram-out-opacity` | Color of the bars, and opacity of the faded ones. |
 
 Buttons and inputs otherwise take the page's own styles.

@@ -37,6 +37,7 @@ def test_file_table_config_filters_metadata_but_not_statistics(settings: Setting
     config = file_table_config(settings.metadata_columns)
 
     assert (config.search, config.filter_chips, config.column_chooser) == (True, True, True)
+    assert config.histograms
     assert {name: column.filter for name, column in config.filtered_columns.items()} == {
         "lot": "choice",
         "date": "datetime",
