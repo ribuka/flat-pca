@@ -21,7 +21,8 @@ Update this document whenever the component gains a feature.
 | --- | --- |
 | `config.py` | `TableConfig` and `ColumnConfig`: what the application decides. |
 | `state.py` | `TableState` and `parse_state`: query parameters → table state. |
-| `query.py` | `apply_state`: table state + frame → `TableView` (rows of one page, the page, matching keys, choices, counts, column types, filter chips, histograms); `filter_expression`, `search_columns`, and `search_terms`. A `LazyFrame` is collected only for the page's rows, for the matching keys (or their count), and for the counts. |
+| `query.py` | `apply_state`: table state + frame → `TableView` (rows of one page, the page, matching keys, choices, counts, column types, filter chips, histograms); `matching_rows` (the filtered and sorted rows that the view and the export share), `filter_expression`, `search_columns`, and `search_terms`. A `LazyFrame` is collected only for the page's rows, for the matching keys (or their count), and for the counts. |
+| `export.py` | `parse_export`: form fields → `ExportRequest`; `export_file`: the filtered or selected rows as an `ExportFile` (CSV or Parquet, its name and download headers); `export_rows`, `file_content`, `export_filename`, `parse_selection`. |
 | `bounds.py` | `bound_condition`: a column compared with a lower or upper bound, exactly for integers. |
 | `histograms.py` | `column_histograms`: the distribution of each column under its name (`Histogram` of bins, or `TopValues`); `integer_bins` and `float_bins`. |
 | `chips.py` | `FilterChip` and `filter_chips`: the column filters in use as chips above the table. |
@@ -71,6 +72,8 @@ Update this document whenever the component gains a feature.
        filter_chips=True,             # chips of the filters in use
        column_chooser=True,           # "Columns" menu showing or hiding columns
        histograms=True,               # distribution of each column in its header
+       export_url="/catalog/files/export",  # "Export" menu; None for none
+       export_name="catalog",         # exported files: catalog_<time>.csv
    )
    ```
 
@@ -106,6 +109,24 @@ Update this document whenever the component gains a feature.
    the null counts, and the histograms are always taken over every row of
    the frame (not only the filtered ones); a given choice missing from the
    frame counts 0.
+
+5. With `export_url`, answer the export (a form POST) with another thin route:
+
+   ```python
+   form = await request.form()
+   parameters = {key: form.getlist(key) for key in form}
+   try:
+       export = parse_export(parameters, config)  # ValueError -> 400
+   except ValueError as error:
+       raise HTTPException(status_code=400, detail=str(error)) from error
+   file = export_file(frame, export, config, datetime.now().astimezone())
+   return Response(file.content, media_type=file.media_type, headers=file.headers)
+   ```
+
+   The fields are the table's query parameters (as for the fragment; `page`
+   is ignored), `<table_id>.export_format` (`csv` or `parquet`),
+   `<table_id>.export_rows` (`filtered` or `selected`), and the selection
+   input (`selection_name`, one JSON array). `datatable.js` sends them.
 
 ## Columns
 
@@ -145,9 +166,10 @@ without a value; `is_not_null` alone drops them.
 
 The fragment carries these as inputs marked `data-dt-query` inside the
 container, which sends them with `hx-include="this"`. The table view, the
-header checkbox's matching keys, and anything else built on `apply_state`
-filter through the one `filter_expression` (the search of the whole table
-included).
+header checkbox's matching keys, the export, and anything else built on
+`apply_state` filter and sort through the one `matching_rows`
+(`filter_expression`, the search of the whole table included, and
+`sort_frame`).
 
 ## Browser behavior and events
 
@@ -171,6 +193,27 @@ included).
     (named `Remove filter <chip>`) empties the search or bounds, unchecks the
     values, or sets the null filter back to Any, and reloads the first page.
     The search of the whole table has its box and no chip.
+  - `export_url`: an `Export` button opening a menu (a popover like the
+    column menus) with a `CSV` and a `Parquet` button for `Filtered rows`
+    (every row matching the filters and the search, on all pages) and, in a
+    selectable table, for `Selected rows` (every selected row, also those the
+    filters hide), each with its row count; the buttons of rows without any
+    are disabled, and the selected count follows the selection. A button
+    posts the table's query controls, the format, the rows, and the
+    selection input's JSON array (one field, so the size of the selection is
+    not bound by the limit on form fields) to `export_url` with `fetch`,
+    and saves the answer under the name its `Content-Disposition` gives,
+    then closes the menu. A failure shows `Export failed: <status>
+    <reason>` (the JSON `detail` of the answer) in the menu, which stays
+    open. The file holds the shown columns (`TableConfig.columns`, in display
+    order, under their frame names; also those hidden by `Columns`, but not
+    `title_column` or other frame columns) of those rows, in the table's sort
+    order: a CSV in UTF-8 with a byte order mark (which Excel needs to read
+    it as UTF-8), dates and datetimes in ISO 8601, and null as an empty
+    field; or a Parquet file keeping the column types. It is named
+    `<export_name>_<YYYYmmdd-HHMMSS>.csv` (or `.parquet`). Leave
+    `export_url` unset where the rows need no export, such as a dialog
+    choosing a few rows.
 - Each header shows the column name, the sort mark (▲ / ▼), a funnel mark
   while a filter (values, bounds, search, or null filter) uses the column,
   and the column type under the name (`dtype_label`: polars' short names such
@@ -271,7 +314,7 @@ container, so several tables can share a page.
 
 | Selector | Element |
 | --- | --- |
-| `.dt-root[data-datatable]` | Container (`id` = `table_id`); `data-dt-locked` when locked; `data-dt-max-selected` with the limit. |
+| `.dt-root[data-datatable]` | Container (`id` = `table_id`); `data-dt-locked` when locked; `data-dt-max-selected` with the limit; `data-dt-export-url` with `export_url`. |
 | `.dt-scroll` / `.dt-table` | Scroll box with a fixed header / the table. |
 | `.dt-head`, `.dt-column[data-dt-column]`, `.dt-label` | Header line and the column name button opening the menu. |
 | `.dt-sort-mark`, `.dt-menu-mark`, `.dt-filter-mark[data-dt-filtered]` | ▲ / ▼, the menu's ⋯, and the funnel of a filtered column. |
@@ -279,11 +322,12 @@ container, so several tables can share a page.
 | `.dt-histogram[data-dt-histogram]`, `.dt-bins`, `.dt-bin`, `.dt-bin-bar`, `.dt-bin-hit`, `.dt-ticks` | A column's histogram: the SVG (`role="img"`, named `Histogram of <label>, <min> to <max>`), a bin (`<g>` with its `<title>`), its bar and its full-height hover area, and the smallest and largest value. |
 | `.dt-top-values[data-dt-top-values]`, `.dt-top-value`, `.dt-top-bar`, `.dt-top-label`, `.dt-top-others` | Most frequent values (a list named `Most frequent values of <label>`), a value with its bar, text, and `.dt-count`, and the `Others` line. |
 | `.dt-out` | A bin outside the bounds in use, or a value not checked, shown faded. |
-| `.dt-toolbar` | Line above the table holding the search box and the `Columns` button. |
+| `.dt-toolbar` | Line above the table holding the search box and the `Columns` and `Export` buttons. |
 | `.dt-search` | Search box of the whole table (`id` `<table_id>-search`). |
 | `.dt-columns-button`, `.dt-menu[data-dt-columns-menu]`, `[data-dt-show-column]` | `Columns` button, its menu (`id` `<table_id>-columns-menu`, named `Columns`), and the checkbox of each column. |
+| `.dt-export-button`, `.dt-menu[data-dt-export-menu]`, `.dt-export-rows`, `.dt-export-label`, `[data-dt-export][data-dt-export-rows]`, `[data-dt-export-selected-count]`, `.dt-export-error[data-dt-export-error]` | `Export` button, its menu (`id` `<table_id>-export-menu`, named `Export`), a group of rows (named `Filtered rows` / `Selected rows`) with its label and count, a download button (`csv` or `parquet`, `filtered` or `selected`, named `Export <rows> as <format>`), the selected count, and the failure notice (`role="alert"`). |
 | `.dt-chips`, `.dt-chip`, `.dt-chip-label`, `[data-dt-remove-filter]` | List of the filters in use (named `Filters in use`), a chip, its text, and its × button (a JSON array of the parameter names it clears). |
-| `.dt-menu[popover][data-dt-menu]` | A menu: a column's (`id` `<table_id>-menu-<n>`, `role="dialog"`, named `<label> menu`, `data-dt-menu` = the column name) or the `Columns` menu (empty `data-dt-menu`); `data-dt-placed` once placed. |
+| `.dt-menu[popover][data-dt-menu]` | A menu: a column's (`id` `<table_id>-menu-<n>`, `role="dialog"`, named `<label> menu`, `data-dt-menu` = the column name) or the `Columns` or `Export` menu (empty `data-dt-menu`); `data-dt-placed` once placed. |
 | `.dt-menu-section`, `.dt-sorts`, `.dt-filter`, `.dt-choices`, `.dt-choice`, `.dt-nulls`, `.dt-count` | Menu parts: sort buttons (`[data-dt-sort][data-dt-order]`, `aria-pressed`), the filter, the value list, the null filter, and counts. |
 | `[data-dt-copy]` | "Copy column name" button. |
 | `.dt-check`, `[data-dt-check-all]`, `[data-dt-row-check]` | Selection checkboxes. |

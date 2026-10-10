@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import re
 from contextlib import suppress
 from typing import Literal
 
+import polars as pl
 import pytest
 from datatable_menu import close_column_menu, column_menu, open_column_menu
 from playwright.sync_api import Error as PlaywrightError
@@ -784,3 +786,87 @@ def test_columns_menu_keeps_the_choice_without_storage(
     open_column_menu(table, "file").get_by_role("button", name="Desc").click()
     expect(stems).to_have_text(["run-10", "run-1"])
     expect(lot_header).to_be_hidden()
+
+
+def _export(page: Page, name: str) -> bytes:
+    """Click an "Export" menu button of the file table and return the downloaded file."""
+    table = _table(page)
+    table.get_by_role("button", name="Export", exact=True).click()
+    menu = table.get_by_role("dialog", name="Export")
+    expect(menu).to_be_visible()
+    with page.expect_download() as download:
+        menu.get_by_role("button", name=name, exact=True).click()
+    expect(menu).to_be_hidden()
+    path = download.value.path()
+    assert re.fullmatch(r"catalog_\d{8}-\d{6}\.(csv|parquet)", download.value.suggested_filename)
+    return path.read_bytes()
+
+
+def test_export_downloads_the_filtered_and_selected_files(
+    page: Page, cataloged_server_url: str
+) -> None:
+    """Export writes every filtered file in the table's order, or the selected files."""
+    page.goto(cataloged_server_url)
+    stems = _file_stems(page)
+    expect(stems).to_have_text(["run-1", "run-2", "run-10"])
+    table = _table(page)
+    _row(page, "run-2").locator("td").nth(1).click()
+    table.get_by_role("searchbox", name="Search").fill("run-1")
+    expect(stems).to_have_text(["run-1", "run-10"])
+    open_column_menu(table, "file").get_by_role("button", name="Desc").click()
+    expect(stems).to_have_text(["run-10", "run-1"])
+    table.get_by_role("button", name="Export", exact=True).click()
+    menu = table.get_by_role("dialog", name="Export")
+    expect(menu.get_by_role("group", name="Filtered rows")).to_contain_text("Filtered rows 2")
+    expect(menu.get_by_role("group", name="Selected rows")).to_contain_text("Selected rows 1")
+    page.keyboard.press("Escape")
+
+    content = _export(page, "Export filtered rows as CSV")
+
+    assert content.startswith(b"\xef\xbb\xbf")
+    lines = content[3:].decode("utf-8").splitlines()
+    assert lines[0] == "stem,lot,date,yield_pct,n_steps,n_segments,n_rows"
+    assert [line.split(",")[0] for line in lines[1:]] == ["run-10", "run-1"]
+
+    content = _export(page, "Export selected rows as Parquet")
+
+    assert pl.read_parquet(io.BytesIO(content))["stem"].to_list() == ["run-2"]
+
+
+def test_export_of_no_selected_file_is_disabled_until_one_is_selected(
+    page: Page, cataloged_server_url: str
+) -> None:
+    """The selected rows' buttons follow the selection without a reload."""
+    page.goto(cataloged_server_url)
+    expect(_file_stems(page)).to_have_text(["run-1", "run-2", "run-10"])
+    table = _table(page)
+    # The menu is closed, so its button is found by its attributes.
+    selected = table.locator("[data-dt-export=csv][data-dt-export-rows=selected]")
+    expect(selected).to_be_disabled()
+
+    _row(page, "run-1").locator("td").nth(1).click()
+
+    expect(selected).to_be_enabled()
+    expect(table.locator("[data-dt-export-selected-count]")).to_have_text("1")
+
+
+def test_failed_export_shows_the_reason_in_the_menu(
+    page: Page, cataloged_server_url: str, expected_console_errors: list[str]
+) -> None:
+    """An export the server rejects says why and keeps the menu open."""
+    expected_console_errors.append("400")
+    page.route(
+        "**/catalog/files/export",
+        lambda route: route.fulfill(status=400, json={"detail": "invalid filter"}),
+    )
+    page.goto(cataloged_server_url)
+    expect(_file_stems(page)).to_have_text(["run-1", "run-2", "run-10"])
+    table = _table(page)
+    table.get_by_role("button", name="Export", exact=True).click()
+    menu = table.get_by_role("dialog", name="Export")
+
+    menu.get_by_role("button", name="Export filtered rows as CSV").click()
+
+    expect(menu.get_by_role("alert")).to_have_text("Export failed: 400 invalid filter")
+    expect(menu).to_be_visible()
+    expect(menu.get_by_role("button", name="Export filtered rows as CSV")).to_be_enabled()

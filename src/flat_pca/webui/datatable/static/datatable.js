@@ -94,6 +94,13 @@
     if (clear) {
       clear.disabled = keys.size === 0 || !canChange(root, keys, [...keys], false);
     }
+    const exported = root.querySelector("[data-dt-export-selected-count]");
+    if (exported) {
+      exported.textContent = String(keys.size);
+    }
+    for (const button of root.querySelectorAll("[data-dt-export][data-dt-export-rows='selected']")) {
+      button.disabled = keys.size === 0;
+    }
   }
 
   function tableOf(element) {
@@ -203,6 +210,105 @@
     const root = clear && tableOf(clear);
     if (root?.dataset.dtSelection) {
       changeSelection(root, [...selectedKeys(root)], false);
+    }
+  });
+
+  // Returns the table's query controls (sort, order, page, search, and
+  // filters) as they would be sent to reload it: unchecked boxes and radios
+  // are left out.
+  function queryFields(root) {
+    const fields = new URLSearchParams();
+    for (const control of root.querySelectorAll("[data-dt-query][name]")) {
+      if ((control.type === "checkbox" || control.type === "radio") && !control.checked) {
+        continue;
+      }
+      fields.append(control.name, control.value);
+    }
+    return fields;
+  }
+
+  // Returns the file name of a download from its Content-Disposition
+  // header: `filename*` (percent-encoded UTF-8) or else `filename`.
+  function downloadName(disposition, fallback) {
+    const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition ?? "");
+    if (encoded) {
+      try {
+        return decodeURIComponent(encoded[1]);
+      } catch {
+        // Fall back to the plain name.
+      }
+    }
+    return /filename="([^"]*)"/i.exec(disposition ?? "")?.[1] ?? fallback;
+  }
+
+  // Returns the reason of a failed response: the `detail` of a JSON body
+  // (as FastAPI answers), or the start of the text.
+  function errorDetail(text) {
+    try {
+      const detail = JSON.parse(text).detail;
+      if (typeof detail === "string") {
+        return detail;
+      }
+    } catch {
+      // Not JSON.
+    }
+    return text.slice(0, 200);
+  }
+
+  function saveFile(blob, name) {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = name;
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
+  }
+
+  // An export button posts the table's query controls, the format and rows
+  // asked for, and the selection (the hidden input's JSON array, as one
+  // field) to `data-dt-export-url`, and saves the file it answers. The
+  // server filters and sorts the rows as for the table. A failure is shown
+  // in the menu, which stays open; a success closes it.
+  async function exportRows(root, button) {
+    const menu = button.closest("[data-dt-menu]");
+    const error = menu.querySelector("[data-dt-export-error]");
+    const buttons = [...menu.querySelectorAll("[data-dt-export]")];
+    const fields = queryFields(root);
+    fields.append(`${root.id}.export_format`, button.dataset.dtExport);
+    fields.append(`${root.id}.export_rows`, button.dataset.dtExportRows);
+    if (root.dataset.dtSelection) {
+      const input = selectionInput(root);
+      fields.append(input.name, input.value);
+    }
+    const disabled = buttons.map((other) => other.disabled);
+    buttons.forEach((other) => { other.disabled = true; });
+    error.hidden = true;
+    try {
+      const response = await fetch(root.dataset.dtExportUrl, { method: "POST", body: fields });
+      if (!response.ok) {
+        throw new Error(`${response.status} ${errorDetail(await response.text())}`);
+      }
+      const fallback = `export.${button.dataset.dtExport}`;
+      saveFile(await response.blob(), downloadName(response.headers.get("Content-Disposition"), fallback));
+      closeMenu(button);
+    } catch (failure) {
+      error.textContent = `Export failed: ${failure.message}`;
+      error.hidden = false;
+    } finally {
+      buttons.forEach((other, index) => { other.disabled = disabled[index]; });
+      if (root.dataset.dtSelection) {
+        syncSelectionState(root, selectedKeys(root));
+      }
+    }
+  }
+
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-dt-export]");
+    const root = button && tableOf(button);
+    if (root?.dataset.dtExportUrl) {
+      exportRows(root, button);
     }
   });
 

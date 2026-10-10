@@ -97,7 +97,8 @@
   padding: 0.15rem 0.4rem;
 }
 
-.dt-columns-button {
+.dt-columns-button,
+.dt-export-button {
   padding: 0.2rem 0.6rem;
 }
 
@@ -386,6 +387,25 @@
 .dt-sorts button[aria-pressed="true"] {
   border-color: var(--dt-accent);
   color: var(--dt-accent);
+}
+
+/* A line of the "Export" menu: the rows with their count, then a button
+   per file format. */
+.dt-export-rows {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.dt-export-label {
+  flex: 1 0 8rem;
+}
+
+.dt-export-error {
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  border-top: 1px solid var(--dt-border);
+  color: var(--dt-muted);
 }
 
 .dt-filter input:not([type="checkbox"], [type="radio"]) {

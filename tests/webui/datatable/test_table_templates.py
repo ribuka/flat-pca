@@ -616,3 +616,93 @@ def test_fragment_without_histograms_draws_none(
 
     assert "dt-histogram" not in html
     assert "dt-top-values" not in html
+
+
+def _export_menu(html: str) -> str:
+    """Return the "Export" menu of table ``t``."""
+    menu = re.search(r'<div popover id="t-export-menu".*?data-dt-export-error hidden></p>\s*</div>', html, re.DOTALL)
+    assert menu is not None
+    return menu[0]
+
+
+def test_container_carries_the_export_url(environment: Environment, config: TableConfig) -> None:
+    """A table with export names the URL that answers it; one without has none."""
+    exported = _render(
+        environment, "{{ container(config) }}", config=replace(config, export_url="/table/export")
+    )
+
+    container = re.search(r'<div id="t"[^>]*>', exported)
+    assert container is not None
+    assert 'data-dt-export-url="/table/export"' in container[0]
+    assert "data-dt-export-url" not in _render(environment, "{{ container(config) }}", config=config)
+
+
+def test_fragment_has_an_export_menu_of_the_filtered_and_selected_rows(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """The "Export" menu offers CSV and Parquet for the filtered and the selected rows."""
+    exporting = replace(config, export_url="/table/export")
+    view = apply_state(frame, parse_state({"t.eq__group": ["a"]}, exporting), exporting)
+
+    html = _render(
+        environment, "{{ fragment(config, view, selected) }}", config=exporting, view=view, selected={"k2", "k3", "k4"}
+    )
+
+    assert 'class="dt-toolbar"' in html
+    assert 'popovertarget="t-export-menu"' in html
+    menu = _export_menu(html)
+    assert "data-dt-menu data-dt-export-menu" in menu
+    assert re.findall(r'data-dt-export="([^"]*)" data-dt-export-rows="([^"]*)"', menu) == [
+        ("csv", "filtered"), ("parquet", "filtered"), ("csv", "selected"), ("parquet", "selected")
+    ]
+    assert 'Filtered rows <span class="dt-count">2</span>' in menu
+    assert 'Selected rows <span class="dt-count" data-dt-export-selected-count>3</span>' in menu
+    assert 'aria-label="Export selected rows as Parquet">Parquet</button>' in menu
+    assert " disabled" not in menu
+
+
+def test_fragment_export_menu_disables_rows_without_any(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """Without a matching or a selected row, its buttons are disabled."""
+    exporting = replace(config, export_url="/table/export")
+    view = apply_state(frame, TableState(), exporting)
+    empty = apply_state(frame, parse_state({"t.eq__group": ["z"]}, exporting), exporting)
+
+    menu = _export_menu(_render(environment, "{{ fragment(config, view) }}", config=exporting, view=view))
+    none_matching = _export_menu(
+        _render(environment, "{{ fragment(config, view, ['k1']) }}", config=exporting, view=empty)
+    )
+
+    assert re.findall(r'data-dt-export-rows="(\w+)"[^>]*?( disabled)?>', menu) == [
+        ("filtered", ""), ("filtered", ""), ("selected", " disabled"), ("selected", " disabled")
+    ]
+    assert re.findall(r'data-dt-export-rows="(\w+)"[^>]*?( disabled)?>', none_matching) == [
+        ("filtered", " disabled"), ("filtered", " disabled"), ("selected", ""), ("selected", "")
+    ]
+
+
+def test_fragment_of_a_plain_table_exports_only_the_filtered_rows(
+    environment: Environment, frame: pl.DataFrame
+) -> None:
+    """A table without selection has no selected rows to export."""
+    plain = TableConfig(
+        table_id="t", key="key", columns=(ColumnConfig("key"),), url="/t", export_url="/t/export"
+    )
+    view = apply_state(frame, TableState(), plain)
+
+    menu = _export_menu(_render(environment, "{{ fragment(config, view) }}", config=plain, view=view))
+
+    assert re.findall(r'data-dt-export-rows="([^"]*)"', menu) == ["filtered", "filtered"]
+
+
+def test_fragment_without_export_has_no_export_menu(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """Export is off by default, for example in a dialog of chosen rows."""
+    view = apply_state(frame, TableState(), config)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    assert "Export" not in html
+    assert "data-dt-export" not in html

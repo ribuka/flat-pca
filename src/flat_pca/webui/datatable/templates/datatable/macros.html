@@ -17,6 +17,7 @@
      hx-trigger="load, dt-reload{% if triggers %}, {{ triggers }}{% endif %}"
      {%- if config.selectable %} data-dt-selection="{{ config.table_id }}-selection"{% endif %}
      {%- if config.max_selected is not none %} data-dt-max-selected="{{ config.max_selected }}"{% endif %}
+     {%- if config.export_url %} data-dt-export-url="{{ config.export_url }}"{% endif %}
      {%- if locked %} data-dt-locked{% endif %}>
   <p class="dt-loading">Loading…</p>
 </div>
@@ -160,13 +161,34 @@
   {{ _menu(config, view, column, menu_id, index) }}
 {%- endmacro %}
 
+{#- The "Export" menu: a CSV and a Parquet button for the rows matching the
+    filters (on all pages) and, in a selectable table, for the selected rows.
+    datatable.js posts the table's query controls and the selection to
+    `config.export_url` and saves the file; it keeps the selected count and
+    its buttons in step with the selection. -#}
+{% macro _export_menu(config, view, selected_count) -%}
+{% set menu_id = config.table_id ~ "-export-menu" %}
+<button type="button" class="dt-export-button" popovertarget="{{ menu_id }}" aria-haspopup="dialog">Export</button>
+<div popover id="{{ menu_id }}" class="dt-menu" role="dialog" aria-label="Export" data-dt-menu data-dt-export-menu>
+  {% for rows, label, count in [("filtered", "Filtered rows", view.page.total)] + ([("selected", "Selected rows", selected_count)] if config.selectable else []) %}
+    <div class="dt-menu-section dt-export-rows" role="group" aria-label="{{ label }}">
+      <span class="dt-export-label">{{ label }} <span class="dt-count"{% if rows == "selected" %} data-dt-export-selected-count{% endif %}>{{ count }}</span></span>
+      {% for file_format, format_label in [("csv", "CSV"), ("parquet", "Parquet")] %}
+        <button type="button" data-dt-export="{{ file_format }}" data-dt-export-rows="{{ rows }}" aria-label="Export {{ label|lower }} as {{ format_label }}"{% if not count %} disabled{% endif %}>{{ format_label }}</button>
+      {% endfor %}
+    </div>
+  {% endfor %}
+  <p class="dt-export-error" role="alert" data-dt-export-error hidden></p>
+</div>
+{%- endmacro %}
+
 {#- Above the table, by the settings: the search box of the whole table, the
     "Columns" menu showing or hiding columns (datatable.js applies and
-    remembers the choice), and the chips of the filters in use, each with a
-    button clearing its controls. The search box is preserved across reloads
-    (hx-preserve), like the typed filters. -#}
-{% macro _toolbar(config, view) -%}
-{% if config.search or config.column_chooser %}
+    remembers the choice), the "Export" menu, and the chips of the filters in
+    use, each with a button clearing its controls. The search box is
+    preserved across reloads (hx-preserve), like the typed filters. -#}
+{% macro _toolbar(config, view, selected_count) -%}
+{% if config.search or config.column_chooser or config.export_url %}
 <div class="dt-toolbar">
   {% if config.search %}
     <input type="search" id="{{ config.table_id }}-search" class="dt-search" name="{{ config.prefix }}search" value="{{ view.state.search }}" placeholder="Search…"
@@ -186,6 +208,7 @@
       </fieldset>
     </div>
   {% endif %}
+  {% if config.export_url %}{{ _export_menu(config, view, selected_count) }}{% endif %}
 </div>
 {% endif %}
 {% if config.filter_chips and view.chips %}
@@ -216,14 +239,14 @@
 <input type="hidden" name="{{ config.prefix }}sort" value="{{ view.state.sort_by or '' }}" data-dt-query>
 <input type="hidden" name="{{ config.prefix }}order" value="{{ 'desc' if view.state.descending else 'asc' }}" data-dt-query>
 <input type="hidden" name="{{ config.prefix }}page" value="{{ view.page.number }}" data-dt-query>
-{{ _toolbar(config, view) }}
+{% set selected_count = selected|unique(case_sensitive=true)|list|length %}
+{{ _toolbar(config, view, selected_count) }}
 {% if config.selectable %}
 <script type="application/json" data-dt-matching>{{ view.matching_keys|tojson }}</script>
 {% endif %}
 {#- As datatable.js's canChange: at the limit no row can be added, and the
     header checkbox cannot add the matching rows when they pass it. -#}
 {% set limited = config.max_selected is not none %}
-{% set selected_count = selected|unique(case_sensitive=true)|list|length %}
 {% set with_matching = (selected|list + view.matching_keys)|unique(case_sensitive=true)|list|length %}
 {% set full = limited and selected_count >= config.max_selected %}
 {% set header_blocked = limited and with_matching > config.max_selected and with_matching > selected_count %}

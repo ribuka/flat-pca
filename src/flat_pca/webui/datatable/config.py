@@ -118,6 +118,13 @@ class TableConfig:
         date, or datetime column, or the most frequent values of a
         categorical, enum, or boolean column. Turn it off when every row is
         not a meaningful base, such as a table of a few chosen rows.
+    export_url : str | None, default None
+        URL that answers a POST with the table's rows as a CSV or Parquet
+        file (``parse_export``, ``export_file``); ``None`` for no "Export"
+        menu above the table.
+    export_name : str, default "table"
+        Start of the exported file names: ``<export_name>_<YYYYmmdd-HHMMSS>``
+        with ``.csv`` or ``.parquet``.
     """
 
     table_id: str
@@ -135,6 +142,8 @@ class TableConfig:
     filter_chips: bool = False
     column_chooser: bool = False
     histograms: bool = False
+    export_url: str | None = None
+    export_name: str = "table"
 
     def __post_init__(self) -> None:
         """Check the settings.

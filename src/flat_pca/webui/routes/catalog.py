@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import HTMLResponse, Response
 
-from ..datatable import apply_state, parse_state
+from ..datatable import apply_state, export_file, parse_export, parse_state
 from ..services.catalog_query import category_options, metadata_warnings
 from ..services.file_table import file_frame, file_table_config
 from ..services.runs import latest_run_status
@@ -155,6 +157,49 @@ def file_table(request: Request, workspace: WorkspaceDependency) -> HTMLResponse
             "selected": set(workspace.selection.stems),
         },
     )
+
+
+@router.post("/catalog/files/export")
+async def export_files(request: Request, workspace: WorkspaceDependency) -> Response:
+    """Download the filtered or the selected files of the table as a file.
+
+    Parameters
+    ----------
+    request : Request
+        Current request whose form fields are parsed by ``parse_export``
+        for the table of ``file_table_config``: the table's query
+        parameters, ``files.export_format`` (``csv`` or ``parquet``),
+        ``files.export_rows`` (``filtered`` or ``selected``), and ``stems``
+        (the selection as a JSON array).
+    workspace : Workspace
+        Application workspace.
+
+    Returns
+    -------
+    Response
+        The shown columns of every file matching the filters (on all pages)
+        or of every selected file, in the table's sort order, as the
+        attachment ``catalog_<YYYYmmdd-HHMMSS>.csv`` (UTF-8 with a byte order
+        mark) or ``.parquet``.
+
+    Raises
+    ------
+    HTTPException
+        With status 400 if the form fields are invalid.
+    """
+    config = file_table_config(workspace.settings.metadata_columns)
+    form = await request.form()
+    parameters = {key: [str(value) for value in form.getlist(key)] for key in form}
+    try:
+        export = parse_export(parameters, config)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    # Reading the catalog and writing the file block, so they run in a
+    # worker thread and other requests are answered meanwhile.
+    file = await run_in_threadpool(
+        lambda: export_file(file_frame(workspace.database), export, config, datetime.now().astimezone())
+    )
+    return Response(file.content, media_type=file.media_type, headers=file.headers)
 
 
 @router.post("/catalog/selection", response_class=HTMLResponse)

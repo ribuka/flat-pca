@@ -13,6 +13,7 @@ from .catalog_query import list_files
 
 FILE_TABLE_ID = "files"
 FILE_TABLE_URL = "/catalog/files"
+FILE_EXPORT_URL = "/catalog/files/export"
 FILE_PAGE_SIZE = 1000
 METADATA_FILTERS: dict[MetadataColumnType, FilterKind] = {
     "category": "choice",
@@ -38,7 +39,9 @@ def file_table_config(columns: Mapping[str, MetadataColumnSettings]) -> TableCon
     any text column), the chips list the filters in use, and the "Columns"
     menu shows or hides columns. Each header shows the distribution of its
     column over every cataloged file. Rows are selected by stem into the hidden
-    input ``stems``, ``FILE_PAGE_SIZE`` rows per page.
+    input ``stems``, ``FILE_PAGE_SIZE`` rows per page. The "Export" menu
+    posts to ``FILE_EXPORT_URL`` for the files ``catalog_<time>.csv`` or
+    ``.parquet``.
 
     Parameters
     ----------
@@ -74,6 +77,8 @@ def file_table_config(columns: Mapping[str, MetadataColumnSettings]) -> TableCon
         filter_chips=True,
         column_chooser=True,
         histograms=True,
+        export_url=FILE_EXPORT_URL,
+        export_name="catalog",
     )
 
 
