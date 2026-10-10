@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from help_tips import help_tip_text
 
 from flat_pca.webui.app import create_app
+from flat_pca.webui.fit_defaults import FitDefaults
 from flat_pca.webui.jobs.progress import write_progress
 from flat_pca.webui.services.catalog_query import selection_ranges
 from flat_pca.webui.services.fit_form import default_form_values
@@ -323,6 +324,31 @@ def test_memory_above_the_limit_needs_confirmation(
     _post(small_limit_client, "/fit", {**form, "confirm_memory": "1"})
 
     assert latest_run(database, FIT_JOB) is not None
+
+
+def test_page_starts_from_the_fit_defaults(settings: Settings, wait_for: Wait) -> None:
+    """``fit_defaults.toml`` values replace the initial form values of the page."""
+    defaults = FitDefaults.model_validate(
+        {
+            "preprocess": {
+                "intensity_transform": "sqrt",
+                "wavelength_range": {"enabled": True, "lower": 401.0},
+            },
+            "pca": {"n_component": 2, "scaling_strategy": "pareto"},
+            "spe": {"alpha": 0.05},
+        }
+    )
+    with TestClient(create_app(settings, defaults)) as opened:
+        html = _cataloged(opened, wait_for).get("/fit").text
+
+    assert '<option value="sqrt" selected>' in html
+    assert 'name="wavelength_range_enabled" value="1" checked' in html
+    assert 'name="wavelength_range_lower" value="401"' in html
+    assert 'name="wavelength_range_upper" value="402.5"' in html
+    assert 'name="n_component" value="2"' in html
+    assert '<option value="pareto" selected>' in html
+    assert 'name="spe_alpha" value="0.05"' in html
+    assert 'name="target_steps" value="1" checked' in html
 
 
 def test_run_list_and_reopened_run(

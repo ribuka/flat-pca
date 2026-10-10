@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from .app import create_app
+from .fit_defaults import load_fit_defaults
 from .settings import load_settings
 
 SETTINGS_ENV = "FLAT_PCA_WEBUI_SETTINGS"
@@ -22,6 +23,9 @@ FACTORY_IMPORT_STRING = "flat_pca.webui.reload_factory:create_app_from_environme
 
 def create_app_from_environment() -> FastAPI:
     """Create the Web UI application from the settings named in the environment.
+
+    The fit form defaults are read from ``fit_defaults.toml`` next to the
+    settings file.
 
     Returns
     -------
@@ -36,4 +40,4 @@ def create_app_from_environment() -> FastAPI:
     path = os.environ.get(SETTINGS_ENV)
     if not path:
         raise RuntimeError(f"{SETTINGS_ENV} is not set")
-    return create_app(load_settings(Path(path)))
+    return create_app(load_settings(Path(path)), load_fit_defaults(path))

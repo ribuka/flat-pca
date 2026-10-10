@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .datatable import STATIC_DIR as DATATABLE_STATIC_DIR
+from .fit_defaults import BUILTIN_FIT_DEFAULTS, FitDefaults
 from .routes import (
     catalog,
     explore,
@@ -45,7 +46,7 @@ def plotly_js() -> FileResponse:
     return FileResponse(PLOTLY_JS, media_type="text/javascript")
 
 
-def create_app(settings: Settings) -> FastAPI:
+def create_app(settings: Settings, fit_defaults: FitDefaults = BUILTIN_FIT_DEFAULTS) -> FastAPI:
     """Create the Web UI application.
 
     The ``Workspace`` is opened when the application starts and closed when
@@ -55,6 +56,8 @@ def create_app(settings: Settings) -> FastAPI:
     ----------
     settings : Settings
         Validated application settings.
+    fit_defaults : FitDefaults, default BUILTIN_FIT_DEFAULTS
+        Initial values of the preprocessing and PCA form.
 
     Returns
     -------
@@ -65,7 +68,7 @@ def create_app(settings: Settings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         """Open the workspace for the application's lifetime."""
-        workspace = Workspace(settings)
+        workspace = Workspace(settings, fit_defaults)
         app.state.workspace = workspace
         try:
             yield

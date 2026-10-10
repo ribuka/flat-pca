@@ -1,0 +1,48 @@
+# Web UI の Preprocess / PCA 節の初期値。
+#
+# - --settings で指定した settings ファイルと同じディレクトリに置く。
+#   同じディレクトリに fit_defaults.local.toml（git 管理外）があれば、こちらの代わりにそちらだけを読む。
+# - 書かなかった項目は組み込みの初期値（下のコメントの値）を使う。ファイルが無くてもよい。
+# - 起動時に検証し、未知のキーや不正な値（フォームの検証と同じ規則）があれば起動を止める。
+# - target_steps は選んだファイルから決まるため、ここでは指定できない。
+
+[preprocess]
+# edge_trim_start = 0.0            # Edge trim（StepTime）の start。end と両方省略で edge trim なし、片方だけなら他方は 0
+# edge_trim_end = 0.0              # Edge trim（ReverseStepTime）の end
+# t_smoothing_window = 3.0         # 時間方向の平滑化の半幅（Time。省略時は平滑化なし）
+# w_smoothing_window = 3.0         # 波長方向の平滑化の半幅（nm。省略時は平滑化なし）
+# intensity_transform = "none"     # "none" | "sqrt" | "log1p" | "asinh"
+# intensity_transform_scale = 1.0
+# t_downsampling_stride = 1
+# w_downsampling_stride = 1
+# max_null_ratio = 0.1
+
+# 範囲は enabled で有効にする。lower / upper を書かなければ、選んだファイルの catalog の範囲を使う。
+[preprocess.wavelength_range]
+# enabled = false
+# lower = 400.0
+# upper = 800.0
+
+[preprocess.t_normalization_range]
+# enabled = false
+# lower = 0.0
+# upper = 10.0
+
+[preprocess.w_normalization_range]
+# enabled = false
+# lower = 400.0
+# upper = 800.0
+
+[pca]
+# n_component = 5                  # 省略時は自動
+# impute_strategy = "drop"         # "drop" | "median" | "kmeans"
+# impute_kmeans_n_clusters = 3     # impute_strategy = "kmeans" のときのクラスタ数（省略時はライブラリの既定）
+# scaling_strategy = "none"        # "none" | "z-score" | "minmax" | "robust" | "pareto"
+
+[mahalanobis]                      # T²
+# cumulative_explained_variance = 0.9
+# alpha = 0.01
+
+[spe]                              # Q
+# cumulative_explained_variance = 0.9
+# alpha = 0.01

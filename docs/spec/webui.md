@@ -23,6 +23,7 @@ src/flat_pca/
     app.py                      FastAPIアプリ生成、router登録、static mount
     settings.py                 settings.tomlの読み込み・検証
     settings_files.py           読み込む設定ファイルの選択（settings.local.toml優先）と読み込み
+    fit_defaults.py             fit_defaults.toml（前処理・PCAフォームの初期値）の読み込み・検証
     settings_paths.py           パス設定値の展開（環境変数・{root}・相対パス）
     workspace.py                Workspace（DB接続・キャッシュ・ジョブ実行器）
     routes/                     画面・機能単位のAPIRouter（薄く保つ）
@@ -109,6 +110,42 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - メタデータの結合キーは`Path.stem`とする。`data.root`配下でstemが重複する場合はcatalog構築をエラーとする（UI経由の実行では`stem_uniqueness="error"`を使う）。
 - メタデータCSVの結合キーが空または重複する場合、取り込む列が無い場合、値を型に変換できない場合はcatalog構築をエラーとする。
 - CSVに無いファイル、ファイルが存在しないCSV行は件数と一覧をcatalog画面に警告表示し、処理は継続する。
+
+## 前処理・PCAフォームの初期値（fit_defaults.toml）
+
+前処理・PCA画面のフォームの初期値（`/fit`をrunの指定なしで開いたときの値）は、`--settings`で指定したsettingsファイルと同じディレクトリの`fit_defaults.toml`で変えられる。例（コメント付き）を`config/fit_defaults.toml`に置く。
+
+```toml
+[preprocess]
+edge_trim_start = 0.0                 # 書かなかった項目は組み込みの初期値を使う
+intensity_transform = "log1p"         # "none" | "sqrt" | "log1p" | "asinh"
+intensity_transform_scale = 1.0
+t_downsampling_stride = 2
+max_null_ratio = 0.1
+
+[preprocess.wavelength_range]         # t_normalization_range・w_normalization_rangeも同じ形
+enabled = true
+lower = 450.0                         # 省略時は選んだファイルのcatalogの範囲
+
+[pca]
+n_component = 5                       # 省略時は自動
+impute_strategy = "kmeans"            # "drop" | "median" | "kmeans"
+impute_kmeans_n_clusters = 3
+scaling_strategy = "z-score"          # "none" | "z-score" | "minmax" | "robust" | "pareto"
+
+[mahalanobis]                         # T²
+cumulative_explained_variance = 0.9
+alpha = 0.01
+
+[spe]                                 # Q
+cumulative_explained_variance = 0.9
+alpha = 0.01
+```
+
+- 書ける項目は、`[preprocess]`の`edge_trim_start`・`edge_trim_end`・`t_smoothing_window`・`w_smoothing_window`・`intensity_transform`・`intensity_transform_scale`・`t_downsampling_stride`・`w_downsampling_stride`・`max_null_ratio`と範囲（`wavelength_range`・`t_normalization_range`・`w_normalization_range`の`enabled`・`lower`・`upper`）、`[pca]`の`n_component`・`impute_strategy`・`impute_kmeans_n_clusters`・`scaling_strategy`、`[mahalanobis]`・`[spe]`の`cumulative_explained_variance`・`alpha`とする。`target_steps`は選んだファイルから決まるため対象外とする。
+- 書かなかった項目は組み込みの初期値（`PreprocessConfig`・`MahalanobisConfig`・`SpeConfig`の既定値と、PCAの`n_component`自動・`impute_strategy = "drop"`・`scaling_strategy = "none"`）を使う。範囲の`lower`・`upper`を書かなければ、選んだファイルのcatalogの範囲を使う。TOMLには空の値が無いため、空欄（edge trimや平滑化なし、`n_component`自動など）にするには項目を書かない。
+- ファイルが無いときは組み込みの初期値を使う（エラーにしない）。同じディレクトリに`fit_defaults.local.toml`があれば、`fit_defaults.toml`の代わりにそちらだけを読む（マージはしない。`settings.local.toml`と同じ）。settings.tomlとは別に置き換えられるので、パスだけをlocalにして初期値は共有のファイルを使う、といった組み合わせができる。
+- 起動時（`--reload`では各ワーカーの起動時も）に読み込んで検証し、未知のキー、型の違う値、フォームの検証で不正になる値はエラーとして起動を止める。フォームと同じ検証（`parse_fit_form`）を通し、エラーは`pca.n_component`のようなキー名で示す。範囲は`lower`・`upper`の両方を書いたときだけ（`enabled`によらず）組で検証する。`n_component`はファイル数による上限を検証しない（送信時にフォームで検証する）。
 
 ## Workspace と DB
 
@@ -280,6 +317,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 - `PreprocessConfig`の各フィールドに対応するフォームを持つ。
   - `target_steps`はcatalogのStep一覧から複数選択する（既定はすべて）。
   - `wavelength_range`・`*_normalization_range`はチェックボックスで有効にする（既定は無効）。入力欄の初期値と範囲はcatalogの波長・`Time`の最小・最大から決める。
+  - `target_steps`以外の初期値は`fit_defaults.toml`で変えられる（「前処理・PCAフォームの初期値（fit_defaults.toml）」）。
   - `intensity_transform`（`"none"`・`"sqrt"`・`"log1p"`・`"asinh"`）と`intensity_transform_scale`を設定できる。`"log1p"`の定義域エラーは実データを読むまで分からないため、fitジョブ内の`ValueError`としてrunを`failed`にし、そのメッセージを表示する。
 - PCA設定：`n_component`の既定（空欄）は「累積寄与率0.99に達する成分数、上限1000」とし、UIで変更できる。上限1000まで成分をfitしてから先頭の成分だけを残し（`truncate_pca_model`）、捨てた成分の分散は`noise_variance_`へ平均として畳み込む。`impute_strategy`（`"kmeans"`のときは`impute_kmeans_n_clusters`）、`scaling_strategy`（`"none"`・`"z-score"`・`"minmax"`・`"robust"`・`"pareto"`）、`MahalanobisConfig`・`SpeConfig`の`cumulative_explained_variance`と`alpha`を設定できる。外れ値処理は`flatten_pca`と同じく使わない（`outlier_strategy=None`）ため、画面に出さない。
   - 成分数を打ち切るとQのUCL（$\theta_2$・$\theta_3$）の精度が下がる（SPEC.md「Q統計量（SPE）仕様」）。画面に注記する。

@@ -10,6 +10,7 @@ from pathlib import Path
 import uvicorn
 
 from .app import create_app
+from .fit_defaults import load_fit_defaults
 from .reload_factory import FACTORY_IMPORT_STRING, SETTINGS_ENV
 from .settings import SettingsError, load_settings
 from .settings_files import DEFAULT_SETTINGS_PATH
@@ -18,7 +19,7 @@ PACKAGE_DIR = Path(__file__).resolve().parent.parent
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Validate the settings and serve the Web UI.
+    """Validate the settings and the fit form defaults and serve the Web UI.
 
     With ``--reload``, the application is rebuilt by
     :func:`~flat_pca.webui.reload_factory.create_app_from_environment`
@@ -45,10 +46,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     arguments = parser.parse_args(argv)
     try:
         settings = load_settings(arguments.settings)
+        fit_defaults = load_fit_defaults(arguments.settings)
     except SettingsError as error:
         parser.exit(2, f"error: {error}\n")
     if not arguments.reload:
-        uvicorn.run(create_app(settings), host=arguments.host, port=arguments.port)
+        uvicorn.run(create_app(settings, fit_defaults), host=arguments.host, port=arguments.port)
         return
     os.environ[SETTINGS_ENV] = str(Path(arguments.settings).resolve())
     uvicorn.run(
