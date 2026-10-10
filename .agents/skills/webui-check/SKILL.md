@@ -68,12 +68,12 @@ and get element references for `browser_click`, `browser_select_option`, and `br
 | Click "Update catalog" | The status shows `queued`/`running` and polls every second; the button is disabled. |
 | Wait (`browser_wait_for` text `succeeded`) | Status `succeeded`, 3 files; the file table reloads with `run-1`, `run-2`, `run-10`; the warnings list `run-10` (no metadata) and `ghost` (no file). |
 | Column headers | Each shows the name, `⋯`, and the type below it (`str`, `cat`, `datetime[μs]`, `f64`, `i64`). |
-| Click `lot` (opens its column menu) | The menu shows Asc / Desc / Clear sort, the values `A 1`, `B 1`, "Null values 1", and Copy column name; checking `A` leaves only `run-1`, keeps the menu open, and marks the header with a funnel. Escape or a click outside closes it. |
-| `Is null` in the `lot` menu | Only `run-10` (no metadata) remains. |
+| Click `lot` (opens its column menu) | The menu shows Asc / Desc / Clear sort, the values `A 1`, `B 1`, "Null values 1", and Copy column name, and Apply / Cancel / Clear; checking `A` changes nothing but enables Apply and shows "Unapplied changes"; Apply leaves only `run-1`, closes the menu, and marks the header with a funnel. Escape, Cancel, or a click outside closes it and drops the unapplied changes. |
+| `Is null` in the `lot` menu, then Apply | Only `run-10` (no metadata) remains. |
 | `Search…` above the table | `1 RUN` leaves `run-1` and `run-10`; the input keeps the focus. |
 | Filter chips above the table | Each filter in use shows as a chip (e.g. `lot ∈ {A}`, `yield_pct ≥ 90`); its × removes the filter. |
 | `Columns` above the table | Unchecking a column hides it ("3 rows, 6 columns"); the choice survives a page reload; `file` cannot be hidden. |
-| Numeric / datetime filters (in the menu) | e.g. `yield_pct lower` = 90 leaves only `run-1`. |
+| Numeric / datetime filters (in the menu) | e.g. `yield_pct lower` = 90 and Enter (or Apply) leaves only `run-1`. |
 | Asc / Desc in a column menu | The table sorts ascending (▲) or descending (▼) and the menu closes. |
 | Header checkbox of the file table | Checks / clears every row matching the filters, on all pages; with only some of them checked it shows the indeterminate state. |
 | Click a row, then Shift + click another row | The first click toggles the row; Shift + click selects (or clears) every row between them. Under the table "3 rows, 7 columns", "k selected" with Clear, and "1–3 of 3" follow. |

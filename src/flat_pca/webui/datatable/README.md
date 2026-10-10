@@ -212,7 +212,8 @@ header checkbox's matching keys, the export, and anything else built on
     selectable table, for `Selected rows` (every selected row, also those the
     filters hide), each with its row count; the buttons of rows without any
     are disabled, and the selected count follows the selection. A button
-    posts the table's query controls, the format, the rows, and the
+    posts the table's applied query (sort, search, and filters; not a draft
+    in a column menu), the format, the rows, and the
     selection input's JSON array (one field, so the size of the selection is
     not bound by the limit on form fields) to `export_url` with `fetch`,
     and saves the answer under the name its `Content-Disposition` gives,
@@ -287,17 +288,37 @@ header checkbox's matching keys, the export, and anything else built on
   a popover (`popover`, `popovertarget`) holding the column's controls:
   sort (Asc, Desc, Clear sort), the filter (search, values with their
   counts, or lower and upper bounds), the null filter (Any, Is null, Is not
-  null, with the null count), and "Copy column name" (the frame's column
-  name). A click outside or Escape closes it and returns the focus to the
-  column name; Tab moves from the name into the menu. The popover is in the
-  top layer, so neither the scroll box nor a `<dialog>` clips it;
-  `datatable.js` places it under the column name (above it, or shifted,
-  when there is no room) and keeps it there while the page scrolls.
-- Typing a search or a bound reloads the first page after 300 ms; checking
-  a value or a null filter reloads it at once. The menu stays open across
-  the reload, with the focus (and caret) where it was. Sorting from the menu
-  or copying the name closes it. Sorting or filtering returns to the first
-  page. Reloads trigger `dt-reload` on the container.
+  null, with the null count), "Copy column name" (the frame's column
+  name), and under a column with filters the `Apply` (✓), `Cancel` (×), and
+  `Clear` (trash) buttons. A click outside or Escape closes it and returns
+  the focus to the column name; Tab moves from the name into the menu. The
+  popover is in the top layer, so neither the scroll box nor a `<dialog>`
+  clips it; `datatable.js` places it under the column name (above it, or
+  shifted, when there is no room) and keeps it there while the page
+  scrolls.
+- The filters of a column menu (search, values, bounds, null filter) are a
+  draft until applied: changing them reloads nothing.
+  - While the draft differs from the applied filters, `Apply` is enabled
+    and stands out (`data-dt-dirty` on the menu) and the menu shows
+    `Unapplied changes` (a `status`); otherwise `Apply` is disabled.
+  - `Apply`, or Enter in the search or a bound, reloads the first page once
+    with the draft and closes the menu.
+  - `Cancel`, Escape, a click outside, or opening another menu drops the
+    draft and closes the menu; reopened, it shows the applied filters.
+  - `Clear` removes every filter of the column (values, bounds, search, and
+    null filter), reloads the first page, and closes the menu. It is
+    disabled while the column has no filter applied.
+  - A reload while a menu holds a draft (the search box or a page button
+    reached with Tab, or a trigger of the page) sends the applied filters;
+    the menu stays open with its draft, the focus (and caret) where they
+    were. The header checkbox and the export use the applied filters too;
+    a chip's × (reached with Tab) closes the menu, dropping the draft, and
+    removes the applied filter.
+- Sorting (Asc, Desc, Clear sort) and copying the name take effect at once
+  and close the menu. Outside the column menus, the search box of the whole
+  table (after 300 ms), a chip's ×, and the `Columns` menu also take effect
+  without Apply. Sorting or filtering returns to the first page. Reloads trigger
+  `dt-reload` on the container.
 - Under the table, the footer shows "N rows, M columns" (the rows matching
   the filters and the shown columns), for a selectable table the selection
   count ("k selected", or "k / max selected" with `max_selected`) and Clear
@@ -314,8 +335,8 @@ header checkbox's matching keys, the export, and anything else built on
   row checkboxes, the header checkbox, and the selection alike, so keys of any
   type match; give the initial selection in the same form. A table without
   selection does not cast its keys (`data-dt-key` is `str()` of the value).
-  The header checkbox selects or clears every row matching the filters and
-  shows all / some / none.
+  The header checkbox selects or clears every row matching the applied
+  filters (not a draft in a column menu) and shows all / some / none.
 - A click anywhere on a row toggles its checkbox, once (a click on the
   checkbox itself is not counted twice). Clicks on a link or another control
   in the row (`a`, `button`, `input`, `select`, `textarea`, `label`,

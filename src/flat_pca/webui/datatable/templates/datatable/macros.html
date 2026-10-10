@@ -33,8 +33,8 @@
 
 {#- The value filter of a column menu: a search, a list of values to check
     with their counts, or lower and upper bounds. Typed inputs are preserved
-    across reloads (hx-preserve), so text typed while a reload is pending is
-    kept. -#}
+    across reloads (hx-preserve), so text typed while the table reloads is
+    kept; the bounds have no value from the server but this. -#}
 {% macro _filter(config, view, column, index) -%}
   {% set name = config.prefix ~ {"text": "q__", "choice": "eq__"}.get(column.filter, "") ~ column.name %}
   <div class="dt-menu-section dt-filter">
@@ -77,9 +77,25 @@
   </div>
 {%- endmacro %}
 
+{#- The buttons under the filters of a column menu: Apply (enabled by
+    datatable.js while the filters differ from those applied), Cancel, and
+    Clear (enabled while the column has a filter applied), with the notice
+    of unapplied changes. -#}
+{% macro _filter_actions(view, column) -%}
+  <div class="dt-menu-section dt-filter-actions">
+    <p class="dt-draft-status" role="status" data-dt-draft-status hidden>Unapplied changes</p>
+    <div class="dt-filter-buttons">
+      <button type="button" class="dt-apply" data-dt-apply disabled><span aria-hidden="true">✓</span> Apply</button>
+      <button type="button" data-dt-cancel><span aria-hidden="true">×</span> Cancel</button>
+      <button type="button" title="Clear the filters of this column" data-dt-clear-filter{% if not view.state.is_filtered(column.name) %} disabled{% endif %}><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M6 1.5h4M2.5 3.5h11M4 3.5l.75 11h6.5l.75-11M6.75 6v6M9.25 6v6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg> Clear</button>
+    </div>
+  </div>
+{%- endmacro %}
+
 {#- A column's menu, a popover opened from its header: sorting, the
-    filters, and copying the column name. datatable.js places it and keeps
-    it open across reloads. -#}
+    filters with their Apply / Cancel / Clear buttons, and copying the
+    column name. datatable.js places it, keeps the filters as a draft until
+    Apply, and keeps it open across reloads. -#}
 {% macro _menu(config, view, column, menu_id, index) -%}
   {% set current = view.state.sort_by == column.name %}
   <div popover id="{{ menu_id }}" class="dt-menu" role="dialog" aria-label="{{ column.header }} menu" data-dt-menu="{{ column.name }}">
@@ -97,6 +113,7 @@
     <div class="dt-menu-section">
       <button type="button" data-dt-copy="{{ column.name }}">Copy column name</button>
     </div>
+    {% if column.filter %}{{ _filter_actions(view, column) }}{% endif %}
   </div>
 {%- endmacro %}
 
@@ -248,7 +265,7 @@
       selecting every matching row would pass it. -#}
 {% macro fragment(config, view, selected=[]) -%}
 {#- The query controls carry data-dt-query; datatable.js reloads the table
-    when they change. -#}
+    when they change, and for the filters of a column menu on Apply. -#}
 <input type="hidden" name="{{ config.prefix }}sort" value="{{ view.state.sort_by or '' }}" data-dt-query>
 <input type="hidden" name="{{ config.prefix }}order" value="{{ 'desc' if view.state.descending else 'asc' }}" data-dt-query>
 <input type="hidden" name="{{ config.prefix }}page" value="{{ view.page.number }}" data-dt-query>

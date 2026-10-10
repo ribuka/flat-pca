@@ -523,6 +523,34 @@
   color: var(--dt-muted);
 }
 
+/* Apply, Cancel, and Clear under the filters of a column menu. Apply
+   stands out while the filters differ from those applied (data-dt-dirty),
+   with the notice of unapplied changes above the buttons. */
+.dt-filter-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.dt-filter-buttons button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.dt-menu[data-dt-dirty] .dt-apply {
+  border-color: var(--dt-accent);
+  color: #ffffff;
+  background: var(--dt-accent);
+  font-weight: 600;
+}
+
+.dt-draft-status {
+  margin: 0;
+  color: var(--dt-accent);
+  font-size: 0.8em;
+}
+
 .dt-filter input:not([type="checkbox"], [type="radio"]) {
   min-height: 1.75rem;
   max-width: var(--dt-filter-max-width);
