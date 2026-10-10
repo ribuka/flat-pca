@@ -169,18 +169,21 @@ def test_file_table_has_column_sort_and_filters(cataloged_client: TestClient) ->
 def test_file_table_category_choices_follow_catalog(
     client: TestClient, wait_for: Wait
 ) -> None:
-    """Category choices come from the catalog and keep the chosen value."""
-    assert '<option value="A"' not in client.get("/catalog/files").text
+    """Category choices come from the catalog, with counts, and keep the chosen values."""
+    assert 'name="files.eq__lot" value="A"' not in client.get("/catalog/files").text
     workspace = _workspace(client)
     wait_for(workspace.database, workspace.submit_catalog())
 
-    response = client.get("/catalog/files", params={"files.eq__lot": "B"})
+    response = client.get("/catalog/files", params=[("files.eq__lot", "B"), ("files.eq__lot", "Z")])
 
     assert response.status_code == 200
-    assert '<option value="A" >' in response.text
-    assert '<option value="B" selected>' in response.text
-    stale = client.get("/catalog/files", params={"files.eq__lot": "Z"}).text
-    assert '<option value="Z" selected>' in stale
+    choices = re.findall(
+        r'name="files.eq__lot" value="([^"]*)" data-dt-query( checked)?>\s*'
+        r'<span class="dt-choice-value">[^<]*</span> <span class="dt-count">(\d+)</span>',
+        response.text,
+    )
+    assert choices == [("A", "", "1"), ("B", " checked", "1"), ("Z", " checked", "0")]
+    assert re.findall(r'<tr data-dt-key="([^"]+)"', response.text) == ["run-2"]
 
 
 def test_file_table_pages_and_lists_matching_stems(

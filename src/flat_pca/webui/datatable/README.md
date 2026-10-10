@@ -21,9 +21,10 @@ Update this document whenever the component gains a feature.
 | --- | --- |
 | `config.py` | `TableConfig` and `ColumnConfig`: what the application decides. |
 | `state.py` | `TableState` and `parse_state`: query parameters → table state. |
-| `query.py` | `apply_state`: table state + frame → `TableView` (rows of one page, the page, matching keys, choices). A `LazyFrame` is collected only for the page's rows and for the matching keys (or their count). |
+| `query.py` | `apply_state`: table state + frame → `TableView` (rows of one page, the page, matching keys, choices, counts, column types); `filter_expression` and `search_terms`. A `LazyFrame` is collected only for the page's rows, for the matching keys (or their count), and for the counts. |
+| `counts.py` | `ColumnCounts` and `count_values`: rows of each choice value and null values per filtered column, for the column menus. |
 | `pagination.py` | `Page` and `paginate`: the page among the rows. |
-| `formatting.py` | `format_value`: the cell text (`dt_cell` filter). |
+| `formatting.py` | `format_value`: the cell text (`dt_cell` filter); `dtype_label`: the column type under each column name. |
 | `environment.py` | `configure_environment`: registers the templates and the filter with a Jinja2 environment; `TEMPLATES_DIR`, `STATIC_DIR`. |
 | `templates/datatable/macros.html` | The `container` and `fragment` macros. |
 | `static/datatable.js`, `static/datatable.css` | Browser behavior and look. |
@@ -94,7 +95,9 @@ Update this document whenever the component gains a feature.
 
    The frame is every row in its default order. `apply_state` takes the
    choices of `"choice"` filters as its fourth argument; without it they are
-   the sorted distinct values of the frame.
+   the sorted distinct values of the frame. The counts beside the choices
+   and the null counts are always taken over every row of the frame (not
+   only the filtered ones); a given choice missing from the frame counts 0.
 
 ## Columns
 
@@ -102,38 +105,61 @@ Update this document whenever the component gains a feature.
 | --- | --- |
 | `name` | Frame column. |
 | `label` | Header text (default: `name`). |
-| `filter` | `"text"` (case-insensitive substring), `"choice"` (one value from a drop-down), `"number"` / `"datetime"` (inclusive lower and upper bounds), or `None`. Null values match no filter. Filters combine with AND. |
-| `filter_label` | Accessible name of a text or choice filter (default: `Filter by <label>`). Bounds are named `<label> lower` / `<label> upper`. |
-| `sortable` | Whether the header sorts (default: `True`). Sorting puts nulls last and keeps the frame's order among ties. |
+| `filter` | `"text"` (a search: every whitespace-separated word as plain text, in any order and case), `"choice"` (any of the values checked in a list with their counts), `"number"` / `"datetime"` (inclusive lower and upper bounds), or `None`. A column with a filter also has a null filter. Filters combine with AND. |
+| `filter_label` | Accessible name of a text filter or of the value list of a choice filter (default: `Filter by <label>`). Bounds are named `<label> lower` / `<label> upper`. |
+| `sortable` | Whether the column menu sorts (default: `True`). Sorting puts nulls last and keeps the frame's order among ties. |
 | `frame_order` | The frame's order is the column's ascending order (for example a key in natural order); sorting by it keeps or reverses the frame. |
 | `title_column` | Frame column shown as the cell's tooltip. |
 
 ## Query parameters
 
 Every parameter of a table is named `<table_id>.<name>`; other parameters are
-ignored, so several tables can share a query string. A repeated parameter uses
-its last value; blank values are ignored. An unknown `<table_id>.*` parameter,
-a filter that does not fit its column, or an unparsable value is a
-`ValueError`.
+ignored, so several tables can share a query string. `eq__<column>` is
+repeated once per value; any other repeated parameter uses its last value.
+Blank values are ignored. An unknown `<table_id>.*` parameter, a filter that
+does not fit its column, or an unparsable value is a `ValueError`.
 
 | Name | Value |
 | --- | --- |
-| `sort` | A sortable column (default: `default_sort`, or the frame's order). |
+| `sort` | A sortable column (default: `default_sort`, or the frame's order). An empty value clears the sort back to the default. |
 | `order` | `asc` (default) or `desc`. |
 | `page` | 1-based page number; a page past the last shows the last. |
-| `q__<column>` | Substring of a `"text"` column. |
-| `eq__<column>` | Value of a `"choice"` column. |
+| `q__<column>` | Search of a `"text"` column: the value must contain every whitespace-separated word, in any order, ignoring case, as plain text (not a regular expression). `b01 lotA` matches `LotA_B01_run3`. |
+| `eq__<column>` | A value of a `"choice"` column, repeated for several (`?t.eq__lot=A&t.eq__lot=B`); a row matches any of them (`is_in`). |
 | `min__<column>`, `max__<column>` | Bounds of a `"number"` (an integer stays an `int` and is compared exactly with an integer column when it fits 64 bits; otherwise it is compared as a float, `±inf` past the float range) or `"datetime"` (ISO 8601, as `datetime-local` sends) column. |
+| `null__<column>` | `is_null` (only the null values) or `is_not_null` (no null values) for any column with a filter. |
+
+Null values never match a search, a value, or a bound, so setting one of
+those already drops the nulls of the column: with `is_null` too, no row
+matches, and `is_not_null` adds nothing. `is_null` alone lists the rows
+without a value; `is_not_null` alone drops them.
 
 The fragment carries these as inputs marked `data-dt-query` inside the
-container, which sends them with `hx-include="this"`.
+container, which sends them with `hx-include="this"`. The table view, the
+header checkbox's matching keys, and anything else built on `apply_state`
+filter through the one `filter_expression`.
 
 ## Browser behavior and events
 
-- Typing in a filter reloads the first page after 300 ms; choosing a value
-  reloads it at once. Clicking a header sorts ascending, then toggles. Sorting
-  or filtering returns to the first page. Reloads trigger `dt-reload` on the
-  container.
+- Each header shows the column name, the sort mark (▲ / ▼), a funnel mark
+  while a filter (values, bounds, search, or null filter) uses the column,
+  and the column type under the name (`dtype_label`: polars' short names such
+  as `str`, `cat`, `i64`, `f64`, `datetime[μs]`).
+- Clicking the column name (or Enter / Space on it) opens the column menu,
+  a popover (`popover`, `popovertarget`) holding the column's controls:
+  sort (Asc, Desc, Clear sort), the filter (search, values with their
+  counts, or lower and upper bounds), the null filter (Any, Is null, Is not
+  null, with the null count), and "Copy column name" (the frame's column
+  name). A click outside or Escape closes it and returns the focus to the
+  column name; Tab moves from the name into the menu. The popover is in the
+  top layer, so neither the scroll box nor a `<dialog>` clips it;
+  `datatable.js` places it under the column name (above it, or shifted,
+  when there is no room) and keeps it there while the page scrolls.
+- Typing a search or a bound reloads the first page after 300 ms; checking
+  a value or a null filter reloads it at once. The menu stays open across
+  the reload, with the focus (and caret) where it was. Sorting from the menu
+  or copying the name closes it. Sorting or filtering returns to the first
+  page. Reloads trigger `dt-reload` on the container.
 - The selection of a selectable table spans pages and filters. It is a JSON
   array in the hidden input `#<table_id>-selection` (named `selection_name`),
   outside the reloaded fragment, so a form or `hx-include` can send it as one
@@ -166,8 +192,12 @@ container, so several tables can share a page.
 | --- | --- |
 | `.dt-root[data-datatable]` | Container (`id` = `table_id`); `data-dt-locked` when locked; `data-dt-max-selected` with the limit. |
 | `.dt-scroll` / `.dt-table` | Scroll box with a fixed header / the table. |
-| `.dt-sort[data-dt-sort]`, `.dt-sort-mark` | Header sort button and its ▲ / ▼. |
-| `.dt-filter` | Filters under a header. |
+| `.dt-head`, `.dt-column[data-dt-column]`, `.dt-label` | Header line and the column name button opening the menu. |
+| `.dt-sort-mark`, `.dt-menu-mark`, `.dt-filter-mark[data-dt-filtered]` | ▲ / ▼, the menu's ⋯, and the funnel of a filtered column. |
+| `.dt-type` | Column type under the name. |
+| `.dt-menu[popover][data-dt-menu]` | Column menu (`id` `<table_id>-menu-<n>`, `role="dialog"`, named `<label> menu`); `data-dt-placed` once placed. |
+| `.dt-menu-section`, `.dt-sorts`, `.dt-filter`, `.dt-choices`, `.dt-choice`, `.dt-nulls`, `.dt-count` | Menu parts: sort buttons (`[data-dt-sort][data-dt-order]`, `aria-pressed`), the filter, the value list, the null filter, and counts. |
+| `[data-dt-copy]` | "Copy column name" button. |
 | `.dt-check`, `[data-dt-check-all]`, `[data-dt-row-check]` | Selection checkboxes. |
 | `.dt-limit[data-dt-limit]` | Notice that the selection limit is reached (`hidden` below it). |
 | `tr[data-dt-key]` | Row with its key. |
@@ -184,11 +214,13 @@ container or an ancestor fixes the scheme.
 | `--dt-fg`, `--dt-muted` | Text, and headers / "a–b of N" / locked rows / the limit notice. |
 | `--dt-border` | Cell and box borders. |
 | `--dt-header-bg`, `--dt-row-hover-bg` | Header and hovered row backgrounds. |
-| `--dt-accent`, `--dt-accent-fg` | Sort marks and the current page, and its text. |
+| `--dt-accent`, `--dt-accent-fg` | Sort and filter marks, the chosen sort in a menu, and the current page, and its text. |
 | `--dt-radius` | Box corner radius. |
 | `--dt-font`, `--dt-font-size` | Font family and table font size. |
 | `--dt-cell-padding` | Cell padding. |
 | `--dt-max-height` | Height of the scroll box (about the header and 12 rows). |
 | `--dt-filter-max-width` | Width limit of the filter inputs. |
+| `--dt-mono-font` | Font of the column types. |
+| `--dt-menu-bg`, `--dt-menu-shadow`, `--dt-menu-max-width` | Column menu background, shadow, and width limit. |
 
 Buttons and inputs otherwise take the page's own styles.

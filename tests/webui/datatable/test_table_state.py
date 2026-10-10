@@ -13,11 +13,13 @@ def test_parse_state_reads_filters_sort_and_page(config: TableConfig) -> None:
     """Every control of the table is parsed; blank values are ignored."""
     state = parse_state(
         {
-            "t.q__name": [" alp "],
+            "t.q__name": [" alp b "],
             "t.eq__group": ["a"],
             "t.min__count": ["2"],
             "t.max__count": [""],
             "t.max__when": ["2026-02-01T00:00"],
+            "t.null__score": ["is_not_null"],
+            "t.null__group": [""],
             "t.sort": ["score"],
             "t.order": ["desc"],
             "t.page": ["3"],
@@ -29,9 +31,10 @@ def test_parse_state_reads_filters_sort_and_page(config: TableConfig) -> None:
         sort_by="score",
         descending=True,
         page=3,
-        text={"name": "alp"},
-        equals={"group": "a"},
+        text={"name": "alp b"},
+        equals={"group": ("a",)},
         ranges={"count": (2.0, None), "when": (None, datetime.fromisoformat("2026-02-01"))},
+        nulls={"score": "is_not_null"},
     )
 
 
@@ -39,7 +42,36 @@ def test_parse_state_defaults_and_ignores_other_tables(config: TableConfig) -> N
     """Without parameters the default sort applies; other prefixes are ignored."""
     state = parse_state({"other.sort": ["x"], "q": ["y"], "t.eq__group": ["", "b"]}, config)
 
-    assert state == TableState(sort_by="key", equals={"group": "b"})
+    assert state == TableState(sort_by="key", equals={"group": ("b",)})
+
+
+def test_parse_state_keeps_every_choice_value(config: TableConfig) -> None:
+    """A repeated ``eq__`` parameter gives every value once; blank ones are ignored."""
+    state = parse_state({"t.eq__group": ["b", " a ", "", "b"]}, config)
+
+    assert state.equals == {"group": ("b", "a")}
+    assert parse_state({"t.eq__group": ["", " "]}, config).equals == {}
+
+
+@pytest.mark.parametrize("value", ["is_null", "is_not_null"])
+def test_parse_state_reads_a_null_filter_of_every_filter_kind(
+    config: TableConfig, value: str
+) -> None:
+    """Every column with a filter takes a null filter."""
+    parameters = {f"t.null__{name}": [value] for name in config.filtered_columns}
+
+    state = parse_state(parameters, config)
+
+    assert state.nulls == dict.fromkeys(config.filtered_columns, value)
+
+
+def test_table_state_tells_which_columns_are_filtered() -> None:
+    """A column is filtered by a search, values, bounds, or a null filter."""
+    state = TableState(
+        text={"a": "x"}, equals={"b": ("y",)}, ranges={"c": (1, None)}, nulls={"d": "is_null"}
+    )
+
+    assert [name for name in "abcde" if state.is_filtered(name)] == ["a", "b", "c", "d"]
 
 
 def test_parse_state_without_default_sort_keeps_frame_order() -> None:
@@ -59,6 +91,8 @@ def test_parse_state_without_default_sort_keeps_frame_order() -> None:
         ({"t.q__group": ["a"]}, "does not fit"),
         ({"t.min__count": ["abc"]}, "invalid bound"),
         ({"t.max__when": ["yesterday"]}, "invalid bound"),
+        ({"t.null__count": ["null"]}, "invalid null filter"),
+        ({"t.null__note": ["is_null"]}, "unknown filter column"),
         ({"t.other": ["1"]}, "unknown parameter"),
         ({"t.sort": ["missing"]}, "unknown sort column"),
         ({"t.sort": ["note"]}, "unknown sort column"),

@@ -20,7 +20,7 @@ METADATA_FILTERS: dict[MetadataColumnType, FilterKind] = {
     "datetime": "datetime",
 }
 METADATA_DTYPES: dict[MetadataColumnType, pl.DataType] = {
-    "category": pl.String(),
+    "category": pl.Categorical(),
     "number": pl.Float64(),
     "datetime": pl.Datetime("us"),
 }
@@ -29,12 +29,13 @@ METADATA_DTYPES: dict[MetadataColumnType, pl.DataType] = {
 def file_table_config(columns: Mapping[str, MetadataColumnSettings]) -> TableConfig:
     """Return the data table settings of the file table.
 
-    The table shows the file name (a substring filter; its tooltip is the
-    path), each metadata column (a drop-down for ``category`` columns and
-    lower and upper bounds for the others), and the numbers of Steps,
-    ``(Step, Sequence)`` pairs, and rows without filters. Every column sorts,
-    the file name in natural order. Rows are selected by stem into the
-    hidden input ``stems``, ``FILE_PAGE_SIZE`` rows per page.
+    The table shows the file name (a search for words in any order and
+    case; its tooltip is the path), each metadata column (values to check
+    for ``category`` columns and lower and upper bounds for the others; each
+    also with a null filter), and the numbers of Steps, ``(Step, Sequence)``
+    pairs, and rows without filters. Every column sorts, the file name in
+    natural order. Rows are selected by stem into the hidden input
+    ``stems``, ``FILE_PAGE_SIZE`` rows per page.
 
     Parameters
     ----------

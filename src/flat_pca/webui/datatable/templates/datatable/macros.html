@@ -26,36 +26,33 @@
 {%- endif %}
 {%- endmacro %}
 
-{% macro _sort_header(config, view, column) -%}
-  {% set current = view.state.sort_by == column.name %}
-  <button type="button" class="dt-sort" data-dt-sort="{{ column.name }}">
-    {{- column.header -}}
-    <span class="dt-sort-mark" aria-hidden="true">{% if current %}{{ "▼" if view.state.descending else "▲" }}{% endif %}</span>
-  </button>
-{%- endmacro %}
-
 {% macro _aria_sort(view, column) -%}
   {% if view.state.sort_by == column.name %} aria-sort="{{ 'descending' if view.state.descending else 'ascending' }}"{% endif %}
 {%- endmacro %}
 
+{#- The value filter of a column menu: a search, a list of values to check
+    with their counts, or lower and upper bounds. Typed inputs are preserved
+    across reloads (hx-preserve), so text typed while a reload is pending is
+    kept. -#}
 {% macro _filter(config, view, column, index) -%}
   {% set name = config.prefix ~ {"text": "q__", "choice": "eq__"}.get(column.filter, "") ~ column.name %}
-  <div class="dt-filter">
+  <div class="dt-menu-section dt-filter">
     {% if column.filter == "text" %}
-      <input type="search" id="{{ config.table_id }}-filter-q-{{ index }}" name="{{ name }}" value="{{ view.state.text.get(column.name, '') }}" placeholder="contains"
+      <input type="text" id="{{ config.table_id }}-filter-q-{{ index }}" name="{{ name }}" value="{{ view.state.text.get(column.name, '') }}" placeholder="Search"
              aria-label="{{ column.filter_name }}" data-dt-query hx-preserve>
     {% elif column.filter == "choice" %}
       {% set values = view.options.get(column.name, []) %}
-      {% set current = view.state.equals.get(column.name, "") %}
-      <select name="{{ name }}" aria-label="{{ column.filter_name }}" data-dt-query>
-        <option value="">(all)</option>
-        {% for value in values %}
-          <option value="{{ value }}" {% if value == current %}selected{% endif %}>{{ value }}</option>
+      {% set chosen = view.state.equals.get(column.name, ()) %}
+      {% set counts = view.counts.values.get(column.name, {}) %}
+      <fieldset class="dt-choices">
+        <legend>{{ column.filter_name }}</legend>
+        {% for value in values + (chosen|reject("in", values)|list) %}
+          <label class="dt-choice"><input type="checkbox" name="{{ name }}" value="{{ value }}" data-dt-query{% if value in chosen %} checked{% endif %}>
+            <span class="dt-choice-value">{{ value }}</span> <span class="dt-count">{{ counts.get(value, 0) }}</span></label>
+        {% else %}
+          <p class="dt-empty">No values</p>
         {% endfor %}
-        {% if current and current not in values %}
-          <option value="{{ current }}" selected>{{ current }}</option>
-        {% endif %}
-      </select>
+      </fieldset>
     {% else %}
       {% set input_type = "datetime-local" if column.filter == "datetime" else "number" %}
       <input type="{{ input_type }}" id="{{ config.table_id }}-filter-min-{{ index }}" name="{{ config.prefix }}min__{{ column.name }}" step="any"
@@ -66,8 +63,64 @@
   </div>
 {%- endmacro %}
 
-{#- One page of the table with its column filters, sort marks, and page
-    links, and (for a selectable table) the keys of every row matching the
+{#- The null filter of a column menu, with the column's null count. -#}
+{% macro _null_filter(config, view, column) -%}
+  {% set current = view.state.nulls.get(column.name, "") %}
+  <div class="dt-menu-section">
+    <fieldset class="dt-nulls">
+      <legend>Null values <span class="dt-count">{{ view.counts.nulls.get(column.name, 0) }}</span></legend>
+      {% for value, label in [("", "Any"), ("is_null", "Is null"), ("is_not_null", "Is not null")] %}
+        <label><input type="radio" name="{{ config.prefix }}null__{{ column.name }}" value="{{ value }}" data-dt-query{% if value == current %} checked{% endif %}> {{ label }}</label>
+      {% endfor %}
+    </fieldset>
+  </div>
+{%- endmacro %}
+
+{#- A column's menu, a popover opened from its header: sorting, the
+    filters, and copying the column name. datatable.js places it and keeps
+    it open across reloads. -#}
+{% macro _menu(config, view, column, menu_id, index) -%}
+  {% set current = view.state.sort_by == column.name %}
+  <div popover id="{{ menu_id }}" class="dt-menu" role="dialog" aria-label="{{ column.header }} menu" data-dt-menu="{{ column.name }}">
+    {% if column.sortable %}
+      <div class="dt-menu-section dt-sorts" role="group" aria-label="Sort">
+        <button type="button" data-dt-sort="{{ column.name }}" data-dt-order="asc" aria-pressed="{{ 'true' if current and not view.state.descending else 'false' }}"><span aria-hidden="true">▲</span> Asc</button>
+        <button type="button" data-dt-sort="{{ column.name }}" data-dt-order="desc" aria-pressed="{{ 'true' if current and view.state.descending else 'false' }}"><span aria-hidden="true">▼</span> Desc</button>
+        <button type="button" data-dt-sort="" data-dt-order="asc"{% if not current %} disabled{% endif %}>Clear sort</button>
+      </div>
+    {% endif %}
+    {% if column.filter %}
+      {{ _filter(config, view, column, index) }}
+      {{ _null_filter(config, view, column) }}
+    {% endif %}
+    <div class="dt-menu-section">
+      <button type="button" data-dt-copy="{{ column.name }}">Copy column name</button>
+    </div>
+  </div>
+{%- endmacro %}
+
+{#- A column header: the column name opening the column menu, the sort mark,
+    a mark while a filter uses the column, and the column type. -#}
+{% macro _header(config, view, column, index) -%}
+  {% set menu_id = config.table_id ~ "-menu-" ~ index %}
+  {% set current = view.state.sort_by == column.name %}
+  <div class="dt-head">
+    <button type="button" class="dt-column" popovertarget="{{ menu_id }}" aria-haspopup="dialog" data-dt-column="{{ column.name }}">
+      <span class="dt-label">{{ column.header }}</span>
+      <span class="dt-sort-mark" aria-hidden="true">{% if current %}{{ "▼" if view.state.descending else "▲" }}{% endif %}</span>
+      <span class="dt-menu-mark" aria-hidden="true">⋯</span>
+    </button>
+    {% if view.state.is_filtered(column.name) %}
+      <span class="dt-filter-mark" role="img" aria-label="Filtered" title="Filtered" data-dt-filtered><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M1.5 2h13l-5 6v5.5l-3-1.5V8z" fill="currentColor"/></svg></span>
+    {% endif %}
+  </div>
+  <span class="dt-type">{{ view.types[column.name] }}</span>
+  {{ _menu(config, view, column, menu_id, index) }}
+{%- endmacro %}
+
+{#- One page of the table with its column menus, sort and filter marks,
+    column types, and page links, and (for a selectable table) the keys of
+    every row matching the
     filters for the header checkbox.
     - config: TableConfig.
     - view: TableView from apply_state.
@@ -78,8 +131,7 @@
       selecting every matching row would pass it. -#}
 {% macro fragment(config, view, selected=[]) -%}
 {#- The query controls carry data-dt-query; datatable.js reloads the table
-    when they change. Typed filters are preserved across reloads so that
-    text typed while a reload is pending is kept. -#}
+    when they change. -#}
 <input type="hidden" name="{{ config.prefix }}sort" value="{{ view.state.sort_by or '' }}" data-dt-query>
 <input type="hidden" name="{{ config.prefix }}order" value="{{ 'desc' if view.state.descending else 'asc' }}" data-dt-query>
 <input type="hidden" name="{{ config.prefix }}page" value="{{ view.page.number }}" data-dt-query>
@@ -104,10 +156,7 @@
         <th class="dt-check"><input type="checkbox" data-dt-check-all aria-label="{{ config.select_all_label }}"{% if header_blocked %} disabled{% endif %}></th>
       {% endif %}
       {% for column in config.columns %}
-        <th{{ _aria_sort(view, column) }}>
-          {% if column.sortable %}{{ _sort_header(config, view, column) }}{% else %}{{ column.header }}{% endif %}
-          {% if column.filter %}{{ _filter(config, view, column, loop.index) }}{% endif %}
-        </th>
+        <th{{ _aria_sort(view, column) }}>{{ _header(config, view, column, loop.index) }}</th>
       {% endfor %}
     </tr>
   </thead>

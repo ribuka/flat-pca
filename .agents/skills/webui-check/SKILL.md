@@ -67,9 +67,12 @@ and get element references for `browser_click`, `browser_select_option`, and `br
 | Open the page | "No catalog has been built yet."; the file table shows 0 of 0; the sidebar shows catalog not built. |
 | Click "Update catalog" | The status shows `queued`/`running` and polls every second; the button is disabled. |
 | Wait (`browser_wait_for` text `succeeded`) | Status `succeeded`, 3 files; the file table reloads with `run-1`, `run-2`, `run-10`; the warnings list `run-10` (no metadata) and `ghost` (no file). |
-| Category filter `lot` (under the column name) | Options are `(all)`, `A`, `B` after the update; choosing `A` leaves only `run-1`. |
-| Numeric / datetime filters | e.g. `yield_pct lower` = 90 leaves only `run-1`. |
-| Click a column name, then again | The table sorts ascending (▲), then descending (▼). |
+| Column headers | Each shows the name, `⋯`, and the type below it (`str`, `cat`, `datetime[μs]`, `f64`, `i64`). |
+| Click `lot` (opens its column menu) | The menu shows Asc / Desc / Clear sort, the values `A 1`, `B 1`, "Null values 1", and Copy column name; checking `A` leaves only `run-1`, keeps the menu open, and marks the header with a funnel. Escape or a click outside closes it. |
+| `Is null` in the `lot` menu | Only `run-10` (no metadata) remains. |
+| Search in the `file` menu | `1 RUN` leaves `run-1` and `run-10`; the input keeps the focus. |
+| Numeric / datetime filters (in the menu) | e.g. `yield_pct lower` = 90 leaves only `run-1`. |
+| Asc / Desc in a column menu | The table sorts ascending (▲) or descending (▼) and the menu closes. |
 | Header checkbox of the file table | Checks / clears every row matching the filters, on all pages; with only some of them checked it shows the indeterminate state. |
 | Click a group heading (catalog / Files) | The group folds and unfolds. |
 | "Select" (below the table, right) | A green check icon (Material Symbols `check_circle`) and "Fit target: N files" appear left of the button; the sidebar's Fit target count updates. |

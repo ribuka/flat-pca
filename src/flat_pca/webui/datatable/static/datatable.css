@@ -18,6 +18,10 @@
   /* The header and about 12 rows; the header stays while the rows scroll. */
   --dt-max-height: 33.5rem;
   --dt-filter-max-width: 12rem;
+  --dt-mono-font: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --dt-menu-bg: #ffffff;
+  --dt-menu-shadow: 0 4px 16px rgb(0 0 0 / 0.15);
+  --dt-menu-max-width: 20rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -29,6 +33,8 @@
     --dt-row-hover-bg: #1c2128;
     --dt-accent: #4c9aff;
     --dt-accent-fg: #0d1117;
+    --dt-menu-bg: #1c2128;
+    --dt-menu-shadow: 0 4px 16px rgb(0 0 0 / 0.5);
   }
 }
 
@@ -40,6 +46,8 @@
   --dt-row-hover-bg: #1c2128;
   --dt-accent: #4c9aff;
   --dt-accent-fg: #0d1117;
+  --dt-menu-bg: #1c2128;
+  --dt-menu-shadow: 0 4px 16px rgb(0 0 0 / 0.5);
 }
 
 .dt-root {
@@ -93,7 +101,13 @@
   background: var(--dt-header-bg);
 }
 
-.dt-table .dt-sort {
+.dt-head {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.dt-table .dt-column {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -106,31 +120,139 @@
   cursor: pointer;
 }
 
-.dt-table .dt-sort:hover:not(:disabled) {
+.dt-table .dt-column:hover:not(:disabled) {
   color: var(--dt-fg);
   background: none;
 }
 
-.dt-sort-mark {
-  display: inline-block;
+.dt-sort-mark,
+.dt-filter-mark {
+  display: inline-flex;
   min-width: 0.75em;
   font-size: 0.75em;
   color: var(--dt-accent);
 }
 
-.dt-filter {
+.dt-menu-mark {
+  color: var(--dt-muted);
+  opacity: 0.6;
+}
+
+.dt-column:hover .dt-menu-mark,
+.dt-column:focus-visible .dt-menu-mark,
+.dt-column[aria-expanded="true"] .dt-menu-mark {
+  opacity: 1;
+}
+
+.dt-type {
+  display: block;
+  font-family: var(--dt-mono-font);
+  font-size: 0.75em;
+  font-weight: 400;
+  color: var(--dt-muted);
+}
+
+/* A column menu: a popover in the top layer, placed by datatable.js. */
+.dt-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  box-sizing: border-box;
+  min-width: 11rem;
+  max-width: min(var(--dt-menu-max-width), calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  padding: 0.25rem 0;
+  border: 1px solid var(--dt-border);
+  border-radius: var(--dt-radius);
+  color: var(--dt-fg);
+  background: var(--dt-menu-bg);
+  box-shadow: var(--dt-menu-shadow);
+  font-family: var(--dt-font);
+  font-size: var(--dt-font-size);
+  font-weight: 400;
+  text-align: left;
+  white-space: normal;
+}
+
+.dt-menu:not([data-dt-placed]) {
+  visibility: hidden;
+}
+
+.dt-menu-section {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  margin-top: 0.35rem;
-  font-weight: 400;
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  border: none;
+  border-top: 1px solid var(--dt-border);
 }
 
-.dt-filter input:not([type="checkbox"]),
-.dt-filter select {
+.dt-menu-section:first-child {
+  border-top: none;
+}
+
+.dt-menu legend {
+  margin-bottom: 0.15rem;
+  padding: 0;
+  color: var(--dt-muted);
+}
+
+.dt-sorts {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.dt-sorts button[aria-pressed="true"] {
+  border-color: var(--dt-accent);
+  color: var(--dt-accent);
+}
+
+.dt-filter input:not([type="checkbox"], [type="radio"]) {
   min-height: 1.75rem;
   max-width: var(--dt-filter-max-width);
   padding: 0.15rem 0.4rem;
+}
+
+.dt-choices,
+.dt-nulls {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.dt-choices {
+  max-height: 14rem;
+  overflow: auto;
+}
+
+.dt-nulls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dt-choice,
+.dt-nulls label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.dt-choice-value {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.dt-count,
+.dt-empty {
+  color: var(--dt-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dt-empty {
+  margin: 0;
 }
 
 .dt-table tbody tr:hover {

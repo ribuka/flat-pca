@@ -19,15 +19,16 @@ class ColumnConfig:
     label : str | None, default None
         Header text; the column name if ``None``.
     filter : FilterKind | None, default None
-        Filter under the header: ``"text"`` (case-insensitive substring),
-        ``"choice"`` (one value from a drop-down), ``"number"`` or
-        ``"datetime"`` (inclusive lower and upper bounds), or ``None`` for
-        no filter.
+        Filter in the column menu: ``"text"`` (a search for words in any
+        order and case), ``"choice"`` (any of the values checked in a list),
+        ``"number"`` or ``"datetime"`` (inclusive lower and upper bounds), or
+        ``None`` for no filter. A column with a filter also has a null
+        filter (``is_null`` / ``is_not_null``).
     filter_label : str | None, default None
         Accessible name of a ``"text"`` or ``"choice"`` filter; ``"Filter by
         <label>"`` if ``None``.
     sortable : bool, default True
-        Whether clicking the header sorts by the column.
+        Whether the column menu sorts by the column.
     frame_order : bool, default False
         Whether the frame's row order is the column's ascending order, as
         for a key column given in natural order. Sorting by the column then

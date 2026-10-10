@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 
 import pytest
+from datatable_menu import close_column_menu, open_column_menu
 from playwright.sync_api import Locator, Page, expect
 
 from flat_pca.webui.datatable import TableConfig
@@ -39,6 +40,13 @@ def _check(page: Page, stem: str) -> Locator:
     return page.get_by_label(f"Select {stem}", exact=True)
 
 
+def _search(page: Page, text: str) -> None:
+    """Search the file names from the file column's menu, then close it."""
+    menu = open_column_menu(page.locator("#files"), "file")
+    menu.get_by_label("Filter by file name").fill(text)
+    close_column_menu(page, menu)
+
+
 def _limit_notice(page: Page) -> Locator:
     """Return the notice that the selection limit is reached."""
     return page.locator("#files [data-dt-limit]")
@@ -68,7 +76,7 @@ def test_limit_disables_unselected_rows_across_pages_and_filters(
     expect(_check(page, "run-10")).to_be_disabled()
     expect(_limit_notice(page)).to_be_visible()
 
-    page.get_by_label("Filter by file name").fill("run-1")
+    _search(page, "run-1")
     expect(stems).to_have_text(["run-1", "run-10"])
     expect(_check(page, "run-1")).to_be_checked()
     expect(_check(page, "run-1")).to_be_enabled()
@@ -82,7 +90,7 @@ def test_limit_disables_unselected_rows_across_pages_and_filters(
     _check(page, "run-10").check()
     expect(_check(page, "run-1")).to_be_disabled()
 
-    page.locator('[data-dt-sort="stem"]').click()
+    open_column_menu(page.locator("#files"), "file").get_by_role("button", name="Desc").click()
     expect(stems).to_have_text(["run-10", "run-1"])
     expect(_check(page, "run-1")).to_be_disabled()
     expect(_check(page, "run-10")).to_be_checked()
@@ -105,7 +113,7 @@ def test_header_checkbox_selects_matching_rows_within_the_limit(
     )
     header = page.get_by_label("Select all filtered files")
 
-    page.get_by_label("Filter by file name").fill("run-1")
+    _search(page, "run-1")
     expect(_file_stems(page)).to_have_text(["run-1", "run-10"])
     expect(header).to_be_enabled()
 
@@ -118,12 +126,12 @@ def test_header_checkbox_selects_matching_rows_within_the_limit(
         "max": MAX_SELECTED,
     }
 
-    page.get_by_label("Filter by file name").fill("run-2")
+    _search(page, "run-2")
     expect(_file_stems(page)).to_have_text(["run-2"])
     expect(header).to_be_disabled()
     expect(_check(page, "run-2")).to_be_disabled()
 
-    page.get_by_label("Filter by file name").fill("run-1")
+    _search(page, "run-1")
     expect(_file_stems(page)).to_have_text(["run-1", "run-10"])
     expect(header).to_be_checked()
     expect(header).to_be_enabled()

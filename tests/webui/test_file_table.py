@@ -16,7 +16,7 @@ def test_file_frame_types_every_column(cataloged: Database) -> None:
     frame = file_frame(cataloged)
 
     assert frame["stem"].to_list() == ["run-1", "run-2", "run-10"]
-    assert frame.schema["lot"] == pl.String
+    assert frame.schema["lot"] == pl.Categorical
     assert frame.schema["yield_pct"] == pl.Float64
     assert frame.schema["date"] == pl.Datetime("us")
     assert frame.schema["n_rows"] == pl.Int64
@@ -53,6 +53,11 @@ def test_file_table_config_filters_metadata_but_not_statistics(settings: Setting
         ({"files.order": ["desc"]}, ["run-10", "run-2", "run-1"]),
         ({"files.q__stem": ["RUN-1"]}, ["run-1", "run-10"]),
         ({"files.eq__lot": ["B"]}, ["run-2"]),
+        ({"files.eq__lot": ["B", "A"]}, ["run-1", "run-2"]),
+        ({"files.q__stem": ["1 RUN"]}, ["run-1", "run-10"]),
+        ({"files.null__yield_pct": ["is_null"]}, ["run-10"]),
+        ({"files.null__lot": ["is_null"]}, ["run-10"]),
+        ({"files.null__lot": ["is_not_null"], "files.order": ["desc"]}, ["run-2", "run-1"]),
         ({"files.min__yield_pct": ["90"]}, ["run-1"]),
         ({"files.min__date": ["2026-02-01T00:00"]}, ["run-2"]),
         ({"files.sort": ["yield_pct"]}, ["run-2", "run-1", "run-10"]),
