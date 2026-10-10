@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import re
@@ -12,6 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from flat_pca.webui.app import create_app
+from flat_pca.webui.database import Database
+from flat_pca.webui.routes import catalog as catalog_routes
 from flat_pca.webui.services import file_table
 from flat_pca.webui.services.runs import latest_run
 from flat_pca.webui.settings import Settings
@@ -300,6 +303,32 @@ def test_file_export_writes_the_selected_files_as_parquet(cataloged_client: Test
     assert rows["stem"].to_list() == ["run-10", "run-1"]
     assert rows.schema["lot"] == pl.Categorical
     assert "path" not in rows.columns
+
+
+def test_file_export_reads_the_catalog_off_the_event_loop(
+    cataloged_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The catalog is read in a worker thread, so other requests are answered meanwhile."""
+    loops: list[bool] = []
+    read = catalog_routes.file_frame
+
+    def file_frame(database: Database) -> pl.DataFrame:
+        """Note whether an event loop runs in this thread, then read the files."""
+        try:
+            asyncio.get_running_loop()
+            loops.append(True)
+        except RuntimeError:
+            loops.append(False)
+        return read(database)
+
+    monkeypatch.setattr(catalog_routes, "file_frame", file_frame)
+
+    response = cataloged_client.post(
+        "/catalog/files/export", data={"files.export_format": "csv", "files.export_rows": "filtered"}
+    )
+
+    assert response.status_code == 200
+    assert loops == [False]
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, Response
 
 from ..datatable import apply_state, export_file, parse_export, parse_state
@@ -193,7 +194,11 @@ async def export_files(request: Request, workspace: WorkspaceDependency) -> Resp
         export = parse_export(parameters, config)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
-    file = export_file(file_frame(workspace.database), export, config, datetime.now().astimezone())
+    # Reading the catalog and writing the file block, so they run in a
+    # worker thread and other requests are answered meanwhile.
+    file = await run_in_threadpool(
+        lambda: export_file(file_frame(workspace.database), export, config, datetime.now().astimezone())
+    )
     return Response(file.content, media_type=file.media_type, headers=file.headers)
 
 
