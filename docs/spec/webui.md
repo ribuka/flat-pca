@@ -219,7 +219,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - サイドバーの表示ファイル（`/sidebar/selection`。どの画面でも常に表示する）には、件数（`n / max`）、選んだファイル名の一覧（`natural_keys`の順。読み取り専用）、ポップアップを開くボタン（Material Symbols の`open_in_new`、`aria-label`は`Choose shown files`）を置く。選択肢（表示する run の transform 対象。`samples.parquet`の`stem`）がなければ、ボタンを置かずにその旨を表示する。fit・transform が終わったら（`fit-updated`・`transform-updated`イベント）取得し直す。
   - ポップアップは`base.html`の`<dialog id="view-files-dialog">`（`.layout`の外）を`showModal()`で開く。中身（`/sidebar/selection/files/dialog`、`partials/view_file_dialog.html`）は開くたびにサーバーから取得し、開いた時点の選択から始める（キャンセルした途中の選択は残さない）。閉じたダイアログは中身を捨てる（「Select」の要求中は、その応答を処理し終えるまで残す）。
     - 表は`webui/datatable/`の部品で、`services/view_file_table.py`が設定と行を作る。列・フィルタ・ソートはデータ選択の表（`file_table_config`）と同じで、表のidは`view-files`（transform 画面では本体の表`files`と同じページに載るため）、表の断片は`/sidebar/selection/files/table`（`parse_state`→`apply_state`→`fragment`）とする。行は表示する run の transform 対象を`natural_keys`の順に並べたもの（`file_frame`を対象ファイルに絞る）で、catalogにないファイルもメタデータ・件数を空欄にして出す。category列の選択肢はデータ選択の表と同じ（`category_options`）で、値ごとの件数と null の件数はこの表の行で数える。列のメニューはダイアログの上に表示する。
-    - 上限は`ui.explore_max_files`件（既定 20。datatable の`max_selected`）で、上限に達したら未選択の行のチェックボックスを無効にしてその旨を表示する。ダイアログの下に選択の件数（`n / max`）を表示し、選択の変更（`datatable:selection-change`）に合わせて更新する。
+    - 上限は`ui.explore_max_files`件（既定 20。datatable の`max_selected`）で、上限に達したら未選択の行のチェックボックスを無効にしてその旨を表示する。選択の件数は、表の下に部品が`n / max selected`の形で表示する（データ選択と同じ表の下の表示）。
     - 「Select」で、表の選択（hidden input`#view-files-selection`のJSON配列。ダイアログのフォーム`#view-files-form`に属する）と開いたときの run を`POST /sidebar/selection/files`に送って保存し、ダイアログを閉じる。サーバーは不正な JSON を 400 とし、選択肢にないファイルと上限を超えた分（選択肢の順で後ろのもの）を捨てる。
     - Cancel ボタン・Esc・閉じるボタン（Material Symbols の`close`）は保存せずに閉じる。
   - 表示する run を変えると、表示ファイルの選択をすべて解除する。
@@ -252,8 +252,11 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
     - 値のチェックや null の扱いの変更はすぐに、検索や下限・上限の入力は 300 ms 待ってから表を読み直す。読み直してもメニューは開いたまま、フォーカスと入力位置も保つ。
   - 表は`webui/datatable/`の部品（表のid`files`）で、`services/file_table.py`がその設定と行（polarsの表）を作る。
   - ソート・フィルタ・ページングはサーバー側（`/catalog/files`の`files.sort`・`files.order`・`files.page`・各フィルタ`files.q__stem`・`files.eq__<列>`（値ごとに繰り返す。`?files.eq__lot=A&files.eq__lot=B`。`is_in`で絞り込む）・`files.min__<列>`・`files.max__<列>`・`files.null__<列>`（`is_null`・`is_not_null`）のクエリ）で行う。ソートやフィルタを変えると1ページ目に戻す。表の表示とヘッダのチェックボックスの対象（フィルタに合う全行）は、同じ絞り込みの関数（部品の`filter_expression`）を通す。
-  - 表はヘッダと12行ほどの高さを上限とし、はみ出す行は表の中でスクロールする（ヘッダは固定）。1000行ごとにページを分け、表の下にページの移動と「a–b of N」を表示する。
+  - 表はヘッダと12行ほどの高さを上限とし、はみ出す行は表の中でスクロールする（ヘッダは固定）。横にスクロールしても、チェックボックスの列とファイル名の列は左に固定する（`position: sticky`。固定する列は選べない）。
+  - 1000行ごとにページを分ける（1ページの行数は変えられない）。表の下に、「N rows, M columns」（今のフィルタに合う行数と表示している列数）、選択数（「k selected」。上限`max_selected`のある表では「k / max selected」）と選択の解除（Clear。表示していないページやフィルタ外の行も含めて選択をすべて解除する）、「a–b of N」、ページの移動を表示する。ページの移動は、最初・前・次・最後のページへのボタン（`First page`・`Previous page`・`Next page`・`Last page`）と、ページ番号の入力欄（Enter か入力欄を離れたときにそのページへ移る。1 より小さい・最後より大きい番号は端のページにし、空や不正な値は今のページに戻す）で、ページが1つのときは「a–b of N」だけを出す。
   - 選択はページやフィルタをまたいで保持する（表の外の1つのhiddenのinput`#files-selection`にJSON配列で持つ）。ヘッダのチェックボックスは、表示していないページも含めて今のフィルタに合う全行を対象に選択・解除し、その状態（チェック・一部・なし）を表示する。
+  - 行のどこをクリックしても、その行のチェックボックスを切り替える（チェックボックスそのもののクリックは二重に切り替えない）。行の中のリンクや入力欄などの操作できる要素のクリック、テキストをドラッグして選択したとき、チェックボックスが無効の行（選択を変えられない表の全行と、上限に達したときの未選択の行）のクリックでは切り替えない。切り替えられる行はカーソルを指の形にし、選択した行には背景色を付ける。
+  - 行またはチェックボックスを Shift + クリックすると、直前にクリックした行からその行までの、今のページに表示している行をまとめて選択・解除する（クリックした行の新しい状態に合わせる）。直前にクリックした行が今のページにない（ページやフィルタを変えた）ときは、クリックした行だけを切り替える。Shift + クリックではテキストを選択しない。上限`max_selected`のある表で、範囲を足すと上限を超えるときは範囲ごと選ばない（何も変えず、直前にクリックした行を範囲の始まりのまま残す）。選べるかどうかは、行・範囲・ヘッダのチェックボックス・Clear のどれも部品の同じ関数（`datatable.js`の`canChange`）で判定する。
   - 表の下の`Select`で、全ページの選択をまとめて保存する。選択はJSON配列の1つのフォームフィールドとして送り、フォームのフィールド数の上限（Starletteの既定で1000）に掛からないようにする。
 - 「Update catalog」でcatalogジョブを起動する。
 - 選択したファイル集合を次の画面へ渡す。

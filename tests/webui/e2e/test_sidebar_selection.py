@@ -60,7 +60,7 @@ def test_files_chosen_in_the_dialog_follow_every_screen_and_reload(
     expect(rows).to_have_count(2)
     expect(rows.first).to_have_attribute("data-dt-key", "s-11")
     dialog.get_by_label("Select s-10", exact=True).check()
-    expect(dialog.locator("[data-view-dialog-count]")).to_have_text("1 / 20")
+    expect(dialog.locator("[data-dt-selected-count]")).to_have_text("1 / 20 selected")
     mark_page(page)
     dialog.get_by_role("button", name="Select", exact=True).click()
 
@@ -103,7 +103,7 @@ def test_closing_without_select_keeps_the_choice(page: Page, fitted_server_url: 
         dialog = open_file_dialog(page)
         expect(dialog.get_by_label("Select s-03", exact=True)).to_be_checked()
         expect(dialog.get_by_label("Select s-04", exact=True)).not_to_be_checked()
-        expect(dialog.locator("[data-view-dialog-count]")).to_have_text("1 / 20")
+        expect(dialog.locator("[data-dt-selected-count]")).to_have_text("1 / 20 selected")
         dialog.get_by_label("Select s-03", exact=True).uncheck()
         dialog.get_by_label("Select s-04", exact=True).check()
 
@@ -127,7 +127,7 @@ def test_the_dialog_stops_at_the_limit(page: Page, one_file_server_url: str) -> 
 
     expect(notice).to_be_visible()
     expect(dialog.get_by_label("Select s-02", exact=True)).to_be_disabled()
-    expect(dialog.locator("[data-view-dialog-count]")).to_have_text("1 / 1")
+    expect(dialog.locator("[data-dt-selected-count]")).to_have_text("1 / 1 selected")
     mark_page(page)
     dialog.get_by_role("button", name="Select", exact=True).click()
     wait_for_view_refresh(page)

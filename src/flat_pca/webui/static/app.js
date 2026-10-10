@@ -401,14 +401,6 @@ document.addEventListener("click", (event) => {
   }
 });
 
-// The dialog's count follows the selection of its table.
-document.addEventListener("datatable:selection-change", (event) => {
-  const count = event.target.closest("dialog")?.querySelector("[data-view-dialog-count]");
-  if (count) {
-    count.textContent = `${event.detail.keys.length} / ${event.detail.max}`;
-  }
-});
-
 // Adds a clicked file to the sidebar's shown files, then refreshes the page
 // with `shownStems` in the point table of the figure. The request names the
 // run of the figure, so a figure drawn before the sidebar's run changed adds

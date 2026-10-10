@@ -7,10 +7,14 @@
   --dt-fg: #1f2328;
   --dt-muted: #5f6b7a;
   --dt-border: #d8dee4;
+  --dt-bg: #ffffff;
   --dt-header-bg: #f8fafc;
   --dt-row-hover-bg: #f8fafc;
+  --dt-row-selected-bg: #e8f0fe;
+  /* Width of the checkbox column, which is also where the pinned first
+     column starts. */
+  --dt-check-width: 2.25rem;
   --dt-accent: #1a73e8;
-  --dt-accent-fg: #ffffff;
   --dt-radius: 8px;
   --dt-font: inherit;
   --dt-font-size: 0.875rem;
@@ -29,10 +33,11 @@
     --dt-fg: #e6edf3;
     --dt-muted: #9aa5b1;
     --dt-border: #30363d;
+    --dt-bg: #0d1117;
     --dt-header-bg: #161b22;
     --dt-row-hover-bg: #1c2128;
+    --dt-row-selected-bg: #1b2a40;
     --dt-accent: #4c9aff;
-    --dt-accent-fg: #0d1117;
     --dt-menu-bg: #1c2128;
     --dt-menu-shadow: 0 4px 16px rgb(0 0 0 / 0.5);
   }
@@ -42,10 +47,11 @@
   --dt-fg: #e6edf3;
   --dt-muted: #9aa5b1;
   --dt-border: #30363d;
+  --dt-bg: #0d1117;
   --dt-header-bg: #161b22;
   --dt-row-hover-bg: #1c2128;
+  --dt-row-selected-bg: #1b2a40;
   --dt-accent: #4c9aff;
-  --dt-accent-fg: #0d1117;
   --dt-menu-bg: #1c2128;
   --dt-menu-shadow: 0 4px 16px rgb(0 0 0 / 0.5);
 }
@@ -57,7 +63,8 @@
 
 .dt-loading,
 .dt-page-range,
-.dt-gap {
+.dt-shape,
+.dt-selected-count {
   color: var(--dt-muted);
 }
 
@@ -94,7 +101,7 @@
 .dt-table thead th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
   vertical-align: top;
   font-weight: 600;
   color: var(--dt-muted);
@@ -255,13 +262,53 @@
   margin: 0;
 }
 
-.dt-table tbody tr:hover {
+/* Cells have the row's background, so that the pinned cells cover what
+   scrolls under them. */
+.dt-table tbody .dt-pinned {
+  background: var(--dt-bg);
+}
+
+.dt-table tbody tr:hover > td {
   background: var(--dt-row-hover-bg);
 }
 
+.dt-table tbody tr:has(> .dt-check > [data-dt-row-check]:checked) > td {
+  background: var(--dt-row-selected-bg);
+}
+
+/* A click anywhere on a row whose checkbox works selects or clears it. */
+.dt-table tbody tr:has(> .dt-check > [data-dt-row-check]:enabled) {
+  cursor: pointer;
+}
+
 .dt-table .dt-check {
-  width: 1px;
-  padding-right: 0.25rem;
+  box-sizing: border-box;
+  width: var(--dt-check-width);
+  min-width: var(--dt-check-width);
+  max-width: var(--dt-check-width);
+  padding-right: 0;
+  padding-left: 0;
+  text-align: center;
+}
+
+/* The checkbox column and the first column stay at the left while the
+   table scrolls sideways; the header cells stay above them. */
+.dt-table .dt-pinned {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+.dt-root[data-dt-selection] .dt-table .dt-pinned:not(.dt-check) {
+  left: var(--dt-check-width);
+}
+
+.dt-table .dt-pinned:not(.dt-check) {
+  box-shadow: inset -1px 0 0 var(--dt-border);
+}
+
+.dt-table thead th.dt-pinned {
+  z-index: 3;
 }
 
 /* A locked table: the selection is shown grayed out and not editable. */
@@ -269,16 +316,25 @@
   color: var(--dt-muted);
 }
 
-.dt-pager {
+.dt-footer {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: 0.35rem 1.25rem;
   align-items: center;
   margin-top: 0.5rem;
   font-size: var(--dt-font-size);
 }
 
-.dt-pager button {
+.dt-selection-state,
+.dt-pager,
+.dt-page-jump {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.dt-footer button {
   padding: 0.2rem 0.6rem;
 }
 
@@ -286,10 +342,7 @@
   margin-right: 0.5rem;
 }
 
-.dt-pager .dt-page-current {
-  border-color: var(--dt-accent);
-  color: var(--dt-accent-fg);
-  background: var(--dt-accent);
-  opacity: 1;
-  cursor: default;
+.dt-page-input {
+  width: 4.5em;
+  padding: 0.15rem 0.3rem;
 }

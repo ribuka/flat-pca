@@ -71,7 +71,7 @@ def test_limit_disables_unselected_rows_across_pages_and_filters(
     expect(_limit_notice(page)).to_contain_text("The limit of 2 selected rows is reached")
     expect(_check(page, "run-1")).to_be_enabled()
 
-    page.get_by_role("button", name="Next").click()
+    page.get_by_role("button", name="Next page").click()
     expect(stems).to_have_text(["run-10"])
     expect(_check(page, "run-10")).to_be_disabled()
     expect(_limit_notice(page)).to_be_visible()
@@ -140,3 +140,41 @@ def test_header_checkbox_selects_matching_rows_within_the_limit(
     expect(_check(page, "run-10")).not_to_be_checked()
     expect(_limit_notice(page)).to_be_hidden()
     assert page.evaluate("window.dtDetails.at(-1)") == {"keys": [], "max": MAX_SELECTED}
+
+
+def test_row_clicks_and_ranges_keep_within_the_limit(
+    page: Page, cataloged_server_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A range passing the limit selects nothing; a row disabled at the limit ignores clicks."""
+
+    def one_page(columns: Mapping[str, MetadataColumnSettings]) -> TableConfig:
+        """Return the limited file table settings with every file on one page."""
+        return replace(file_table_config(columns), page_size=3, max_selected=MAX_SELECTED)
+
+    monkeypatch.setattr(catalog, "file_table_config", one_page)
+    page.goto(cataloged_server_url)
+    expect(_file_stems(page)).to_have_text(["run-1", "run-2", "run-10"])
+    count = page.locator("[data-dt-selected-count]")
+    expect(count).to_have_text("0 / 2 selected")
+
+    page.locator('#files tr[data-dt-key="run-1"] td').nth(1).click()
+    expect(count).to_have_text("1 / 2 selected")
+    page.locator('#files tr[data-dt-key="run-10"] td').nth(1).click(modifiers=["Shift"])
+    expect(_check(page, "run-2")).not_to_be_checked()
+    expect(_check(page, "run-10")).not_to_be_checked()
+    expect(count).to_have_text("1 / 2 selected")
+
+    page.locator('#files tr[data-dt-key="run-2"] td').nth(1).click()
+    expect(count).to_have_text("2 / 2 selected")
+    expect(_limit_notice(page)).to_be_visible()
+    unselected = page.locator('#files tr[data-dt-key="run-10"]')
+    expect(unselected).not_to_have_css("cursor", "pointer")
+    unselected.locator("td").nth(1).click()
+    unselected.locator("td").nth(1).click(modifiers=["Shift"])
+    expect(_check(page, "run-10")).not_to_be_checked()
+    expect(count).to_have_text("2 / 2 selected")
+
+    page.get_by_role("button", name="Clear").click()
+    expect(count).to_have_text("0 / 2 selected")
+    expect(_limit_notice(page)).to_be_hidden()
+    expect(_check(page, "run-10")).to_be_enabled()

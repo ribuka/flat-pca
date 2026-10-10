@@ -5,10 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import ceil
 
-# Page numbers shown on each side of the current page, besides the first
-# and the last page.
-NEIGHBOR_PAGES = 2
-
 
 @dataclass(frozen=True)
 class Page:
@@ -55,34 +51,6 @@ class Page:
             ``end - start + 1``, or 0 for an empty page.
         """
         return self.end - self.start + 1 if self.start else 0
-
-    @property
-    def links(self) -> list[int | None]:
-        """Return the page numbers to link, with ``None`` for a gap.
-
-        Returns
-        -------
-        list[int | None]
-            The first and the last page and the pages near the current one,
-            in ascending order; ``None`` stands for omitted pages.
-        """
-        shown = sorted(
-            {1, self.count}
-            | set(
-                range(
-                    max(1, self.number - NEIGHBOR_PAGES),
-                    min(self.count, self.number + NEIGHBOR_PAGES) + 1,
-                )
-            )
-        )
-        links: list[int | None] = []
-        previous = 0
-        for number in shown:
-            if number - previous > 1:
-                links.append(None)
-            links.append(number)
-            previous = number
-        return links
 
 
 def paginate(total: int, number: int, size: int) -> Page:
