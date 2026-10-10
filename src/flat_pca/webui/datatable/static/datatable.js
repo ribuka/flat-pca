@@ -245,8 +245,13 @@
 
   // The page number input under the table moves to the page typed, kept
   // between the first and the last, on Enter or when it loses the focus.
-  // Anything else puts the current page back.
+  // Anything else puts the current page back. The input notes the page it
+  // asked for, so that the `change` it fires when the reload removes it
+  // (after Enter) does not ask again.
   function goToTypedPage(input) {
+    if (!input.isConnected) {
+      return;
+    }
     const current = Number(input.dataset.dtPageCurrent);
     const typed = Math.round(Number(input.value));
     if (input.value.trim() === "" || !Number.isFinite(typed)) {
@@ -256,6 +261,7 @@
     const number = Math.min(Math.max(typed, 1), Number(input.max));
     input.value = number;
     if (number !== current) {
+      input.dataset.dtPageCurrent = String(number);
       reload(tableOf(input), { page: String(number) });
     }
   }

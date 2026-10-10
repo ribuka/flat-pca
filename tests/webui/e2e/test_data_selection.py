@@ -281,6 +281,17 @@ def test_page_controls_move_to_first_last_and_typed_pages(
     expect(stems).to_have_text(["run-10"])
     expect(number).to_have_value("3")
 
+    # A page typed right after moving is not undone by the input replaced
+    # in the move (its change event must not ask for the old page again).
+    requests: list[str] = []
+    page.on("request", lambda request: requests.append(request.url))
+    for typed, stem in (("1", "run-1"), ("2", "run-2"), ("3", "run-10")) * 2:
+        number.fill(typed)
+        number.press("Enter")
+        expect(stems).to_have_text([stem])
+        expect(number).to_have_value(typed)
+    assert len([url for url in requests if "/catalog/files" in url]) == 6
+
     number.fill("")
     number.press("Tab")
     expect(number).to_have_value("3")
