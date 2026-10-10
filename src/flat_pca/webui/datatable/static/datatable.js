@@ -584,8 +584,9 @@
   }
 
   // Sizes the resized columns, and enables "Reset column widths" while
-  // there are any. The rule keeps `--dt-col-min-width`, should the page
-  // raise it after a width was remembered.
+  // there are any. A remembered width is kept within the current minimum
+  // (`minimumWidth`), should the page have raised it, or the padding, since;
+  // the rule keeps `--dt-col-min-width` for changes after this.
   function syncWidths(root) {
     const widths = storedWidths(root);
     const sheetId = `${root.id}-dt-column-widths`;
@@ -597,10 +598,10 @@
     }
     const cells = [...root.querySelectorAll(".dt-table thead tr > th")];
     sheet.textContent = cells
-      .map((cell, index) => [cell.querySelector("[data-dt-resize]")?.dataset.dtResize, index + 1])
-      .filter(([name]) => name !== undefined && Object.hasOwn(widths, name))
-      .map(([name, child]) => `#${CSS.escape(root.id)} .dt-table thead tr > th:nth-child(${child})`
-        + ` { width: max(var(--dt-col-min-width), ${widths[name]}px); }`)
+      .map((cell, index) => [cell, cell.querySelector("[data-dt-resize]")?.dataset.dtResize, index + 1])
+      .filter(([, name]) => name !== undefined && Object.hasOwn(widths, name))
+      .map(([cell, name, child]) => `#${CSS.escape(root.id)} .dt-table thead tr > th:nth-child(${child})`
+        + ` { width: max(var(--dt-col-min-width), ${Math.max(minimumWidth(cell), widths[name])}px); }`)
       .join("\n");
     for (const handle of root.querySelectorAll("[data-dt-resize]")) {
       const width = Math.round(handle.parentElement.getBoundingClientRect().width);

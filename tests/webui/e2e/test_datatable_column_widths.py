@@ -170,6 +170,26 @@ def test_columns_never_get_narrower_than_the_minimum(
     )
 
 
+def test_remembered_widths_keep_the_histogram_and_a_wider_padding_in_view(
+    page: Page, cataloged_server_url: str
+) -> None:
+    """A width remembered at the minimum widens to the histogram and padding the page has now."""
+    _open(page, cataloged_server_url)
+    _drag(page, "n_rows", -1000)
+    histogram = _css_pixels(page, "var(--dt-histogram-width)")
+    assert _header_width(page, "n_rows") < histogram + 64
+
+    page.add_init_script(
+        "document.addEventListener('DOMContentLoaded', () => {"
+        " const style = document.createElement('style');"
+        " style.textContent = '#files { --dt-cell-padding: 0.35rem 32px; }';"
+        " document.head.append(style); });"
+    )
+    _open(page, cataloged_server_url)
+
+    assert _header_width(page, "n_rows") == pytest.approx(histogram + 64, abs=1)
+
+
 def test_double_click_fits_the_column_to_its_header_and_shown_values(
     page: Page, cataloged_server_url: str
 ) -> None:
