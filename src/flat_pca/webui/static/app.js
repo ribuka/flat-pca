@@ -166,14 +166,83 @@ document.addEventListener("change", (event) => {
   }
 });
 
+// A GET form loads the next page of the same screen, which the browser shows
+// from the top. Its submission notes the scroll position here, and the next
+// page of that screen scrolls back to it (see restoreKeptScroll).
+const KEPT_SCROLL_KEY = "flat-pca:scroll";
+// How long the loaded page keeps scrolling back while it grows.
+const KEPT_SCROLL_WAIT_MS = 5000;
+
+function keepScroll(form) {
+  try {
+    sessionStorage.setItem(KEPT_SCROLL_KEY, JSON.stringify({ path: new URL(form.action).pathname, y: window.scrollY }));
+  } catch {
+    // Without storage the next page starts from the top.
+  }
+}
+
+// Removes the noted scroll position and returns it if it was noted for this
+// screen, else null.
+function takeKeptScroll() {
+  try {
+    const kept = JSON.parse(sessionStorage.getItem(KEPT_SCROLL_KEY));
+    sessionStorage.removeItem(KEPT_SCROLL_KEY);
+    return kept?.path === window.location.pathname ? kept.y : null;
+  } catch {
+    return null;
+  }
+}
+
+// Scrolls back to the noted position. The figures and tables are drawn after
+// the page loads, so the page may be too short at first: it scrolls again
+// whenever the page grows, until it reaches the position, the user scrolls or
+// presses a key, or a few seconds pass.
+function restoreKeptScroll() {
+  const y = takeKeptScroll();
+  if (y === null) {
+    return;
+  }
+  const inputs = ["wheel", "touchstart", "pointerdown", "keydown"];
+  const observer = new ResizeObserver(scroll);
+  const timer = setTimeout(finish, KEPT_SCROLL_WAIT_MS);
+
+  function finish() {
+    observer.disconnect();
+    clearTimeout(timer);
+    for (const type of inputs) {
+      window.removeEventListener(type, finish, true);
+    }
+  }
+
+  function scroll() {
+    window.scrollTo(0, y);
+    if (window.scrollY >= y - 1) {
+      finish();
+    }
+  }
+
+  for (const type of inputs) {
+    window.addEventListener(type, finish, { capture: true, passive: true });
+  }
+  observer.observe(document.body);
+  scroll();
+}
+
+restoreKeptScroll();
+
 // While the next page loads, the overlay covers the page. Cancelling stops
 // the load and resets the form to the shown conditions, which are its
 // defaults. The server still finishes the computation.
 document.addEventListener("submit", (event) => {
   const form = event.target.closest("form[data-auto-submit]");
   if (form) {
+    // A submission stopped by another listener loads no page.
+    if (!event.defaultPrevented) {
+      keepScroll(form);
+    }
     busyOverlay.start(() => {
       window.stop();
+      takeKeptScroll();
       form.reset();
     });
   }
