@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 
 import pytest
-from datatable_menu import close_column_menu, open_column_menu
+from datatable_menu import open_column_menu
 from playwright.sync_api import Locator, Page, expect
 
 from flat_pca.webui.datatable import TableConfig
@@ -41,10 +41,8 @@ def _check(page: Page, stem: str) -> Locator:
 
 
 def _search(page: Page, text: str) -> None:
-    """Search the file names from the file column's menu, then close it."""
-    menu = open_column_menu(page.locator("#files"), "file")
-    menu.get_by_label("Filter by file name").fill(text)
-    close_column_menu(page, menu)
+    """Search the file names from the search box above the table."""
+    page.locator("#files").get_by_role("searchbox", name="Search").fill(text)
 
 
 def _limit_notice(page: Page) -> Locator:

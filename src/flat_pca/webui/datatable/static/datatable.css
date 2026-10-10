@@ -26,6 +26,8 @@
   --dt-menu-bg: #ffffff;
   --dt-menu-shadow: 0 4px 16px rgb(0 0 0 / 0.15);
   --dt-menu-max-width: 20rem;
+  --dt-search-width: 16rem;
+  --dt-chip-bg: #eef2f7;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -40,6 +42,7 @@
     --dt-accent: #4c9aff;
     --dt-menu-bg: #1c2128;
     --dt-menu-shadow: 0 4px 16px rgb(0 0 0 / 0.5);
+    --dt-chip-bg: #21262d;
   }
 }
 
@@ -54,6 +57,7 @@
   --dt-accent: #4c9aff;
   --dt-menu-bg: #1c2128;
   --dt-menu-shadow: 0 4px 16px rgb(0 0 0 / 0.5);
+  --dt-chip-bg: #21262d;
 }
 
 .dt-root {
@@ -66,6 +70,72 @@
 .dt-shape,
 .dt-selected-count {
   color: var(--dt-muted);
+}
+
+/* Above the table: the search box, the "Columns" button, and the chips of
+   the filters in use. */
+.dt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+  align-items: center;
+  margin-bottom: 0.4rem;
+  font-size: var(--dt-font-size);
+}
+
+.dt-search {
+  box-sizing: border-box;
+  width: var(--dt-search-width);
+  max-width: 100%;
+  min-height: 1.75rem;
+  padding: 0.15rem 0.4rem;
+}
+
+.dt-columns-button {
+  padding: 0.2rem 0.6rem;
+}
+
+.dt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0 0.4rem;
+  padding: 0;
+  list-style: none;
+  font-size: var(--dt-font-size);
+}
+
+.dt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  padding: 0.1rem 0.15rem 0.1rem 0.6rem;
+  border: 1px solid var(--dt-border);
+  border-radius: 999px;
+  background: var(--dt-chip-bg);
+}
+
+.dt-chip-label {
+  overflow-wrap: anywhere;
+}
+
+.dt-chip button {
+  min-width: 1.4rem;
+  min-height: 1.4rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  font: inherit;
+  line-height: 1;
+  color: var(--dt-muted);
+  background: none;
+  cursor: pointer;
+}
+
+.dt-chip button:hover {
+  color: var(--dt-fg);
+  background: var(--dt-border);
 }
 
 .dt-limit {

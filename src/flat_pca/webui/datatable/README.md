@@ -21,7 +21,8 @@ Update this document whenever the component gains a feature.
 | --- | --- |
 | `config.py` | `TableConfig` and `ColumnConfig`: what the application decides. |
 | `state.py` | `TableState` and `parse_state`: query parameters → table state. |
-| `query.py` | `apply_state`: table state + frame → `TableView` (rows of one page, the page, matching keys, choices, counts, column types); `filter_expression` and `search_terms`. A `LazyFrame` is collected only for the page's rows, for the matching keys (or their count), and for the counts. |
+| `query.py` | `apply_state`: table state + frame → `TableView` (rows of one page, the page, matching keys, choices, counts, column types, filter chips); `filter_expression`, `search_columns`, and `search_terms`. A `LazyFrame` is collected only for the page's rows, for the matching keys (or their count), and for the counts. |
+| `chips.py` | `FilterChip` and `filter_chips`: the column filters in use as chips above the table. |
 | `counts.py` | `ColumnCounts` and `count_values`: rows of each choice value and null values per filtered column, for the column menus. |
 | `pagination.py` | `Page` and `paginate`: the page among the rows. |
 | `formatting.py` | `format_value`: the cell text (`dt_cell` filter); `dtype_label`: the column type under each column name. |
@@ -64,6 +65,9 @@ Update this document whenever the component gains a feature.
        select_all_label="Select all filtered files",
        default_sort="stem",
        max_selected=None,             # most selected rows; None for no limit
+       search=True,                   # search box of the whole table
+       filter_chips=True,             # chips of the filters in use
+       column_chooser=True,           # "Columns" menu showing or hiding columns
    )
    ```
 
@@ -124,6 +128,7 @@ does not fit its column, or an unparsable value is a `ValueError`.
 | `sort` | A sortable column (default: `default_sort`, or the frame's order). An empty value clears the sort back to the default. |
 | `order` | `asc` (default) or `desc`. |
 | `page` | 1-based page number; a page past the last shows the last. |
+| `search` | Search of the whole table (only with `search=True`): every whitespace-separated word, in any order, ignoring case, as plain text, must be in some shown `pl.String` column of the row (`search_columns`; each word in any of them). Other types, `title_column`, and columns of the frame that are not shown are not searched; nulls hold no word. |
 | `q__<column>` | Search of a `"text"` column: the value must contain every whitespace-separated word, in any order, ignoring case, as plain text (not a regular expression). `b01 lotA` matches `LotA_B01_run3`. |
 | `eq__<column>` | A value of a `"choice"` column, repeated for several (`?t.eq__lot=A&t.eq__lot=B`); a row matches any of them (`is_in`). |
 | `min__<column>`, `max__<column>` | Bounds of a `"number"` (an integer stays an `int` and is compared exactly with an integer column when it fits 64 bits; otherwise it is compared as a float, `±inf` past the float range) or `"datetime"` (ISO 8601, as `datetime-local` sends) column. |
@@ -137,10 +142,31 @@ without a value; `is_not_null` alone drops them.
 The fragment carries these as inputs marked `data-dt-query` inside the
 container, which sends them with `hx-include="this"`. The table view, the
 header checkbox's matching keys, and anything else built on `apply_state`
-filter through the one `filter_expression`.
+filter through the one `filter_expression` (the search of the whole table
+included).
 
 ## Browser behavior and events
 
+- Above the table, by the settings:
+  - `search`: a search box (`Search…`, named `Search`). Typing reloads the
+    first page after 300 ms; the box keeps its text, focus, and caret across
+    reloads (`hx-preserve`).
+  - `column_chooser`: a `Columns` button opening a menu (a popover like the
+    column menus) with a checkbox per column. Unchecking one hides its
+    header and cells; the first column, which names the rows, is always
+    shown. The hidden columns are kept in `localStorage` under
+    `datatable:hidden-columns:<table_id>` (per browser and table id) and
+    hidden again after every reload, before the rows are drawn, by a style
+    sheet in the document head. Hidden columns still sort, filter, and are
+    searched; the footer counts the shown columns. Without storage (a
+    private window, for example) the choice lasts until the page is left.
+  - `filter_chips`: a chip per column filter in use, in column order:
+    `name ~ "words"`, `lot ∈ {A, B}`, `temp ≥ 20` / `temp ≤ 30` /
+    `20 ≤ temp ≤ 30` (both bounds are one chip), `lot is_null` /
+    `lot is_not_null`. The column is named by its header. Its × button
+    (named `Remove filter <chip>`) empties the search or bounds, unchecks the
+    values, or sets the null filter back to Any, and reloads the first page.
+    The search of the whole table has its box and no chip.
 - Each header shows the column name, the sort mark (▲ / ▼), a funnel mark
   while a filter (values, bounds, search, or null filter) uses the column,
   and the column type under the name (`dtype_label`: polars' short names such
@@ -225,7 +251,11 @@ container, so several tables can share a page.
 | `.dt-head`, `.dt-column[data-dt-column]`, `.dt-label` | Header line and the column name button opening the menu. |
 | `.dt-sort-mark`, `.dt-menu-mark`, `.dt-filter-mark[data-dt-filtered]` | ▲ / ▼, the menu's ⋯, and the funnel of a filtered column. |
 | `.dt-type` | Column type under the name. |
-| `.dt-menu[popover][data-dt-menu]` | Column menu (`id` `<table_id>-menu-<n>`, `role="dialog"`, named `<label> menu`); `data-dt-placed` once placed. |
+| `.dt-toolbar` | Line above the table holding the search box and the `Columns` button. |
+| `.dt-search` | Search box of the whole table (`id` `<table_id>-search`). |
+| `.dt-columns-button`, `.dt-menu[data-dt-columns-menu]`, `[data-dt-show-column]` | `Columns` button, its menu (`id` `<table_id>-columns-menu`, named `Columns`), and the checkbox of each column. |
+| `.dt-chips`, `.dt-chip`, `.dt-chip-label`, `[data-dt-remove-filter]` | List of the filters in use (named `Filters in use`), a chip, its text, and its × button (a JSON array of the parameter names it clears). |
+| `.dt-menu[popover][data-dt-menu]` | A menu: a column's (`id` `<table_id>-menu-<n>`, `role="dialog"`, named `<label> menu`, `data-dt-menu` = the column name) or the `Columns` menu (empty `data-dt-menu`); `data-dt-placed` once placed. |
 | `.dt-menu-section`, `.dt-sorts`, `.dt-filter`, `.dt-choices`, `.dt-choice`, `.dt-nulls`, `.dt-count` | Menu parts: sort buttons (`[data-dt-sort][data-dt-order]`, `aria-pressed`), the filter, the value list, the null filter, and counts. |
 | `[data-dt-copy]` | "Copy column name" button. |
 | `.dt-check`, `[data-dt-check-all]`, `[data-dt-row-check]` | Selection checkboxes. |
@@ -233,7 +263,7 @@ container, so several tables can share a page.
 | `.dt-limit[data-dt-limit]` | Notice that the selection limit is reached (`hidden` below it). |
 | `tr[data-dt-key]` | Row with its key. |
 | `.dt-footer` | Footer under the table. |
-| `.dt-shape[data-dt-shape]` | "N rows, M columns". |
+| `.dt-shape[data-dt-shape]`, `[data-dt-column-count]` | "N rows, M columns", and M (the shown columns). |
 | `.dt-selection-state`, `.dt-selected-count[data-dt-selected-count]`, `[data-dt-clear]` | Selection count and the Clear button (selectable tables). |
 | `.dt-pager`, `[data-dt-page-range]`, `[data-dt-page]`, `.dt-page-jump`, `.dt-page-input[data-dt-page-input][data-dt-page-current]` | "a–b of N", the first / previous / next / last page buttons (named `First page` and so on), and the page number input. |
 
@@ -257,6 +287,8 @@ container or an ancestor fixes the scheme.
 | `--dt-max-height` | Height of the scroll box (about the header and 12 rows). |
 | `--dt-filter-max-width` | Width limit of the filter inputs. |
 | `--dt-mono-font` | Font of the column types. |
-| `--dt-menu-bg`, `--dt-menu-shadow`, `--dt-menu-max-width` | Column menu background, shadow, and width limit. |
+| `--dt-menu-bg`, `--dt-menu-shadow`, `--dt-menu-max-width` | Menu background, shadow, and width limit. |
+| `--dt-search-width` | Width of the search box. |
+| `--dt-chip-bg` | Background of the filter chips. |
 
 Buttons and inputs otherwise take the page's own styles.

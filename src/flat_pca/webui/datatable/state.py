@@ -13,6 +13,7 @@ from .config import ColumnConfig, TableConfig
 SORT_PARAMETER = "sort"
 ORDER_PARAMETER = "order"
 PAGE_PARAMETER = "page"
+SEARCH_PARAMETER = "search"
 TEXT_PREFIX = "q__"
 EQUALS_PREFIX = "eq__"
 MIN_PREFIX = "min__"
@@ -49,6 +50,10 @@ class TableState:
         Whether to sort in descending order.
     page : int, default 1
         1-based number of the shown page.
+    search : str, default ""
+        Search of the whole table (``TableConfig.search``): words separated
+        by whitespace that the row's ``pl.String`` columns must all contain,
+        each in any of them, in any order and case.
     text : dict[str, str]
         Searches of ``"text"`` columns: words separated by whitespace that a
         value must all contain, in any order and case.
@@ -65,6 +70,7 @@ class TableState:
     sort_by: str | None = None
     descending: bool = False
     page: int = 1
+    search: str = ""
     text: dict[str, str] = field(default_factory=dict)
     equals: dict[str, tuple[str, ...]] = field(default_factory=dict)
     ranges: dict[str, tuple[Bound, Bound]] = field(default_factory=dict)
@@ -179,7 +185,7 @@ def parse_state(parameters: Mapping[str, Sequence[str]], config: TableConfig) ->
     Only parameters named ``<table_id>.<name>`` belong to the table; others
     are ignored, so several tables can share one query string. The names are
     ``sort``, ``order`` (``asc`` or ``desc``), ``page`` (a positive integer),
-    and, per filtered column, ``q__<column>`` (``"text"``), ``eq__<column>``
+    ``search`` (only with ``TableConfig.search``), and, per filtered column, ``q__<column>`` (``"text"``), ``eq__<column>``
     (``"choice"``; repeated once per value), ``min__<column>`` /
     ``max__<column>`` (``"number"`` and ``"datetime"``), and
     ``null__<column>`` (``is_null`` or ``is_not_null``; every filter kind).
@@ -200,8 +206,8 @@ def parse_state(parameters: Mapping[str, Sequence[str]], config: TableConfig) ->
     Raises
     ------
     ValueError
-        If a parameter of the table is unknown, names a column without that
-        filter, or has an unparsable value, sort column, order, or page.
+        If a parameter of the table is unknown (``search`` of a table
+        without the search box too), names a column without that filter, or has an unparsable value, sort column, order, or page.
     """
     every = {
         key.removeprefix(config.prefix): raw
@@ -217,6 +223,8 @@ def parse_state(parameters: Mapping[str, Sequence[str]], config: TableConfig) ->
     nulls: dict[str, NullFilter] = {}
     for key, value in values.items():
         if key in (SORT_PARAMETER, ORDER_PARAMETER, PAGE_PARAMETER):
+            continue
+        if key == SEARCH_PARAMETER and config.search:
             continue
         prefix = next((prefix for prefix in FILTER_PREFIXES if key.startswith(prefix)), None)
         if prefix is None:
@@ -261,6 +269,7 @@ def parse_state(parameters: Mapping[str, Sequence[str]], config: TableConfig) ->
         sort_by=sort_by,
         descending=order == "desc",
         page=int(page),
+        search=values.get(SEARCH_PARAMETER, "").strip(),
         text=text,
         equals=equals,
         ranges=ranges,

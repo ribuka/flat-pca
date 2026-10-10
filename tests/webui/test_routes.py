@@ -154,7 +154,9 @@ def test_file_table_has_column_sort_and_filters(cataloged_client: TestClient) ->
     assert '<input type="hidden" name="files.sort" value="yield_pct" data-dt-query>' in text
     assert '<input type="hidden" name="files.order" value="asc" data-dt-query>' in text
     assert '<input type="hidden" name="files.page" value="1" data-dt-query>' in text
-    assert 'name="files.q__stem"' in text
+    assert 'name="files.search"' in text
+    assert "files.q__stem" not in text
+    assert 'popovertarget="files-columns-menu"' in text
     assert 'name="files.eq__lot"' in text
     assert 'name="files.min__yield_pct"' in text
     assert 'name="files.max__yield_pct"' in text

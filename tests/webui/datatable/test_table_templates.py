@@ -241,7 +241,7 @@ def test_fragment_of_one_page_has_no_page_controls(
     assert "data-dt-page=" not in one_page
     assert "data-dt-page-input" not in one_page
     assert "0 of 0" in empty
-    assert "0 rows, 7 columns" in empty
+    assert "0 rows, <span data-dt-column-count>7</span> columns" in empty
 
 
 def test_fragment_footer_shows_the_shape_and_the_selection(
@@ -265,7 +265,7 @@ def test_fragment_footer_shows_the_shape_and_the_selection(
         )
     )
 
-    assert '<span class="dt-shape" data-dt-shape>2 rows, 7 columns</span>' in some
+    assert '<span class="dt-shape" data-dt-shape>2 rows, <span data-dt-column-count>7</span> columns</span>' in some
     assert "<span class=\"dt-selected-count\" data-dt-selected-count>2 selected</span>" in some
     assert "<button type=\"button\" data-dt-clear>Clear</button>" in some
     assert "<button type=\"button\" data-dt-clear disabled>Clear</button>" in none
@@ -284,7 +284,7 @@ def test_fragment_of_a_plain_table_has_no_selection_state(
 
     html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
 
-    assert "4 rows, 2 columns" in html
+    assert "4 rows, <span data-dt-column-count>2</span> columns" in html
     assert "data-dt-selected-count" not in html
     assert "data-dt-clear" not in html
     assert "dt-check" not in html
@@ -449,3 +449,75 @@ def test_fragment_counts_keys_differing_only_in_case(environment: Environment) -
     assert "hidden" not in _limit_notice(full)
     assert "disabled" in _row_check(full, "z")
     assert "disabled" in _header_check(one)
+
+
+def test_fragment_without_toolbar_settings_has_no_toolbar(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """By default the table has no search box, "Columns" menu, or chips."""
+    view = apply_state(frame, parse_state({"t.eq__group": ["a"]}, config), config)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    assert "dt-toolbar" not in html
+    assert "dt-chips" not in html
+    assert "data-dt-columns-menu" not in html
+
+
+def test_fragment_shows_the_search_box_with_the_search(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """The search box of the whole table is a query control kept across reloads."""
+    searchable = replace(config, search=True)
+    view = apply_state(frame, parse_state({"t.search": ["alp"]}, searchable), searchable)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=searchable, view=view)
+
+    search = re.search(r'<input type="search" id="t-search"[^>]*>', html)
+    assert search is not None
+    assert 'name="t.search" value="alp"' in search[0]
+    assert 'aria-label="Search"' in search[0]
+    assert "data-dt-query hx-preserve" in search[0]
+    assert html.index('id="t-search"') < html.index('<table class="dt-table">')
+
+
+def test_fragment_lists_the_filters_in_use_as_chips(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """Each chip has a button naming the parameters it clears; no filter, no chips."""
+    chipped = replace(config, filter_chips=True)
+    state = parse_state({"t.eq__group": ["a", "b"], "t.min__score": ["1"]}, chipped)
+    view = apply_state(frame, state, chipped)
+    call = "{{ fragment(config, view) }}"
+
+    html = _render(environment, call, config=chipped, view=view)
+    unfiltered = _render(
+        environment, call, config=chipped, view=apply_state(frame, TableState(), chipped)
+    )
+
+    chips = re.findall(r'<li class="dt-chip">.*?</li>', html, re.DOTALL)
+    assert len(chips) == 2
+    assert '<span class="dt-chip-label">group ∈ {a, b}</span>' in chips[0]
+    assert 'aria-label="Remove filter group ∈ {a, b}"' in chips[0]
+    assert """data-dt-remove-filter='["t.eq__group"]'""" in chips[0]
+    assert '<span class="dt-chip-label">score ≥ 1</span>' in chips[1]
+    assert """data-dt-remove-filter='["t.min__score", "t.max__score"]'""" in chips[1]
+    assert "dt-chips" not in unfiltered
+
+
+def test_fragment_has_a_columns_menu_of_every_column(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """The "Columns" menu lists every column; the first one cannot be hidden."""
+    chooser = replace(config, column_chooser=True)
+    view = apply_state(frame, TableState(), chooser)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=chooser, view=view)
+
+    assert 'popovertarget="t-columns-menu"' in html
+    menu = re.search(r'<div popover id="t-columns-menu".*?</div>', html, re.DOTALL)
+    assert menu is not None
+    assert "data-dt-menu data-dt-columns-menu" in menu[0]
+    boxes = re.findall(r'<input type="checkbox" checked data-dt-show-column="([^"]*)"( disabled)?>', menu[0])
+    assert boxes == [(column.name, " disabled" if index == 0 else "") for index, column in enumerate(config.columns)]
+    assert '<span class="dt-choice-value">Key</span>' in menu[0]

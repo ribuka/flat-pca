@@ -102,6 +102,16 @@ class TableConfig:
         Most rows that can be selected at once in a selectable table;
         ``None`` for no limit. At the limit the unselected rows cannot be
         checked and the table says so.
+    search : bool, default False
+        Whether a search box above the table looks for words (in any order
+        and case) in every shown ``pl.String`` column.
+    filter_chips : bool, default False
+        Whether the filters in use are listed above the table as chips,
+        each with a button that removes it.
+    column_chooser : bool, default False
+        Whether a "Columns" menu above the table shows or hides columns
+        (all but the first). The browser remembers the choice per
+        ``table_id``.
     """
 
     table_id: str
@@ -115,6 +125,9 @@ class TableConfig:
     select_all_label: str = "Select all filtered rows"
     default_sort: str | None = None
     max_selected: int | None = None
+    search: bool = False
+    filter_chips: bool = False
+    column_chooser: bool = False
 
     def __post_init__(self) -> None:
         """Check the settings.

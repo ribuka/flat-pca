@@ -297,19 +297,128 @@
     }
   });
 
-  // Column menus are popovers (`[data-dt-menu]`) opened by the column
-  // names. The browser opens and closes them (a click outside or Esc closes
-  // one) and shows them in the top layer, so neither the table's scroll box
-  // nor a <dialog> clips them; this code places them under their column
-  // name and keeps the one that was open open across reloads.
+  // A chip of a filter in use clears the controls of its parameters
+  // (`data-dt-remove-filter`, a JSON array of names) and reloads the first
+  // page: a typed filter is emptied, its values unchecked, and a null filter
+  // set back to "Any" (the empty value).
+  document.addEventListener("click", (event) => {
+    const remove = event.target.closest?.("[data-dt-remove-filter]");
+    const root = remove && tableOf(remove);
+    if (!root) {
+      return;
+    }
+    for (const name of JSON.parse(remove.dataset.dtRemoveFilter)) {
+      for (const control of root.querySelectorAll(`[data-dt-query][name="${CSS.escape(name)}"]`)) {
+        if (control.type === "checkbox") {
+          control.checked = false;
+        } else if (control.type === "radio") {
+          control.checked = control.value === "";
+        } else {
+          control.value = "";
+        }
+      }
+    }
+    reload(root, { page: "1" });
+  });
+
+  // The "Columns" menu (`[data-dt-columns-menu]`) shows or hides columns.
+  // The hidden ones are remembered per table id in localStorage and hidden
+  // by a style sheet in the document head, which outlives the reloads, so
+  // a reloaded table shows no hidden column even for a moment. The latest
+  // choice of each table id is also kept in memory (`hiddenColumns`), so it
+  // holds across reloads until the page is left even where the storage
+  // cannot be read or written.
+  const hiddenColumns = new Map();
+
+  function hiddenColumnsKey(root) {
+    return `datatable:hidden-columns:${root.id}`;
+  }
+
+  function storedHiddenColumns(root) {
+    if (hiddenColumns.has(root.id)) {
+      return hiddenColumns.get(root.id);
+    }
+    let hidden = new Set();
+    try {
+      const stored = JSON.parse(localStorage.getItem(hiddenColumnsKey(root)) ?? "[]");
+      hidden = new Set(Array.isArray(stored) ? stored : []);
+    } catch {
+      // Unreadable storage: every column is shown.
+    }
+    hiddenColumns.set(root.id, hidden);
+    return hidden;
+  }
+
+  function storeHiddenColumns(root, names) {
+    hiddenColumns.set(root.id, new Set(names));
+    try {
+      localStorage.setItem(hiddenColumnsKey(root), JSON.stringify([...names]));
+    } catch {
+      // The choice in memory lasts until the page is left.
+    }
+  }
+
+  // Hides the columns unchecked in the "Columns" menu, checks its boxes from
+  // the remembered choice when `fromStorage`, and counts the shown columns
+  // under the table. The first column is always shown.
+  function syncColumns(root, fromStorage) {
+    const menu = root.querySelector("[data-dt-columns-menu]");
+    const sheetId = `${root.id}-dt-hidden-columns`;
+    let sheet = document.getElementById(sheetId);
+    if (!menu) {
+      sheet?.remove();
+      return;
+    }
+    const boxes = [...menu.querySelectorAll("[data-dt-show-column]")];
+    if (fromStorage) {
+      const hidden = storedHiddenColumns(root);
+      for (const box of boxes) {
+        box.checked = box.disabled || !hidden.has(box.dataset.dtShowColumn);
+      }
+    }
+    const hidden = new Set(boxes.filter((box) => !box.checked).map((box) => box.dataset.dtShowColumn));
+    const cells = [...root.querySelectorAll(".dt-table thead tr > th")];
+    const rules = cells
+      .map((cell, index) => [cell.querySelector("[data-dt-column]")?.dataset.dtColumn, index + 1])
+      .filter(([name]) => hidden.has(name))
+      .map(([, child]) => `#${CSS.escape(root.id)} .dt-table tr > :nth-child(${child}) { display: none; }`);
+    if (!sheet) {
+      sheet = document.createElement("style");
+      sheet.id = sheetId;
+      document.head.append(sheet);
+    }
+    sheet.textContent = rules.join("\n");
+    const count = root.querySelector("[data-dt-column-count]");
+    if (count) {
+      count.textContent = String(boxes.length - hidden.size);
+    }
+  }
+
+  document.addEventListener("change", (event) => {
+    const root = tableOf(event.target);
+    if (root && event.target.matches("[data-dt-show-column]")) {
+      syncColumns(root, false);
+      storeHiddenColumns(
+        root,
+        [...root.querySelectorAll("[data-dt-show-column]")].filter((box) => !box.checked).map((box) => box.dataset.dtShowColumn),
+      );
+    }
+  });
+
+  // Menus are popovers (`[data-dt-menu]`): a column's, opened by its name,
+  // and the "Columns" menu. The browser opens and closes them (a click
+  // outside or Esc closes one) and shows them in the top layer, so neither
+  // the table's scroll box nor a <dialog> clips them; this code places them
+  // under the button opening them and keeps the one that was open open
+  // across reloads.
   const MENU_GAP_PX = 4;
   const MENU_MARGIN_PX = 8;
 
   function menuButton(menu) {
-    return menu.closest("th").querySelector("[data-dt-column]");
+    return document.querySelector(`[popovertarget="${CSS.escape(menu.id)}"]`);
   }
 
-  // Puts a menu under its column name, or above it when there is no room
+  // Puts a menu under its button, or above it when there is no room
   // below, and always inside the window. It stays invisible until placed
   // (`data-dt-placed`), since its size is known only once it shows.
   function placeMenu(menu) {
@@ -447,7 +556,7 @@
     }
     const focused = menu.contains(document.activeElement) ? document.activeElement : null;
     reopenedMenus.set(root, {
-      column: menu.dataset.dtMenu,
+      menu: menu.id,
       id: focused?.id || null,
       name: focused?.name || null,
       value: focused?.value ?? null,
@@ -460,7 +569,7 @@
   function reopenMenu(root) {
     const noted = reopenedMenus.get(root);
     reopenedMenus.delete(root);
-    const menu = noted && root.querySelector(`[data-dt-menu="${CSS.escape(noted.column)}"]`);
+    const menu = noted && document.getElementById(noted.menu);
     if (!menu) {
       return;
     }
@@ -489,10 +598,12 @@
   }
 
   // Reopen as soon as the new menus are in the page, so that no Escape or
-  // click outside falls between the swap and the reopening.
+  // click outside falls between the swap and the reopening, and hide the
+  // hidden columns before the new rows are drawn.
   document.addEventListener("htmx:afterSwap", (event) => {
     const root = event.detail.target ?? event.target;
     if (root?.matches?.("[data-datatable]")) {
+      syncColumns(root, true);
       reopenMenu(root);
     }
   });

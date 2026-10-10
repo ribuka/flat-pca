@@ -118,8 +118,46 @@
   {{ _menu(config, view, column, menu_id, index) }}
 {%- endmacro %}
 
-{#- One page of the table with its column menus, sort and filter marks,
-    column types, the footer (shape, selection count, page controls), and
+{#- Above the table, by the settings: the search box of the whole table, the
+    "Columns" menu showing or hiding columns (datatable.js applies and
+    remembers the choice), and the chips of the filters in use, each with a
+    button clearing its controls. The search box is preserved across reloads
+    (hx-preserve), like the typed filters. -#}
+{% macro _toolbar(config, view) -%}
+{% if config.search or config.column_chooser %}
+<div class="dt-toolbar">
+  {% if config.search %}
+    <input type="search" id="{{ config.table_id }}-search" class="dt-search" name="{{ config.prefix }}search" value="{{ view.state.search }}" placeholder="Search…"
+           aria-label="Search" data-dt-query hx-preserve>
+  {% endif %}
+  {% if config.column_chooser %}
+    {% set menu_id = config.table_id ~ "-columns-menu" %}
+    <button type="button" class="dt-columns-button" popovertarget="{{ menu_id }}" aria-haspopup="dialog">Columns</button>
+    <div popover id="{{ menu_id }}" class="dt-menu" role="dialog" aria-label="Columns" data-dt-menu data-dt-columns-menu>
+      <fieldset class="dt-menu-section dt-shown-columns">
+        <legend>Shown columns</legend>
+        {#- The first column names the rows and is always shown. -#}
+        {% for column in config.columns %}
+          <label class="dt-choice"><input type="checkbox" checked data-dt-show-column="{{ column.name }}"{% if loop.first %} disabled{% endif %}>
+            <span class="dt-choice-value">{{ column.header }}</span></label>
+        {% endfor %}
+      </fieldset>
+    </div>
+  {% endif %}
+</div>
+{% endif %}
+{% if config.filter_chips and view.chips %}
+<ul class="dt-chips" aria-label="Filters in use">
+  {% for chip in view.chips %}
+    <li class="dt-chip"><span class="dt-chip-label">{{ chip.label }}</span><button type="button" aria-label="Remove filter {{ chip.label }}" title="Remove filter"
+        data-dt-remove-filter='{{ chip.parameters|list|tojson }}'>×</button></li>
+  {% endfor %}
+</ul>
+{% endif %}
+{%- endmacro %}
+
+{#- One page of the table with the toolbar above it, its column menus, sort
+    and filter marks, column types, the footer (shape, selection count, page controls), and
     (for a selectable table) the keys of every row matching the filters for
     the header checkbox.
     - config: TableConfig.
@@ -136,6 +174,7 @@
 <input type="hidden" name="{{ config.prefix }}sort" value="{{ view.state.sort_by or '' }}" data-dt-query>
 <input type="hidden" name="{{ config.prefix }}order" value="{{ 'desc' if view.state.descending else 'asc' }}" data-dt-query>
 <input type="hidden" name="{{ config.prefix }}page" value="{{ view.page.number }}" data-dt-query>
+{{ _toolbar(config, view) }}
 {% if config.selectable %}
 <script type="application/json" data-dt-matching>{{ view.matching_keys|tojson }}</script>
 {% endif %}
@@ -181,12 +220,12 @@
 {{ _footer(config, view, selected_count) }}
 {%- endmacro %}
 
-{#- Under the table: its shape, the selection count with Clear (for a
+{#- Under the table: its shape (datatable.js counts only the shown columns), the selection count with Clear (for a
     selectable table), "a–b of N", and the page controls. datatable.js keeps
     the count and Clear in step with the selection. -#}
 {% macro _footer(config, view, selected_count) -%}
 <div class="dt-footer">
-  <span class="dt-shape" data-dt-shape>{{ view.page.total }} rows, {{ config.columns|length }} columns</span>
+  <span class="dt-shape" data-dt-shape>{{ view.page.total }} rows, <span data-dt-column-count>{{ config.columns|length }}</span> columns</span>
   {% if config.selectable %}
     <span class="dt-selection-state">
       <span class="dt-selected-count" data-dt-selected-count>

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 import polars as pl
 
+from .chips import FilterChip, filter_chips
 from .config import TableConfig
 from .counts import ColumnCounts, count_values
 from .formatting import dtype_label
@@ -55,6 +56,8 @@ class TableView:
         the filtered columns, over every row of the table.
     types : dict[str, str]
         Type of each shown column (``dtype_label``), keyed by column name.
+    chips : list[FilterChip]
+        Column filters in use (``filter_chips``).
     """
 
     state: TableState
@@ -65,6 +68,7 @@ class TableView:
     options: dict[str, list[str]]
     counts: ColumnCounts
     types: dict[str, str]
+    chips: list[FilterChip]
 
 
 def key_text(config: TableConfig) -> pl.Expr:
@@ -164,7 +168,32 @@ def search_terms(text: str) -> list[str]:
     return list(dict.fromkeys(text.lower().split()))
 
 
-def filter_expression(state: TableState, schema: Mapping[str, pl.DataType]) -> pl.Expr:
+def search_columns(config: TableConfig, schema: Mapping[str, pl.DataType]) -> list[str]:
+    """Return the columns that the search of the whole table looks in.
+
+    Parameters
+    ----------
+    config : TableConfig
+        Table settings.
+    schema : Mapping[str, pl.DataType]
+        Column types of the frame.
+
+    Returns
+    -------
+    list[str]
+        Shown columns of type ``pl.String``, in display order.
+    """
+    return [column.name for column in config.columns if schema[column.name] == pl.String]
+
+
+def _contains(name: str, term: str) -> pl.Expr:
+    """Return whether a column's text contains a lowercase word, in any case."""
+    return pl.col(name).cast(pl.String).str.to_lowercase().str.contains(term, literal=True)
+
+
+def filter_expression(
+    state: TableState, config: TableConfig, schema: Mapping[str, pl.DataType]
+) -> pl.Expr:
     """Return the expression selecting the rows that match a state's filters.
 
     Parameters
@@ -172,26 +201,35 @@ def filter_expression(state: TableState, schema: Mapping[str, pl.DataType]) -> p
     state : TableState
         State whose column names have been validated, for example by
         ``parse_state``.
+    config : TableConfig
+        Table settings, which decide the columns of the search of the whole
+        table (``search_columns``).
     schema : Mapping[str, pl.DataType]
         Column types of the filtered frame, which decide the type of the
-        range bounds (``bound_condition``).
+        range bounds (``bound_condition``) and the searched columns.
 
     Returns
     -------
     pl.Expr
-        Boolean expression combining every filter with AND. A search matches
-        a value containing each of its words (``search_terms``) as plain
-        text, in any order and case; a ``"choice"`` filter matches any of its
-        values. Null values match no search, value, or bound, so those
-        filters drop them; a null filter keeps only the null values
+        Boolean expression combining every filter with AND. A column search
+        matches a value containing each of its words (``search_terms``) as
+        plain text, in any order and case; the search of the whole table
+        matches a row whose ``search_columns`` hold each word, each in any of
+        them (no row without such a column); a ``"choice"`` filter matches
+        any of its values. Null values match no search, value, or bound, so
+        those filters drop them; a null filter keeps only the null values
         (``"is_null"``) or drops them (``"is_not_null"``).
     """
     conditions = [pl.lit(True)]
-    for name, text in state.text.items():
-        lowered = pl.col(name).cast(pl.String).str.to_lowercase()
-        conditions.extend(
-            lowered.str.contains(term, literal=True) for term in search_terms(text)
+    searched = search_columns(config, schema)
+    for term in search_terms(state.search):
+        conditions.append(
+            pl.any_horizontal(_contains(name, term) for name in searched)
+            if searched
+            else pl.lit(False)
         )
+    for name, text in state.text.items():
+        conditions.extend(_contains(name, term) for term in search_terms(text))
     for name, values in state.equals.items():
         conditions.append(pl.col(name).cast(pl.String).is_in(values))
     for name, (lower, upper) in state.ranges.items():
@@ -294,7 +332,7 @@ def apply_state(
     """
     lazy = frame.lazy()
     schema = lazy.collect_schema()
-    matching = sort_frame(lazy.filter(filter_expression(state, schema)), state, config)
+    matching = sort_frame(lazy.filter(filter_expression(state, config, schema)), state, config)
     if config.selectable:
         matching_keys = matching.select(key_text(config)).collect().to_series().to_list()
         total = len(matching_keys)
@@ -320,4 +358,5 @@ def apply_state(
         ),
         counts=count_values(frame, config),
         types={column.name: dtype_label(schema[column.name]) for column in config.columns},
+        chips=filter_chips(state, config),
     )
