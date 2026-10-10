@@ -144,6 +144,19 @@ def test_file_table_lists_files_and_metadata_warnings(
     assert "data-dt-page=" not in text
 
 
+def test_file_table_headers_show_the_distributions_of_every_file(
+    cataloged_client: TestClient,
+) -> None:
+    """Number and datetime headers draw histograms, category ones their top values."""
+    text = cataloged_client.get("/catalog/files", params={"files.eq__lot": "A"}).text
+
+    assert 'aria-label="Histogram of yield_pct' in text
+    assert 'aria-label="Histogram of date' in text
+    assert 'aria-label="Histogram of rows' in text
+    assert 'aria-label="Most frequent values of lot"' in text
+    assert "Histogram of file" not in text
+
+
 def test_file_table_has_column_sort_and_filters(cataloged_client: TestClient) -> None:
     """Every column name sorts; the stem and metadata columns have filters."""
     text = cataloged_client.get("/catalog/files", params={"files.sort": "yield_pct"}).text

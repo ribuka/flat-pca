@@ -521,3 +521,98 @@ def test_fragment_has_a_columns_menu_of_every_column(
     boxes = re.findall(r'<input type="checkbox" checked data-dt-show-column="([^"]*)"( disabled)?>', menu[0])
     assert boxes == [(column.name, " disabled" if index == 0 else "") for index, column in enumerate(config.columns)]
     assert '<span class="dt-choice-value">Key</span>' in menu[0]
+
+
+def _histogram(html: str, column: str) -> str:
+    """Return the histogram (or top values) under the header of ``column``."""
+    header = _header(html, column)
+    match = re.search(
+        r'<(div class="dt-histogram"|ul class="dt-top-values").*?</(div>\s*</div|ul)>', header, re.DOTALL
+    )
+    assert match is not None
+    return match[0]
+
+
+def test_fragment_draws_histograms_under_the_column_types(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """Number and datetime headers get an SVG histogram; bins outside the bounds fade."""
+    config = replace(config, histograms=True)
+    state = parse_state({"t.min__count": ["2"]}, config)
+    view = apply_state(frame, state, config)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    count = _histogram(html, "count")
+    assert 'viewBox="0 0 30 32"' in count
+    assert 'aria-label="Histogram of count, 1 to 3"' in count
+    assert re.findall(r'<g class="dt-bin( dt-out)?"><title>([^<]*)</title>', count) == [
+        (" dt-out", "1: 1 row"),
+        ("", "2: 1 row"),
+        ("", "3: 1 row"),
+    ]
+    assert '<span>1</span><span>3</span>' in count
+    assert count.count('y="0.00" width="8" height="32.00"></rect></g>') == 3
+    when = _histogram(html, "when")
+    assert when.count('<g class="dt-bin') == 20
+    assert "<title>2026-01-01 00:00:00 – 2026-01-03 23:24:00: 1 row</title>" in when
+    assert "0 rows</title>" in when
+    assert '<span>2026-01-01 00:00:00</span><span>2026-03-01 12:00:00</span>' in when
+    for column in ("key", "name", "group", "note"):
+        assert "dt-histogram" not in _header(html, column)
+
+
+def test_fragment_shows_the_top_values_of_category_columns(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """A categorical header lists its values with bars; unchecked values fade."""
+    config = replace(config, histograms=True)
+    frame = frame.with_columns(pl.col("group").cast(pl.Categorical))
+    state = parse_state({"t.eq__group": ["b"]}, config)
+    view = apply_state(frame, state, config)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    group = _histogram(html, "group")
+    assert 'aria-label="Most frequent values of group"' in group
+    assert re.findall(
+        r'<li class="dt-top-value( dt-out)?" title="([^"]*)">\s*<span class="dt-top-bar" style="width: ([\d.]+)%"></span>\s*'
+        r'<span class="dt-top-label">([^<]*)</span> <span class="dt-count">(\d+)</span>',
+        group,
+    ) == [(" dt-out", "a: 2 rows", "100.0", "a", "2"), ("", "b: 1 row", "50.0", "b", "1")]
+    assert "dt-top-others" not in group
+
+
+def test_fragment_counts_the_other_values_of_category_columns(environment: Environment) -> None:
+    """Values past the five most frequent are counted together as Others."""
+    config = TableConfig(
+        table_id="t", key="key", columns=(ColumnConfig("lot"),), url="/t", histograms=True
+    )
+    lots = ["a", "a", "b", "c", "d", "e", "f", "g"]
+    frame = pl.DataFrame(
+        {"key": [str(i) for i in range(len(lots))], "lot": lots},
+        schema_overrides={"lot": pl.Categorical},
+    )
+    view = apply_state(frame, TableState(), config)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    group = _histogram(html, "lot")
+    assert group.count('class="dt-top-bar"') == 5
+    assert re.search(
+        r'<li class="dt-top-value dt-top-others" title="Other values: 2 rows">\s*'
+        r'<span class="dt-top-label">Others</span> <span class="dt-count">2</span>',
+        group,
+    )
+
+
+def test_fragment_without_histograms_draws_none(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """Histograms are off by default."""
+    view = apply_state(frame, TableState(), config)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    assert "dt-histogram" not in html
+    assert "dt-top-values" not in html

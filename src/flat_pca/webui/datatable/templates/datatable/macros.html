@@ -99,8 +99,49 @@
   </div>
 {%- endmacro %}
 
+{%- macro _rows(count) -%}{{ count }} {{ "row" if count == 1 else "rows" }}{%- endmacro %}
+
+{#- The distribution of a column over every row of the frame, under its type
+    (TableConfig.histograms): an inline SVG histogram with the smallest and
+    largest value under it, or bars of the most frequent values. Bins outside
+    the bounds in use and values not checked are faded (dt-out). Each bar's
+    tooltip gives its values and rows. -#}
+{% macro _histogram(column, histogram) -%}
+  {% if histogram.bins is defined %}
+    {% set peak = histogram.bins|map(attribute="count")|max %}
+    {% set height = 32 %}
+    <div class="dt-histogram" data-dt-histogram>
+      <svg class="dt-bins" viewBox="0 0 {{ histogram.bins|length * 10 }} {{ height }}" preserveAspectRatio="none"
+           role="img" aria-label="Histogram of {{ column.header }}, {{ histogram.minimum }} to {{ histogram.maximum }}">
+        {% for bin in histogram.bins %}
+          {#- A bin with rows is at least one unit high, so it never looks empty. -#}
+          {% set bar = ([bin.count / peak * height, 1]|max) if bin.count else 0 %}
+          <g class="dt-bin{% if not bin.in_filter %} dt-out{% endif %}"><title>{{ bin.lower }}{% if bin.upper != bin.lower %} – {{ bin.upper }}{% endif %}: {{ _rows(bin.count) }}</title>
+            <rect class="dt-bin-hit" x="{{ loop.index0 * 10 }}" y="0" width="10" height="{{ height }}"></rect>
+            <rect class="dt-bin-bar" x="{{ loop.index0 * 10 + 1 }}" y="{{ "%.2f"|format(height - bar) }}" width="8" height="{{ "%.2f"|format(bar) }}"></rect></g>
+        {% endfor %}
+      </svg>
+      <div class="dt-ticks" aria-hidden="true"><span>{{ histogram.minimum }}</span><span>{{ histogram.maximum }}</span></div>
+    </div>
+  {% else %}
+    {% set peak = histogram.values[0].count %}
+    <ul class="dt-top-values" aria-label="Most frequent values of {{ column.header }}" data-dt-top-values>
+      {% for item in histogram.values %}
+        <li class="dt-top-value{% if not item.in_filter %} dt-out{% endif %}" title="{{ item.value }}: {{ _rows(item.count) }}">
+          <span class="dt-top-bar" style="width: {{ '%.1f'|format(item.count / peak * 100) }}%"></span>
+          <span class="dt-top-label">{{ item.value }}</span> <span class="dt-count">{{ item.count }}</span></li>
+      {% endfor %}
+      {% if histogram.others %}
+        <li class="dt-top-value dt-top-others" title="Other values: {{ _rows(histogram.others) }}">
+          <span class="dt-top-label">Others</span> <span class="dt-count">{{ histogram.others }}</span></li>
+      {% endif %}
+    </ul>
+  {% endif %}
+{%- endmacro %}
+
 {#- A column header: the column name opening the column menu, the sort mark,
-    a mark while a filter uses the column, and the column type. -#}
+    a mark while a filter uses the column, the column type, and the column's
+    histogram (TableConfig.histograms). -#}
 {% macro _header(config, view, column, index) -%}
   {% set menu_id = config.table_id ~ "-menu-" ~ index %}
   {% set current = view.state.sort_by == column.name %}
@@ -115,6 +156,7 @@
     {% endif %}
   </div>
   <span class="dt-type">{{ view.types[column.name] }}</span>
+  {% if column.name in view.histograms %}{{ _histogram(column, view.histograms[column.name]) }}{% endif %}
   {{ _menu(config, view, column, menu_id, index) }}
 {%- endmacro %}
 

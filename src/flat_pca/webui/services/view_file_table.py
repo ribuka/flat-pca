@@ -25,7 +25,8 @@ def view_file_table_config(
     The columns, filters, and sorting are those of the data selection
     screen's file table (``file_table_config``). The table has its own id,
     since the transform screen shows both tables, and its selection input
-    belongs to the dialog's form ``VIEW_FILE_FORM_ID``.
+    belongs to the dialog's form ``VIEW_FILE_FORM_ID``. The headers have no
+    histograms: they would count every cataloged file, not the dialog's rows.
 
     Parameters
     ----------
@@ -46,6 +47,7 @@ def view_file_table_config(
         url=VIEW_FILE_TABLE_URL,
         selection_form=VIEW_FILE_FORM_ID,
         max_selected=max_files,
+        histograms=False,
     )
 
 

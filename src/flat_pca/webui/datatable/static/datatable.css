@@ -28,6 +28,10 @@
   --dt-menu-max-width: 20rem;
   --dt-search-width: 16rem;
   --dt-chip-bg: #eef2f7;
+  --dt-histogram-width: 8rem;
+  --dt-histogram-height: 2rem;
+  --dt-histogram-fg: #7a9cc6;
+  --dt-histogram-out-opacity: 0.3;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -43,6 +47,7 @@
     --dt-menu-bg: #1c2128;
     --dt-menu-shadow: 0 4px 16px rgb(0 0 0 / 0.5);
     --dt-chip-bg: #21262d;
+    --dt-histogram-fg: #5b7fae;
   }
 }
 
@@ -58,6 +63,7 @@
   --dt-menu-bg: #1c2128;
   --dt-menu-shadow: 0 4px 16px rgb(0 0 0 / 0.5);
   --dt-chip-bg: #21262d;
+  --dt-histogram-fg: #5b7fae;
 }
 
 .dt-root {
@@ -227,6 +233,102 @@
   font-size: 0.75em;
   font-weight: 400;
   color: var(--dt-muted);
+}
+
+/* The distribution of a column under its type: a histogram with its
+   smallest and largest value, or bars of the most frequent values. Bins
+   outside the bounds in use and values not checked are faded. */
+.dt-histogram,
+.dt-top-values {
+  width: var(--dt-histogram-width);
+  margin-top: 0.3rem;
+  font-size: 0.7em;
+  font-weight: 400;
+}
+
+.dt-bins {
+  display: block;
+  width: 100%;
+  height: var(--dt-histogram-height);
+  border-bottom: 1px solid var(--dt-border);
+}
+
+.dt-bin-hit {
+  fill: transparent;
+}
+
+.dt-bin-bar {
+  fill: var(--dt-histogram-fg);
+}
+
+.dt-bin:hover .dt-bin-bar {
+  fill: var(--dt-accent);
+}
+
+.dt-bin.dt-out .dt-bin-bar {
+  opacity: var(--dt-histogram-out-opacity);
+}
+
+/* The largest value moves under the smallest when both do not fit. */
+.dt-ticks {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0 0.5rem;
+  color: var(--dt-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dt-ticks > :last-child {
+  margin-left: auto;
+}
+
+.dt-top-values {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0;
+  list-style: none;
+}
+
+.dt-top-value {
+  position: relative;
+  display: flex;
+  gap: 0.35rem;
+  justify-content: space-between;
+  padding: 0 0.25rem;
+  line-height: 1.35;
+}
+
+.dt-top-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 2px;
+  background: var(--dt-histogram-fg);
+  opacity: 0.35;
+}
+
+.dt-top-value.dt-out .dt-top-bar {
+  opacity: calc(0.35 * var(--dt-histogram-out-opacity));
+}
+
+.dt-top-value.dt-out .dt-top-label {
+  color: var(--dt-muted);
+}
+
+.dt-top-label,
+.dt-top-value .dt-count {
+  position: relative;
+}
+
+.dt-top-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dt-top-others .dt-top-label {
+  color: var(--dt-muted);
+  font-style: italic;
 }
 
 /* A column menu: a popover in the top layer, placed by datatable.js. */

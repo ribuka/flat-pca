@@ -112,6 +112,12 @@ class TableConfig:
         Whether a "Columns" menu above the table shows or hides columns
         (all but the first). The browser remembers the choice per
         ``table_id``.
+    histograms : bool, default False
+        Whether each header shows the distribution of its column over every
+        row of the frame (``column_histograms``): a histogram of a number,
+        date, or datetime column, or the most frequent values of a
+        categorical, enum, or boolean column. Turn it off when every row is
+        not a meaningful base, such as a table of a few chosen rows.
     """
 
     table_id: str
@@ -128,6 +134,7 @@ class TableConfig:
     search: bool = False
     filter_chips: bool = False
     column_chooser: bool = False
+    histograms: bool = False
 
     def __post_init__(self) -> None:
         """Check the settings.

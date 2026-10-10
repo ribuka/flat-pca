@@ -36,7 +36,8 @@ def file_table_config(columns: Mapping[str, MetadataColumnSettings]) -> TableCon
     column sorts, the file name in natural order. Above the table, the
     search box looks for words in any order and case in the file name (and
     any text column), the chips list the filters in use, and the "Columns"
-    menu shows or hides columns. Rows are selected by stem into the hidden
+    menu shows or hides columns. Each header shows the distribution of its
+    column over every cataloged file. Rows are selected by stem into the hidden
     input ``stems``, ``FILE_PAGE_SIZE`` rows per page.
 
     Parameters
@@ -72,6 +73,7 @@ def file_table_config(columns: Mapping[str, MetadataColumnSettings]) -> TableCon
         search=True,
         filter_chips=True,
         column_chooser=True,
+        histograms=True,
     )
 
 

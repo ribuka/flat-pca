@@ -2,32 +2,19 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import polars as pl
 
+from .bounds import bound_condition
 from .chips import FilterChip, filter_chips
 from .config import TableConfig
 from .counts import ColumnCounts, count_values
 from .formatting import dtype_label
+from .histograms import ColumnHistogram, column_histograms
 from .pagination import Page, paginate
-from .state import Bound, TableState
-
-# The width of each polars integer type.
-INTEGER_BITS = (
-    (pl.Int8, 8),
-    (pl.Int16, 16),
-    (pl.Int32, 32),
-    (pl.Int64, 64),
-    (pl.Int128, 128),
-    (pl.UInt8, 8),
-    (pl.UInt16, 16),
-    (pl.UInt32, 32),
-    (pl.UInt64, 64),
-    (pl.UInt128, 128),
-)
+from .state import TableState
 
 
 @dataclass(frozen=True)
@@ -58,6 +45,9 @@ class TableView:
         Type of each shown column (``dtype_label``), keyed by column name.
     chips : list[FilterChip]
         Column filters in use (``filter_chips``).
+    histograms : dict[str, ColumnHistogram]
+        Distribution of each shown column over every row
+        (``column_histograms``); empty unless ``TableConfig.histograms``.
     """
 
     state: TableState
@@ -69,6 +59,7 @@ class TableView:
     counts: ColumnCounts
     types: dict[str, str]
     chips: list[FilterChip]
+    histograms: dict[str, ColumnHistogram]
 
 
 def key_text(config: TableConfig) -> pl.Expr:
@@ -88,68 +79,6 @@ def key_text(config: TableConfig) -> pl.Expr:
         The key column cast to ``pl.String``.
     """
     return pl.col(config.key).cast(pl.String)
-
-
-def integer_range(dtype: pl.DataType) -> tuple[int, int]:
-    """Return the smallest and largest value of an integer type.
-
-    Parameters
-    ----------
-    dtype : pl.DataType
-        Integer type, signed or unsigned, of 8 to 128 bits.
-
-    Returns
-    -------
-    tuple[int, int]
-        Inclusive range of the type.
-    """
-    bits = next(bits for kind, bits in INTEGER_BITS if dtype == kind)
-    if dtype.is_signed_integer():
-        return -(2 ** (bits - 1)), 2 ** (bits - 1) - 1
-    return 0, 2**bits - 1
-
-
-def bound_condition(name: str, bound: Bound, dtype: pl.DataType, *, lower: bool) -> pl.Expr:
-    """Return the condition that a column is on the inner side of a bound.
-
-    Parameters
-    ----------
-    name : str
-        Column name.
-    bound : Bound
-        Bound from ``parse_state``; not ``None``.
-    dtype : pl.DataType
-        Type of the column.
-    lower : bool
-        Whether the bound is the lower one (``>=``) or the upper one (``<=``).
-
-    Returns
-    -------
-    pl.Expr
-        Inclusive comparison of the column with the bound. An ``int`` bound
-        is compared exactly with an integer column: inside the column type's
-        range, as a literal of that type; outside it, every non-null value is
-        on the inner side of the bound or none is. Against other columns an
-        ``int`` bound is compared as a float (``±inf`` past the float range).
-    """
-    column = pl.col(name)
-    if isinstance(bound, int):
-        if dtype.is_integer():
-            smallest, largest = integer_range(dtype)
-            if smallest <= bound <= largest:
-                literal = pl.lit(bound, dtype=dtype)
-            else:
-                # Every value is above a bound below the type, and below one
-                # above it; null values match no filter.
-                return column.is_not_null() if (bound < smallest) == lower else pl.lit(False)
-        else:
-            try:
-                literal = pl.lit(float(bound))
-            except OverflowError:
-                literal = pl.lit(math.inf if bound > 0 else -math.inf)
-    else:
-        literal = pl.lit(bound)
-    return column >= literal if lower else column <= literal
 
 
 def search_terms(text: str) -> list[str]:
@@ -328,7 +257,8 @@ def apply_state(
         The shown page, the keys of every matching row, and what the column
         menus show. Only the page's rows are collected with every column; the
         matching rows are counted, or only their keys are collected for a
-        selectable table.
+        selectable table. The counts and histograms take every row of the
+        frame.
     """
     lazy = frame.lazy()
     schema = lazy.collect_schema()
@@ -359,4 +289,5 @@ def apply_state(
         counts=count_values(frame, config),
         types={column.name: dtype_label(schema[column.name]) for column in config.columns},
         chips=filter_chips(state, config),
+        histograms=column_histograms(frame, state, config, schema) if config.histograms else {},
     )
