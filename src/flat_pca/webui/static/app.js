@@ -312,11 +312,36 @@ document.addEventListener("htmx:afterSettle", (event) => {
   }
 });
 
+// htmx triggers a response's events (HX-Trigger) and htmx:afterRequest on the
+// element that sent the request, and they reach the listeners above it only
+// while it is in the page. A choice replaced while its request is pending,
+// such as a "Show" form of the transform run list reloaded meanwhile, passes
+// them on itself, so that the page is still refreshed and the overlay closed.
+const relayedChoices = new WeakSet();
+
+function relayFromReplacedChoice(elt) {
+  if (relayedChoices.has(elt)) {
+    return;
+  }
+  relayedChoices.add(elt);
+  elt.addEventListener("view-selection-changed", (event) => {
+    if (!elt.isConnected) {
+      document.body.dispatchEvent(new CustomEvent(event.type, { bubbles: true, detail: event.detail }));
+    }
+  });
+  elt.addEventListener("htmx:afterRequest", (event) => {
+    if (!elt.isConnected && !event.detail.successful) {
+      stopViewOverlay();
+    }
+  });
+}
+
 document.addEventListener("htmx:beforeRequest", (event) => {
   const form = event.detail.elt.closest("[data-view-choice]");
   if (!form) {
     return;
   }
+  relayFromReplacedChoice(event.detail.elt);
   // The modal dialog would cover the overlay, so a choice made in it closes
   // it. Its contents stay until the request ends, since htmx triggers the
   // response's events (HX-Trigger) on the form.

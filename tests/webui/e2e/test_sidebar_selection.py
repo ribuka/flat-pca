@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from datatable_menu import close_column_menu, open_column_menu
-from playwright.sync_api import Page, Request, expect
+from playwright.sync_api import Page, Request, Route, expect
 from sidebar_choice import (
     choose_files,
     mark_page,
@@ -160,6 +160,47 @@ def test_changing_the_run_clears_the_files(page: Page, two_fits_server_url: str)
     expect(dialog.locator("[data-view-dialog-run]")).to_have_text("run tr-1")
     expect(dialog.locator("tr[data-dt-key]")).to_have_count(12)
     expect(dialog.locator("[data-dt-row-check]:checked")).to_have_count(0)
+
+
+def test_show_clicked_while_the_run_list_reloads_still_refreshes(
+    page: Page, two_fits_server_url: str
+) -> None:
+    """A run list reloaded while "Show" is pending does not leave the overlay on."""
+    page.goto(f"{two_fits_server_url}/transform")
+    wait_for_sidebar(page)
+    shown = page.locator("[data-transform-shown]")
+    expect(shown).to_have_attribute("data-transform-shown", "tr-2")
+    mark_page(page)
+    held: dict[str, Route] = {}
+
+    def hold(route: Route) -> None:
+        """Keep the run list and the choice of the run waiting until released."""
+        held[route.request.method] = route
+
+    page.route("**/transform/runs", hold)
+    page.route("**/transform/show", hold)
+    select_in_dialog(page, ["s-00"])
+    wait_for_view_refresh(page)
+    expect(shown_files(page)).to_have_text(["s-00"])
+    show = page.locator('[data-run-id="tr-1"]').get_by_role("button", name="Show")
+
+    show.click()
+
+    # The run list asked for by the file choice comes back before the choice
+    # of the run, and replaces the form that sent it.
+    for _ in range(100):
+        if set(held) == {"GET", "POST"}:
+            break
+        page.wait_for_timeout(50)
+    assert set(held) == {"GET", "POST"}
+    page.unroute("**/transform/runs")
+    button = show.element_handle()
+    held.pop("GET").continue_()
+    page.wait_for_function("(button) => !button.isConnected", arg=button)
+    held.pop("POST").continue_()
+    wait_for_view_refresh(page)
+    expect(shown).to_have_attribute("data-transform-shown", "tr-1")
+    expect(shown_files(page)).to_have_count(0)
 
 
 def test_model_choice_replaces_the_transform_page(page: Page, two_fits_server_url: str) -> None:
