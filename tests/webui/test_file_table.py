@@ -33,11 +33,11 @@ def test_file_frame_without_files_keeps_its_columns(database: Database) -> None:
 
 
 def test_file_table_config_filters_metadata_but_not_statistics(settings: Settings) -> None:
-    """The stem and metadata columns have filters; the statistics do not."""
+    """The metadata columns have filters; the stem has the search box; the statistics neither."""
     config = file_table_config(settings.metadata_columns)
 
+    assert (config.search, config.filter_chips, config.column_chooser) == (True, True, True)
     assert {name: column.filter for name, column in config.filtered_columns.items()} == {
-        "stem": "text",
         "lot": "choice",
         "date": "datetime",
         "yield_pct": "number",
@@ -51,10 +51,12 @@ def test_file_table_config_filters_metadata_but_not_statistics(settings: Setting
     ("parameters", "expected"),
     [
         ({"files.order": ["desc"]}, ["run-10", "run-2", "run-1"]),
-        ({"files.q__stem": ["RUN-1"]}, ["run-1", "run-10"]),
+        ({"files.search": ["RUN-1"]}, ["run-1", "run-10"]),
         ({"files.eq__lot": ["B"]}, ["run-2"]),
         ({"files.eq__lot": ["B", "A"]}, ["run-1", "run-2"]),
-        ({"files.q__stem": ["1 RUN"]}, ["run-1", "run-10"]),
+        ({"files.search": ["1 RUN"]}, ["run-1", "run-10"]),
+        ({"files.search": ["run"], "files.eq__lot": ["B"]}, ["run-2"]),
+        ({"files.search": ["lot"]}, []),
         ({"files.null__yield_pct": ["is_null"]}, ["run-10"]),
         ({"files.null__lot": ["is_null"]}, ["run-10"]),
         ({"files.null__lot": ["is_not_null"], "files.order": ["desc"]}, ["run-2", "run-1"]),

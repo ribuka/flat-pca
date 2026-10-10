@@ -32,9 +32,9 @@ def test_files_chosen_in_the_dialog_follow_every_screen_and_reload(
     rows = dialog.locator("tr[data-dt-key]")
     expect(rows).to_have_count(12)
     expect(rows.first).to_have_attribute("data-dt-key", "s-00")
-    menu = open_column_menu(dialog, "file")
-    menu.get_by_label("Filter by file name").fill("s-1")
+    dialog.get_by_role("searchbox", name="Search").fill("s-1")
     expect(rows).to_have_count(2)
+    menu = open_column_menu(dialog, "file")
     # The menu shows on top of the dialog; Escape closes it but not the dialog.
     expect(menu).to_be_visible()
     box = menu.bounding_box()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 
 import pytest
@@ -43,6 +44,18 @@ def test_parse_state_defaults_and_ignores_other_tables(config: TableConfig) -> N
     state = parse_state({"other.sort": ["x"], "q": ["y"], "t.eq__group": ["", "b"]}, config)
 
     assert state == TableState(sort_by="key", equals={"group": ("b",)})
+
+
+def test_parse_state_reads_the_search_of_a_table_with_the_search_box(
+    config: TableConfig,
+) -> None:
+    """``search`` is the stripped search of the whole table, only with ``TableConfig.search``."""
+    searchable = replace(config, search=True)
+
+    assert parse_state({"t.search": ["  b01 lotA "]}, searchable).search == "b01 lotA"
+    assert parse_state({"t.search": [" "]}, searchable).search == ""
+    with pytest.raises(ValueError, match="unknown parameter"):
+        parse_state({"t.search": ["a"]}, config)
 
 
 def test_parse_state_keeps_every_choice_value(config: TableConfig) -> None:

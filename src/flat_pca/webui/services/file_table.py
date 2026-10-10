@@ -29,13 +29,15 @@ METADATA_DTYPES: dict[MetadataColumnType, pl.DataType] = {
 def file_table_config(columns: Mapping[str, MetadataColumnSettings]) -> TableConfig:
     """Return the data table settings of the file table.
 
-    The table shows the file name (a search for words in any order and
-    case; its tooltip is the path), each metadata column (values to check
-    for ``category`` columns and lower and upper bounds for the others; each
-    also with a null filter), and the numbers of Steps, ``(Step, Sequence)``
-    pairs, and rows without filters. Every column sorts, the file name in
-    natural order. Rows are selected by stem into the hidden input
-    ``stems``, ``FILE_PAGE_SIZE`` rows per page.
+    The table shows the file name (its tooltip is the path), each metadata
+    column (values to check for ``category`` columns and lower and upper
+    bounds for the others; each also with a null filter), and the numbers of
+    Steps, ``(Step, Sequence)`` pairs, and rows without filters. Every
+    column sorts, the file name in natural order. Above the table, the
+    search box looks for words in any order and case in the file name (and
+    any text column), the chips list the filters in use, and the "Columns"
+    menu shows or hides columns. Rows are selected by stem into the hidden
+    input ``stems``, ``FILE_PAGE_SIZE`` rows per page.
 
     Parameters
     ----------
@@ -52,14 +54,7 @@ def file_table_config(columns: Mapping[str, MetadataColumnSettings]) -> TableCon
         table_id=FILE_TABLE_ID,
         key="stem",
         columns=(
-            ColumnConfig(
-                "stem",
-                label="file",
-                filter="text",
-                filter_label="Filter by file name",
-                frame_order=True,
-                title_column="path",
-            ),
+            ColumnConfig("stem", label="file", frame_order=True, title_column="path"),
             *(
                 ColumnConfig(name, filter=METADATA_FILTERS[column.type])
                 for name, column in columns.items()
@@ -74,6 +69,9 @@ def file_table_config(columns: Mapping[str, MetadataColumnSettings]) -> TableCon
         selection_name="stems",
         select_all_label="Select all filtered files",
         default_sort="stem",
+        search=True,
+        filter_chips=True,
+        column_chooser=True,
     )
 
 

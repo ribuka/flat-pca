@@ -70,7 +70,9 @@ and get element references for `browser_click`, `browser_select_option`, and `br
 | Column headers | Each shows the name, `⋯`, and the type below it (`str`, `cat`, `datetime[μs]`, `f64`, `i64`). |
 | Click `lot` (opens its column menu) | The menu shows Asc / Desc / Clear sort, the values `A 1`, `B 1`, "Null values 1", and Copy column name; checking `A` leaves only `run-1`, keeps the menu open, and marks the header with a funnel. Escape or a click outside closes it. |
 | `Is null` in the `lot` menu | Only `run-10` (no metadata) remains. |
-| Search in the `file` menu | `1 RUN` leaves `run-1` and `run-10`; the input keeps the focus. |
+| `Search…` above the table | `1 RUN` leaves `run-1` and `run-10`; the input keeps the focus. |
+| Filter chips above the table | Each filter in use shows as a chip (e.g. `lot ∈ {A}`, `yield_pct ≥ 90`); its × removes the filter. |
+| `Columns` above the table | Unchecking a column hides it ("3 rows, 6 columns"); the choice survives a page reload; `file` cannot be hidden. |
 | Numeric / datetime filters (in the menu) | e.g. `yield_pct lower` = 90 leaves only `run-1`. |
 | Asc / Desc in a column menu | The table sorts ascending (▲) or descending (▼) and the menu closes. |
 | Header checkbox of the file table | Checks / clears every row matching the filters, on all pages; with only some of them checked it shows the indeterminate state. |

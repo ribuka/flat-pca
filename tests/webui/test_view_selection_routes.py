@@ -190,7 +190,8 @@ def test_dialog_table_has_the_file_table_columns_and_filters(
     assert headers == ["file", "lot", "date", "yield_pct", "Steps", "(Step, Sequence)s", "rows"]
     types = re.findall(r'<span class="dt-type">([^<]*)</span>', table)
     assert types == ["str", "cat", "datetime[μs]", "f64", "i64", "i64", "i64"]
-    assert 'aria-label="Filter by file name"' in table
+    assert 'name="view-files.search"' in table
+    assert 'popovertarget="view-files-columns-menu"' in table
     assert 'name="view-files.null__lot"' in table
     row = re.search(r'<tr data-dt-key="s-00">(.*?)</tr>', table, re.DOTALL)
     assert row is not None
@@ -198,7 +199,7 @@ def test_dialog_table_has_the_file_table_columns_and_filters(
 
     assert re.findall(
         r'<tr data-dt-key="([^"]+)"',
-        _table(client, **{"view-files.q__stem": "s-1", "view-files.order": "desc"}),
+        _table(client, **{"view-files.search": "s-1", "view-files.order": "desc"}),
     ) == ["s-11", "s-10"]
     assert client.get(
         "/sidebar/selection/files/table", params={"view-files.sort": "missing"}

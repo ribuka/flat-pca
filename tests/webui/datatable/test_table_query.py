@@ -18,6 +18,7 @@ from flat_pca.webui.datatable import (
     count_values,
     filter_expression,
     parse_state,
+    search_columns,
     search_terms,
     sort_frame,
 )
@@ -99,6 +100,55 @@ def test_text_filter_searches_words_as_plain_text(search: str, expected: list[st
     assert apply_state(frame, state, config).matching_keys == expected
 
 
+@pytest.mark.parametrize(
+    ("search", "expected"),
+    [
+        # Each word in any text column (key, name, group, note), in any case.
+        ("ALPHA", ["k1", "k4"]),
+        ("alpha first", ["k1"]),
+        ("k2 BETA", ["k2"]),
+        ("third", ["k3"]),
+        # Every word must be found; nulls hold no word.
+        ("beta first", []),
+        ("b", ["k2", "k4"]),
+        # Plain text, not a regular expression.
+        ("k.", []),
+        # Numbers and datetimes are not searched.
+        ("2026", []),
+        ("   ", ["k1", "k2", "k3", "k4"]),
+    ],
+)
+def test_search_looks_for_every_word_in_any_text_column(
+    frame: pl.DataFrame, config: TableConfig, search: str, expected: list[str]
+) -> None:
+    """The search of the whole table finds each word in any shown ``pl.String`` column."""
+    searchable = replace(config, search=True)
+
+    state = parse_state({"t.search": [search]}, searchable)
+
+    assert _keys(frame, state, searchable) == expected
+
+
+def test_search_columns_are_the_shown_string_columns(
+    frame: pl.DataFrame, config: TableConfig
+) -> None:
+    """Only shown columns of type ``pl.String`` are searched, in display order."""
+    frame = frame.with_columns(pl.col("group").cast(pl.Categorical), hidden=pl.lit("x"))
+
+    assert search_columns(config, frame.schema) == ["key", "name", "note"]
+
+
+def test_search_without_text_columns_matches_nothing() -> None:
+    """A search finds no row in a table without text columns."""
+    frame = pl.DataFrame({"n": [1, 2]})
+    config = TableConfig(
+        table_id="t", key="n", columns=(ColumnConfig("n"),), url="/", selectable=True, search=True
+    )
+
+    assert _keys(frame, TableState(search="1"), config) == []
+    assert _keys(frame, TableState(search=" "), config) == [str(1), str(2)]
+
+
 def test_search_terms_split_on_whitespace_in_lowercase() -> None:
     """Words are lowercased, split on any whitespace, and kept once."""
     assert search_terms("  B01\tlotA  b01 ") == ["b01", "lota"]
@@ -115,15 +165,18 @@ def test_search_terms_split_on_whitespace_in_lowercase() -> None:
         {"t.null__count": ["is_not_null"]},
         {"t.null__group": ["is_null"]},
         {"t.eq__group": ["a"], "t.null__when": ["is_not_null"], "t.sort": ["score"]},
+        {"t.search": ["A"]},
+        {"t.search": ["a"], "t.eq__group": ["a", "b"], "t.sort": ["score"], "t.order": ["desc"]},
     ],
 )
 def test_matching_keys_follow_every_filter_over_all_pages(
     frame: pl.DataFrame, config: TableConfig, parameters: dict[str, list[str]]
 ) -> None:
     """The header checkbox's keys are exactly the filtered rows, shown on this page or not."""
+    config = replace(config, search=True)
     state = parse_state(parameters, config)
     expected = (
-        frame.filter(filter_expression(state, frame.schema))
+        frame.filter(filter_expression(state, config, frame.schema))
         .pipe(lambda rows: sort_frame(rows.lazy(), state, config).collect())
         .get_column("key")
         .to_list()
