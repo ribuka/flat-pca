@@ -134,6 +134,9 @@ def test_file_is_looked_up_next_to_the_settings_file(tmp_path: Path) -> None:
         ("[preprocess]\nt_downsampling_stride = 1.5\n", "t_downsampling_stride"),
         ("[preprocess]\nmax_null_ratio = '0.1'\n", "max_null_ratio"),
         ("[preprocess.wavelength_range]\nenabled = 1\n", "enabled"),
+        ("[preprocess.wavelength_range]\nenabled = true\nlower = nan\n", "lower"),
+        ("[preprocess.t_normalization_range]\nupper = inf\n", "upper"),
+        ("[preprocess.w_normalization_range]\nlower = -inf\nupper = 1\n", "lower"),
         ("[pca]\nn_component = 0\n", "n_component"),
         ("[pca]\nimpute_kmeans_n_clusters = 0\n", "impute_kmeans_n_clusters"),
     ],
@@ -188,6 +191,21 @@ def test_range_with_one_bound_is_checked_on_the_form(settings_path: Path) -> Non
 
     form = parse_fit_form(default_form_values(RANGES, defaults.form_values()), n_files=2)
     assert set(form.errors) == {"wavelength_range"}
+
+
+def test_choices_are_stripped_as_the_form_reads_them(settings_path: Path) -> None:
+    """Choices with surrounding spaces become the exact option values."""
+    _write(
+        settings_path,
+        "[preprocess]\nintensity_transform = ' sqrt '\n"
+        "[pca]\nimpute_strategy = 'median '\nscaling_strategy = ' z-score'\n",
+    )
+
+    values = load_fit_defaults(settings_path).form_values()
+
+    assert values["intensity_transform"] == "sqrt"
+    assert values["impute_strategy"] == "median"
+    assert values["scaling_strategy"] == "z-score"
 
 
 def test_invalid_toml_is_an_error(settings_path: Path) -> None:

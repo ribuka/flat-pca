@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, PositiveInt, ValidationError
+from pydantic import BaseModel, ConfigDict, FiniteFloat, PositiveInt, ValidationError
 
 from .services.catalog_query import SelectionRanges
 from .services.fit_form import (
@@ -50,12 +50,14 @@ class RangeDefaults(_StrictModel):
     enabled : bool
         Whether the range is enabled.
     lower, upper : float | None
-        Bounds; ``None`` uses the catalog range of the selected files.
+        Finite bounds; ``None`` uses the catalog range of the selected
+        files. Each bound is checked on its own, since the form checks the
+        pair only once the catalog supplies a missing bound.
     """
 
     enabled: bool = False
-    lower: float | None = None
-    upper: float | None = None
+    lower: FiniteFloat | None = None
+    upper: FiniteFloat | None = None
 
 
 class PreprocessDefaults(_StrictModel):
@@ -193,9 +195,10 @@ def _form_text(value: str | float) -> str:
     Returns
     -------
     str
-        The choice itself, or the number formatted as on the form.
+        The choice stripped as the form reads it (so the rendered option is
+        selected), or the number formatted as on the form.
     """
-    return value if isinstance(value, str) else number_text(value)
+    return value.strip() if isinstance(value, str) else number_text(value)
 
 
 def _setting_key(form_key: str) -> str:

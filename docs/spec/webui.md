@@ -145,7 +145,7 @@ alpha = 0.01
 - 書ける項目は、`[preprocess]`の`edge_trim_start`・`edge_trim_end`・`t_smoothing_window`・`w_smoothing_window`・`intensity_transform`・`intensity_transform_scale`・`t_downsampling_stride`・`w_downsampling_stride`・`max_null_ratio`と範囲（`wavelength_range`・`t_normalization_range`・`w_normalization_range`の`enabled`・`lower`・`upper`）、`[pca]`の`n_component`・`impute_strategy`・`impute_kmeans_n_clusters`・`scaling_strategy`、`[mahalanobis]`・`[spe]`の`cumulative_explained_variance`・`alpha`とする。`target_steps`は選んだファイルから決まるため対象外とする。
 - 書かなかった項目は組み込みの初期値（`PreprocessConfig`・`MahalanobisConfig`・`SpeConfig`の既定値と、PCAの`n_component`自動・`impute_strategy = "drop"`・`scaling_strategy = "none"`）を使う。範囲の`lower`・`upper`を書かなければ、選んだファイルのcatalogの範囲を使う。TOMLには空の値が無いため、空欄（edge trimや平滑化なし、`n_component`自動など）にするには項目を書かない。
 - ファイルが無いときは組み込みの初期値を使う（エラーにしない）。同じディレクトリに`fit_defaults.local.toml`があれば、`fit_defaults.toml`の代わりにそちらだけを読む（マージはしない。`settings.local.toml`と同じ）。settings.tomlとは別に置き換えられるので、パスだけをlocalにして初期値は共有のファイルを使う、といった組み合わせができる。
-- 起動時（`--reload`では各ワーカーの起動時も）に読み込んで検証し、未知のキー、型の違う値、フォームの検証で不正になる値はエラーとして起動を止める。フォームと同じ検証（`parse_fit_form`）を通し、エラーは`pca.n_component`のようなキー名で示す。範囲は`lower`・`upper`の両方を書いたときだけ（`enabled`によらず）組で検証する。`n_component`はファイル数による上限を検証しない（送信時にフォームで検証する）。
+- 起動時（`--reload`では各ワーカーの起動時も）に読み込んで検証し、未知のキー、型の違う値、フォームの検証で不正になる値はエラーとして起動を止める。フォームと同じ検証（`parse_fit_form`）を通し、エラーは`pca.n_component`のようなキー名で示す。範囲の`lower`・`upper`はそれぞれ有限の数であることを検証し、両方を書いたときだけ（`enabled`によらず）組で検証する。選択肢の前後の空白はフォームと同じく取り除く。`n_component`はファイル数による上限を検証しない（送信時にフォームで検証する）。
 
 ## Workspace と DB
 
