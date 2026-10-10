@@ -7,7 +7,7 @@ from typing import Literal
 
 import pytest
 from datatable_menu import close_column_menu, column_menu, open_column_menu
-from playwright.sync_api import Locator, Page, expect
+from playwright.sync_api import Locator, Page, Route, expect
 
 from flat_pca.webui.services import file_table
 
@@ -297,6 +297,41 @@ def test_page_controls_move_to_first_last_and_typed_pages(
     expect(number).to_have_value("3")
     page.get_by_role("button", name="First page").click()
     expect(stems).to_have_text(["run-1"])
+
+
+def test_failed_page_move_can_be_retried_with_the_same_number(
+    page: Page,
+    cataloged_server_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+    expected_console_errors: list[str],
+) -> None:
+    """After a failed move, Enter on the same page number asks for it again."""
+    expected_console_errors.extend(["503", "htmx:responseError"])
+    monkeypatch.setattr(file_table, "FILE_PAGE_SIZE", 1)
+    page.goto(cataloged_server_url)
+    stems = _file_stems(page)
+    expect(stems).to_have_text(["run-1"])
+    failures: list[str] = []
+
+    def fail_once(route: Route) -> None:
+        """Answer the first request for page 2 with 503, then pass them on."""
+        if "files.page=2" in route.request.url and not failures:
+            failures.append(route.request.url)
+            route.fulfill(status=503, body="unavailable")
+        else:
+            route.continue_()
+
+    page.route("**/catalog/files?*", fail_once)
+    number = page.get_by_label("Page number")
+
+    number.fill("2")
+    with page.expect_response(lambda response: response.status == 503):
+        number.press("Enter")
+    expect(stems).to_have_text(["run-1"])
+    assert len(failures) == 1
+    number.press("Enter")
+    expect(stems).to_have_text(["run-2"])
+    expect(number).to_have_value("2")
 
 
 def _selection(page: Page) -> list[str]:

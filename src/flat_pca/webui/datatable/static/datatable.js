@@ -245,37 +245,47 @@
 
   // The page number input under the table moves to the page typed, kept
   // between the first and the last, on Enter or when it loses the focus.
-  // Anything else puts the current page back. The input notes the page it
-  // asked for, so that the `change` it fires when the reload removes it
-  // (after Enter) does not ask again.
-  function goToTypedPage(input) {
-    if (!input.isConnected) {
-      return;
-    }
+  // Anything else puts the current page back. An input notes the page it
+  // asked for (`askedPages`), so that the `change` it fires after Enter,
+  // also when the reload removes it, does not ask again; Enter always asks,
+  // and a failed reload forgets the note, so the same page can be retried.
+  const askedPages = new WeakMap();
+
+  function goToTypedPage(input, retry) {
     const current = Number(input.dataset.dtPageCurrent);
     const typed = Math.round(Number(input.value));
     if (input.value.trim() === "" || !Number.isFinite(typed)) {
-      input.value = current;
+      input.value = askedPages.get(input) ?? current;
       return;
     }
     const number = Math.min(Math.max(typed, 1), Number(input.max));
     input.value = number;
-    if (number !== current) {
-      input.dataset.dtPageCurrent = String(number);
-      reload(tableOf(input), { page: String(number) });
+    if (number === current || (!retry && askedPages.get(input) === number)) {
+      return;
     }
+    askedPages.set(input, number);
+    reload(tableOf(input), { page: String(number) });
   }
 
   document.addEventListener("change", (event) => {
-    if (event.target.matches("[data-dt-page-input]") && tableOf(event.target)) {
-      goToTypedPage(event.target);
+    if (event.target.matches("[data-dt-page-input]") && event.target.isConnected && tableOf(event.target)) {
+      goToTypedPage(event.target, false);
     }
   });
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && event.target.matches?.("[data-dt-page-input]") && tableOf(event.target)) {
       event.preventDefault();
-      goToTypedPage(event.target);
+      goToTypedPage(event.target, true);
+    }
+  });
+
+  document.addEventListener("htmx:afterRequest", (event) => {
+    const root = event.detail.elt;
+    if (!event.detail.successful && root.matches?.("[data-datatable]")) {
+      for (const input of root.querySelectorAll("[data-dt-page-input]")) {
+        askedPages.delete(input);
+      }
     }
   });
 
