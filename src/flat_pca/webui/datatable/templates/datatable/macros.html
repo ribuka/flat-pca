@@ -141,8 +141,10 @@
 {%- endmacro %}
 
 {#- A column header: the column name opening the column menu, the sort mark,
-    a mark while a filter uses the column, the column type, and the column's
-    histogram (TableConfig.histograms). -#}
+    a mark while a filter uses the column, the column type, the column's
+    histogram (TableConfig.histograms), and the handle on its right edge
+    that resizes the column (datatable.js: drag, double-click to fit, or
+    ←/→ while focused). -#}
 {% macro _header(config, view, column, index) -%}
   {% set menu_id = config.table_id ~ "-menu-" ~ index %}
   {% set current = view.state.sort_by == column.name %}
@@ -159,6 +161,8 @@
   <span class="dt-type">{{ view.types[column.name] }}</span>
   {% if column.name in view.histograms %}{{ _histogram(column, view.histograms[column.name]) }}{% endif %}
   {{ _menu(config, view, column, menu_id, index) }}
+  <span class="dt-resizer" role="separator" aria-orientation="vertical" aria-label="Resize column {{ column.header }}" tabindex="0"
+        data-dt-resize="{{ column.name }}"></span>
 {%- endmacro %}
 
 {#- The "Export" menu: a CSV and a Parquet button for the rows matching the
@@ -183,7 +187,8 @@
 {%- endmacro %}
 
 {#- Above the table, by the settings: the search box of the whole table, the
-    "Columns" menu showing or hiding columns and the "Pin columns" toggle
+    "Columns" menu showing or hiding columns (and resetting the column
+    widths) and the "Pin columns" toggle
     (datatable.js applies and remembers both choices), the "Export" menu, and
     the chips of the filters in use, each with a button clearing its controls. The search box is
     preserved across reloads (hx-preserve), like the typed filters. -#}
@@ -206,6 +211,10 @@
             <span class="dt-choice-value">{{ column.header }}</span></label>
         {% endfor %}
       </fieldset>
+      {#- Enabled by datatable.js while a column has a width of its own. -#}
+      <div class="dt-menu-section">
+        <button type="button" data-dt-reset-widths disabled>Reset column widths</button>
+      </div>
     </div>
   {% endif %}
   {% if config.pin_toggle %}

@@ -726,3 +726,39 @@ def test_fragment_has_a_pin_toggle_off_by_default(
     assert toggle[0].endswith("Pin columns</button>")
     assert html.index("dt-toolbar") < html.index("data-dt-pin-toggle")
     assert "data-dt-pin-toggle" not in plain
+
+
+def test_fragment_has_a_resize_handle_on_every_column_header(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """Each column header but the checkbox column's ends in a focusable handle naming its column."""
+    view = apply_state(frame, TableState(), config)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    handles = re.findall(r'<span class="dt-resizer"[^>]*></span>\s*</th>', html)
+    assert len(handles) == len(config.columns)
+    for handle, column in zip(handles, config.columns, strict=True):
+        assert 'role="separator" aria-orientation="vertical"' in handle
+        assert f'aria-label="Resize column {column.header}"' in handle
+        assert 'tabindex="0"' in handle
+        assert f'data-dt-resize="{column.name}"' in handle
+    check = re.search(r'<th class="dt-check dt-pinned">.*?</th>', html, re.DOTALL)
+    assert check is not None
+    assert "dt-resizer" not in check[0]
+
+
+def test_columns_menu_resets_the_column_widths(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """The "Columns" menu ends with "Reset column widths", disabled until the browser enables it."""
+    chooser = replace(config, column_chooser=True)
+    view = apply_state(frame, TableState(), chooser)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=chooser, view=view)
+    plain = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    menu = re.search(r'<div popover id="t-columns-menu".*?</fieldset>.*?</div>', html, re.DOTALL)
+    assert menu is not None
+    assert '<button type="button" data-dt-reset-widths disabled>Reset column widths</button>' in menu[0]
+    assert "data-dt-reset-widths" not in plain

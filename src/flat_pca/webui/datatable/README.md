@@ -227,6 +227,37 @@ header checkbox's matching keys, the export, and anything else built on
     `<export_name>_<YYYYmmdd-HHMMSS>.csv` (or `.parquet`). Leave
     `export_url` unset where the rows need no export, such as a dialog
     choosing a few rows.
+- Column widths (every table): the table has a fixed layout
+  (`table-layout: fixed`), so the widths do not follow the values. Every
+  column but the checkbox column (`--dt-check-width`) starts at
+  `--dt-col-width`. A value (or a column name) wider than its column ends in
+  `…`; with the pointer on it, its tooltip (`title`) shows it whole, except
+  where the cell has the tooltip of `title_column`.
+  - The right edge of each header is a handle (`[data-dt-resize]`, a
+    focusable `separator` named `Resize column <label>`): on hover it shows
+    the `col-resize` cursor and an accent edge. Dragging it resizes the
+    column, live while dragging; double-clicking it fits the column to its
+    header (name and marks, type, histogram) and the values of the rows shown
+    on the page; ←/→ while it is focused narrow or widen the column by 10 px.
+    None of these opens the column menu, sorts, or selects a row.
+  - A column is never narrower than `--dt-col-min-width` (by default the
+    histogram's width plus the cell's left and right padding), and the
+    handle never makes it narrower than `--dt-histogram-width` plus the
+    cell's padding whatever the variable says, so the histogram and the
+    column name's button (with its marks) stay in view; a narrow column
+    shortens the name with `…`. The histograms keep their width
+    (`--dt-histogram-width`) whatever the column's.
+  - The widths set are kept in `localStorage` under
+    `datatable:column-widths:<table_id>` (a JSON object of pixels by column
+    name) and applied again after every reload (paging, filtering, sorting)
+    before the rows are drawn, by a style sheet in the document head, like
+    the hidden columns; without storage they last until the page is left.
+  - `column_chooser` adds `Reset column widths` at the bottom of the
+    `Columns` menu: it returns every column to `--dt-col-width` and forgets
+    the widths. It is disabled while no column has a width of its own.
+  - A resized pinned column stays pinned in place: the first column still
+    starts after the checkbox column, and the columns right of it move with
+    its width.
 - Each header shows the column name, the sort mark (▲ / ▼), a funnel mark
   while a filter (values, bounds, search, or null filter) uses the column,
   and the column type under the name (`dtype_label`: polars' short names such
@@ -324,8 +355,11 @@ container, so several tables can share a page.
 | Selector | Element |
 | --- | --- |
 | `.dt-root[data-datatable]` | Container (`id` = `table_id`); `data-dt-locked` when locked; `data-dt-pinned` while the left columns are pinned; `data-dt-max-selected` with the limit; `data-dt-export-url` with `export_url`. |
-| `.dt-scroll` / `.dt-table` | Scroll box with a fixed header / the table. |
+| `.dt-scroll` / `.dt-table` | Scroll box with a fixed header / the table (`table-layout: fixed`). |
 | `.dt-head`, `.dt-column[data-dt-column]`, `.dt-label` | Header line and the column name button opening the menu. |
+| `.dt-resizer[data-dt-resize]` | Handle on the right edge of a header resizing its column (`role="separator"`, named `Resize column <label>`, `aria-valuenow` the width in pixels); `data-dt-resizing` while dragged, also on the container. |
+| `[data-dt-reset-widths]` | `Reset column widths` button of the `Columns` menu. |
+| `.dt-measure` | Copy of a cell's contents measured to fit its column (removed at once). |
 | `.dt-sort-mark`, `.dt-menu-mark`, `.dt-filter-mark[data-dt-filtered]` | ▲ / ▼, the menu's ⋯, and the funnel of a filtered column. |
 | `.dt-type` | Column type under the name. |
 | `.dt-histogram[data-dt-histogram]`, `.dt-bins`, `.dt-bin`, `.dt-bin-bar`, `.dt-bin-hit`, `.dt-ticks` | A column's histogram: the SVG (`role="img"`, named `Histogram of <label>, <min> to <max>`), a bin (`<g>` with its `<title>`), its bar and its full-height hover area, and the smallest and largest value. |
@@ -366,13 +400,15 @@ container or an ancestor fixes the scheme.
 | `--dt-font`, `--dt-font-size` | Font family and table font size. |
 | `--dt-cell-padding` | Cell padding. |
 | `--dt-check-width` | Width of the checkbox column, where the pinned first column starts. |
+| `--dt-col-width` | Width of every other column until it is resized (default `12rem`). |
+| `--dt-col-min-width` | Narrowest width of a column (default `--dt-histogram-width` plus `1.5rem`, the left and right padding of the default `--dt-cell-padding`); never below the histogram and the cell's padding. |
 | `--dt-max-height` | Height of the scroll box (about the header and 12 rows). |
 | `--dt-filter-max-width` | Width limit of the filter inputs. |
 | `--dt-mono-font` | Font of the column types. |
 | `--dt-menu-bg`, `--dt-menu-shadow`, `--dt-menu-max-width` | Menu background, shadow, and width limit. |
 | `--dt-search-width` | Width of the search box. |
 | `--dt-chip-bg` | Background of the filter chips. |
-| `--dt-histogram-width`, `--dt-histogram-height` | Width of a histogram or of the top values, and height of a histogram's bars. |
+| `--dt-histogram-width`, `--dt-histogram-height` | Width of a histogram or of the top values (fixed, whatever the column's width), and height of a histogram's bars. |
 | `--dt-histogram-fg`, `--dt-histogram-out-opacity` | Color of the bars, and opacity of the faded ones. |
 
 Buttons and inputs otherwise take the page's own styles.

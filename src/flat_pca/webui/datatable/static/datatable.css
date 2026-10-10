@@ -14,6 +14,13 @@
   /* Width of the checkbox column, which is also where the pinned first
      column starts. */
   --dt-check-width: 2.25rem;
+  /* Width of every other column until it is resized, and the narrowest a
+     column gets. The minimum keeps the histogram and the cell's left and
+     right padding (0.75rem each in --dt-cell-padding) in view;
+     datatable.js never resizes a column below the histogram and the
+     padding, whatever this is. */
+  --dt-col-width: 12rem;
+  --dt-col-min-width: calc(var(--dt-histogram-width) + 1.5rem);
   --dt-accent: #1a73e8;
   --dt-radius: 8px;
   --dt-font: inherit;
@@ -204,7 +211,14 @@
   border-radius: var(--dt-radius);
 }
 
+/* The header cells set the column widths (a fixed layout does not look at
+   the values); the table is as wide as its columns. A value wider than its
+   column ends in "…", and datatable.js shows it whole as the cell's
+   tooltip. A resized column's width comes from a style sheet in the
+   document head (see datatable.js). */
 .dt-table {
+  table-layout: fixed;
+  width: 0;
   border-collapse: separate;
   border-spacing: 0;
   font-size: var(--dt-font-size);
@@ -212,10 +226,54 @@
 
 .dt-table th,
 .dt-table td {
+  box-sizing: border-box;
+  overflow: hidden;
   padding: var(--dt-cell-padding);
   border-bottom: 1px solid var(--dt-border);
   text-align: left;
   white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dt-table thead th:not(.dt-check) {
+  width: max(var(--dt-col-min-width), var(--dt-col-width));
+}
+
+/* The handle on the right edge of a header resizes its column: it shows
+   where to grab (the col-resize cursor and the accent edge) on hover, on
+   focus, and while dragged. */
+.dt-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 0.5rem;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.dt-resizer:hover,
+.dt-resizer:focus-visible,
+.dt-resizer[data-dt-resizing] {
+  outline: none;
+  box-shadow: inset -2px 0 0 var(--dt-accent);
+}
+
+.dt-root[data-dt-resizing] {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* Copies of a cell's contents measured at their natural width to fit the
+   column to them; datatable.js removes them at once. */
+.dt-measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: max-content;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .dt-table thead th {
@@ -228,6 +286,7 @@
   background: var(--dt-header-bg);
 }
 
+/* A narrow column shortens the column name ("…"); the marks stay. */
 .dt-head {
   display: flex;
   align-items: center;
@@ -238,6 +297,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
+  min-width: 0;
   padding: 0;
   border: none;
   font: inherit;
@@ -250,6 +310,18 @@
 .dt-table .dt-column:hover:not(:disabled) {
   color: var(--dt-fg);
   background: none;
+}
+
+.dt-label,
+.dt-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dt-sort-mark,
+.dt-menu-mark,
+.dt-filter-mark {
+  flex: none;
 }
 
 .dt-sort-mark,

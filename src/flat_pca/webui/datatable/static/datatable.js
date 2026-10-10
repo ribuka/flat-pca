@@ -550,6 +550,197 @@
     }
   });
 
+  // Column widths. Every column but the checkbox column starts at
+  // `--dt-col-width`; the handle on the right edge of its header
+  // (`[data-dt-resize]`, the column name) resizes it by a drag, fits it to
+  // its header and shown values by a double-click, and moves it by
+  // `WIDTH_STEP_PX` with ←/→ while focused. A column is never narrower than
+  // `minimumWidth`. The widths set are remembered (`column-widths`, pixels
+  // by column name) and applied, like the hidden columns, by a style sheet in
+  // the document head that outlives the reloads; "Reset column widths" in
+  // the "Columns" menu forgets them.
+  const WIDTH_STEP_PX = 10;
+
+  function storedWidths(root) {
+    return preference(
+      root,
+      "column-widths",
+      {},
+      (value) => value !== null && typeof value === "object" && !Array.isArray(value)
+        && Object.values(value).every((width) => Number.isFinite(width) && width > 0),
+    );
+  }
+
+  // Keeps a column's width in memory, and in the storage when `persist`
+  // (at the end of a drag, so that a drag does not write at every move).
+  function setWidth(root, name, width, persist) {
+    const widths = { ...storedWidths(root), [name]: Math.round(width) };
+    if (persist) {
+      storePreference(root, "column-widths", widths);
+    } else {
+      preferences.set(preferenceKey(root, "column-widths"), widths);
+    }
+    syncWidths(root);
+  }
+
+  // Sizes the resized columns, and enables "Reset column widths" while
+  // there are any. The rule keeps `--dt-col-min-width`, should the page
+  // raise it after a width was remembered.
+  function syncWidths(root) {
+    const widths = storedWidths(root);
+    const sheetId = `${root.id}-dt-column-widths`;
+    let sheet = document.getElementById(sheetId);
+    if (!sheet) {
+      sheet = document.createElement("style");
+      sheet.id = sheetId;
+      document.head.append(sheet);
+    }
+    const cells = [...root.querySelectorAll(".dt-table thead tr > th")];
+    sheet.textContent = cells
+      .map((cell, index) => [cell.querySelector("[data-dt-resize]")?.dataset.dtResize, index + 1])
+      .filter(([name]) => name !== undefined && Object.hasOwn(widths, name))
+      .map(([name, child]) => `#${CSS.escape(root.id)} .dt-table thead tr > th:nth-child(${child})`
+        + ` { width: max(var(--dt-col-min-width), ${widths[name]}px); }`)
+      .join("\n");
+    for (const handle of root.querySelectorAll("[data-dt-resize]")) {
+      const width = Math.round(handle.parentElement.getBoundingClientRect().width);
+      handle.setAttribute("aria-valuenow", String(width));
+      handle.setAttribute("aria-valuetext", `${width} px`);
+    }
+    const reset = root.querySelector("[data-dt-reset-widths]");
+    if (reset) {
+      reset.disabled = Object.keys(widths).length === 0;
+    }
+  }
+
+  // Returns the width of an element's contents in `cell` (an element made
+  // at once and removed) when laid out as `css` asks.
+  function probeWidth(cell, css, contents = []) {
+    const probe = document.createElement("div");
+    probe.className = "dt-measure";
+    probe.style.cssText = css;
+    probe.append(...contents);
+    cell.append(probe);
+    const width = probe.getBoundingClientRect().width;
+    probe.remove();
+    return width;
+  }
+
+  // The narrowest a column gets: `--dt-col-min-width`, and never less than
+  // the histogram with the cell's left and right padding, so that the
+  // histogram and the column name's button stay in view.
+  function minimumWidth(cell) {
+    const style = getComputedStyle(cell);
+    const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+    return probeWidth(cell, `width: max(var(--dt-col-min-width), calc(var(--dt-histogram-width) + ${padding}px))`);
+  }
+
+  // Returns the width a cell needs to show its contents whole: its contents
+  // copied at their natural width (but the column menu and the handle),
+  // with its padding and borders.
+  function neededWidth(cell) {
+    const contents = [...cell.childNodes]
+      .filter((node) => node.nodeType !== Node.ELEMENT_NODE || !node.matches("[popover], [data-dt-resize]"))
+      .map((node) => node.cloneNode(true));
+    const style = getComputedStyle(cell);
+    const edges = ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"]
+      .reduce((sum, edge) => sum + parseFloat(style[edge]), 0);
+    return probeWidth(cell, "", contents) + edges;
+  }
+
+  // Fits a column to its header and the values of the rows shown on the
+  // page, within the minimum.
+  function fitWidth(root, handle) {
+    const header = handle.parentElement;
+    const child = [...header.parentElement.children].indexOf(header) + 1;
+    const cells = [header, ...root.querySelectorAll(`.dt-table tbody tr > :nth-child(${child})`)];
+    const needed = Math.ceil(Math.max(...cells.map(neededWidth)));
+    setWidth(root, handle.dataset.dtResize, Math.max(minimumWidth(header), needed), true);
+  }
+
+  // A drag follows the pointer (captured by the handle) from the width the
+  // column had, live, and remembers the width where it ends. Taking the
+  // pointer down cancels the text selection and the clicks under it.
+  document.addEventListener("pointerdown", (event) => {
+    const handle = event.target.closest?.("[data-dt-resize]");
+    const root = handle && tableOf(handle);
+    if (!root || event.button !== 0) {
+      return;
+    }
+    event.preventDefault();
+    handle.focus({ preventScroll: true });
+    const header = handle.parentElement;
+    const name = handle.dataset.dtResize;
+    const startX = event.clientX;
+    const startWidth = header.getBoundingClientRect().width;
+    const minimum = minimumWidth(header);
+    handle.setPointerCapture(event.pointerId);
+    handle.dataset.dtResizing = "";
+    root.dataset.dtResizing = "";
+    const move = (moved) => {
+      setWidth(root, name, Math.max(minimum, startWidth + moved.clientX - startX), false);
+    };
+    const end = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("lostpointercapture", end);
+      delete handle.dataset.dtResizing;
+      delete root.dataset.dtResizing;
+      if (Object.hasOwn(storedWidths(root), name)) {
+        storePreference(root, "column-widths", storedWidths(root));
+      }
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("lostpointercapture", end);
+  });
+
+  document.addEventListener("dblclick", (event) => {
+    const handle = event.target.closest?.("[data-dt-resize]");
+    const root = handle && tableOf(handle);
+    if (root) {
+      event.preventDefault();
+      fitWidth(root, handle);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    const handle = event.target.closest?.("[data-dt-resize]");
+    const root = handle && tableOf(handle);
+    const step = { ArrowLeft: -WIDTH_STEP_PX, ArrowRight: WIDTH_STEP_PX }[event.key];
+    if (!root || step === undefined) {
+      return;
+    }
+    event.preventDefault();
+    const header = handle.parentElement;
+    const width = header.getBoundingClientRect().width + step;
+    setWidth(root, handle.dataset.dtResize, Math.max(minimumWidth(header), width), true);
+  });
+
+  document.addEventListener("click", (event) => {
+    const reset = event.target.closest?.("[data-dt-reset-widths]");
+    const root = reset && tableOf(reset);
+    if (root) {
+      storePreference(root, "column-widths", {});
+      syncWidths(root);
+    }
+  });
+
+  // A value (or a column name) cut short by its column shows whole as its
+  // tooltip while the pointer is on it. A cell keeps the tooltip the
+  // application gave it (`title_column`).
+  document.addEventListener("mouseover", (event) => {
+    const cell = event.target.closest?.(".dt-table td, .dt-table .dt-label");
+    if (!cell || !tableOf(cell) || (cell.hasAttribute("title") && !("dtAutoTitle" in cell.dataset))) {
+      return;
+    }
+    if (cell.scrollWidth > cell.clientWidth) {
+      cell.title = cell.textContent.trim();
+      cell.dataset.dtAutoTitle = "";
+    } else if ("dtAutoTitle" in cell.dataset) {
+      cell.removeAttribute("title");
+      delete cell.dataset.dtAutoTitle;
+    }
+  });
+
   // Menus are popovers (`[data-dt-menu]`): a column's, opened by its name,
   // and the "Columns" menu. The browser opens and closes them (a click
   // outside or Esc closes one) and shows them in the top layer, so neither
@@ -744,12 +935,14 @@
 
   // Reopen as soon as the new menus are in the page, so that no Escape or
   // click outside falls between the swap and the reopening, and hide the
-  // hidden columns and show the pinned state before the new rows are drawn.
+  // hidden columns and show the pinned state and the column widths before
+  // the new rows are drawn.
   document.addEventListener("htmx:afterSwap", (event) => {
     const root = event.detail.target ?? event.target;
     if (root?.matches?.("[data-datatable]")) {
       syncColumns(root, true);
       syncPinned(root);
+      syncWidths(root);
       reopenMenu(root);
     }
   });
