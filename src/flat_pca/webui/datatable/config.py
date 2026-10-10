@@ -112,6 +112,11 @@ class TableConfig:
         Whether a "Columns" menu above the table shows or hides columns
         (all but the first). The browser remembers the choice per
         ``table_id``.
+    pin_toggle : bool, default False
+        Whether a "Pin columns" toggle above the table pins the checkbox
+        column and the first column at the left while the table scrolls
+        sideways. Pinning is off until turned on; the browser remembers the
+        choice per ``table_id``. Without the toggle nothing is pinned.
     histograms : bool, default False
         Whether each header shows the distribution of its column over every
         row of the frame (``column_histograms``): a histogram of a number,
@@ -141,6 +146,7 @@ class TableConfig:
     search: bool = False
     filter_chips: bool = False
     column_chooser: bool = False
+    pin_toggle: bool = False
     histograms: bool = False
     export_url: str | None = None
     export_name: str = "table"

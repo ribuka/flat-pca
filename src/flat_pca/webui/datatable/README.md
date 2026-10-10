@@ -71,6 +71,7 @@ Update this document whenever the component gains a feature.
        search=True,                   # search box of the whole table
        filter_chips=True,             # chips of the filters in use
        column_chooser=True,           # "Columns" menu showing or hiding columns
+       pin_toggle=True,               # "Pin columns" toggle pinning the left columns
        histograms=True,               # distribution of each column in its header
        export_url="/catalog/files/export",  # "Export" menu; None for none
        export_name="catalog",         # exported files: catalog_<time>.csv
@@ -186,6 +187,18 @@ header checkbox's matching keys, the export, and anything else built on
     sheet in the document head. Hidden columns still sort, filter, and are
     searched; the footer counts the shown columns. Without storage (a
     private window, for example) the choice lasts until the page is left.
+  - `pin_toggle`: a `Pin columns` toggle button (`aria-pressed`, drawn as a
+    switch) that pins the checkbox column and the first column at the left
+    while the table scrolls sideways (`position: sticky`, `.dt-pinned`); the
+    header stays on top of them. Pinning is off until the toggle turns it
+    on. Click, or Space / Enter on the focused button, switches it; it has
+    no shortcut key of its own. The choice is kept in `localStorage` under
+    `datatable:pinned-columns:<table_id>` (`true` or `false`) and shown again
+    after every reload (`data-dt-pinned` on the container, which the reloads
+    keep, so the table does not jump). Without storage it lasts until the
+    page is left, like the hidden columns. A table without the toggle pins
+    nothing. Which columns are pinned is not configurable: the first column
+    is the one naming the rows (such as the file name).
   - `filter_chips`: a chip per column filter in use, in column order:
     `name ~ "words"`, `lot ∈ {A, B}`, `temp ≥ 20` / `temp ≤ 30` /
     `20 ≤ temp ≤ 30` (both bounds are one chip), `lot is_null` /
@@ -254,10 +267,6 @@ header checkbox's matching keys, the export, and anything else built on
   the reload, with the focus (and caret) where it was. Sorting from the menu
   or copying the name closes it. Sorting or filtering returns to the first
   page. Reloads trigger `dt-reload` on the container.
-- The checkbox column and the first column stay at the left while the table
-  scrolls sideways (`position: sticky`, `.dt-pinned`); the header stays on
-  top of them. Which columns are pinned is not configurable: the first
-  column is the one naming the rows (such as the file name).
 - Under the table, the footer shows "N rows, M columns" (the rows matching
   the filters and the shown columns), for a selectable table the selection
   count ("k selected", or "k / max selected" with `max_selected`) and Clear
@@ -314,7 +323,7 @@ container, so several tables can share a page.
 
 | Selector | Element |
 | --- | --- |
-| `.dt-root[data-datatable]` | Container (`id` = `table_id`); `data-dt-locked` when locked; `data-dt-max-selected` with the limit; `data-dt-export-url` with `export_url`. |
+| `.dt-root[data-datatable]` | Container (`id` = `table_id`); `data-dt-locked` when locked; `data-dt-pinned` while the left columns are pinned; `data-dt-max-selected` with the limit; `data-dt-export-url` with `export_url`. |
 | `.dt-scroll` / `.dt-table` | Scroll box with a fixed header / the table. |
 | `.dt-head`, `.dt-column[data-dt-column]`, `.dt-label` | Header line and the column name button opening the menu. |
 | `.dt-sort-mark`, `.dt-menu-mark`, `.dt-filter-mark[data-dt-filtered]` | ▲ / ▼, the menu's ⋯, and the funnel of a filtered column. |
@@ -322,16 +331,17 @@ container, so several tables can share a page.
 | `.dt-histogram[data-dt-histogram]`, `.dt-bins`, `.dt-bin`, `.dt-bin-bar`, `.dt-bin-hit`, `.dt-ticks` | A column's histogram: the SVG (`role="img"`, named `Histogram of <label>, <min> to <max>`), a bin (`<g>` with its `<title>`), its bar and its full-height hover area, and the smallest and largest value. |
 | `.dt-top-values[data-dt-top-values]`, `.dt-top-value`, `.dt-top-bar`, `.dt-top-label`, `.dt-top-others` | Most frequent values (a list named `Most frequent values of <label>`), a value with its bar, text, and `.dt-count`, and the `Others` line. |
 | `.dt-out` | A bin outside the bounds in use, or a value not checked, shown faded. |
-| `.dt-toolbar` | Line above the table holding the search box and the `Columns` and `Export` buttons. |
+| `.dt-toolbar` | Line above the table holding the search box and the `Columns`, `Pin columns`, and `Export` buttons. |
 | `.dt-search` | Search box of the whole table (`id` `<table_id>-search`). |
 | `.dt-columns-button`, `.dt-menu[data-dt-columns-menu]`, `[data-dt-show-column]` | `Columns` button, its menu (`id` `<table_id>-columns-menu`, named `Columns`), and the checkbox of each column. |
+| `.dt-pin-button[data-dt-pin-toggle]`, `.dt-switch` | `Pin columns` toggle (`aria-pressed`) and its switch. |
 | `.dt-export-button`, `.dt-menu[data-dt-export-menu]`, `.dt-export-rows`, `.dt-export-label`, `[data-dt-export][data-dt-export-rows]`, `[data-dt-export-selected-count]`, `.dt-export-error[data-dt-export-error]` | `Export` button, its menu (`id` `<table_id>-export-menu`, named `Export`), a group of rows (named `Filtered rows` / `Selected rows`) with its label and count, a download button (`csv` or `parquet`, `filtered` or `selected`, named `Export <rows> as <format>`), the selected count, and the failure notice (`role="alert"`). |
 | `.dt-chips`, `.dt-chip`, `.dt-chip-label`, `[data-dt-remove-filter]` | List of the filters in use (named `Filters in use`), a chip, its text, and its × button (a JSON array of the parameter names it clears). |
 | `.dt-menu[popover][data-dt-menu]` | A menu: a column's (`id` `<table_id>-menu-<n>`, `role="dialog"`, named `<label> menu`, `data-dt-menu` = the column name) or the `Columns` or `Export` menu (empty `data-dt-menu`); `data-dt-placed` once placed. |
 | `.dt-menu-section`, `.dt-sorts`, `.dt-filter`, `.dt-choices`, `.dt-choice`, `.dt-nulls`, `.dt-count` | Menu parts: sort buttons (`[data-dt-sort][data-dt-order]`, `aria-pressed`), the filter, the value list, the null filter, and counts. |
 | `[data-dt-copy]` | "Copy column name" button. |
 | `.dt-check`, `[data-dt-check-all]`, `[data-dt-row-check]` | Selection checkboxes. |
-| `.dt-pinned` | Cells of the checkbox column and the first column, pinned at the left. |
+| `.dt-pinned` | Cells of the checkbox column and the first column, pinned at the left while the container has `data-dt-pinned`. |
 | `.dt-limit[data-dt-limit]` | Notice that the selection limit is reached (`hidden` below it). |
 | `tr[data-dt-key]` | Row with its key. |
 | `.dt-footer` | Footer under the table. |
@@ -351,7 +361,7 @@ container or an ancestor fixes the scheme.
 | `--dt-border` | Cell and box borders. |
 | `--dt-bg` | Background of the pinned cells, which cover the cells scrolled under them. |
 | `--dt-header-bg`, `--dt-row-hover-bg`, `--dt-row-selected-bg` | Header, hovered row, and selected row backgrounds. |
-| `--dt-accent` | Sort and filter marks, and the chosen sort in a menu. |
+| `--dt-accent` | Sort and filter marks, the chosen sort in a menu, and the `Pin columns` switch while on. |
 | `--dt-radius` | Box corner radius. |
 | `--dt-font`, `--dt-font-size` | Font family and table font size. |
 | `--dt-cell-padding` | Cell padding. |

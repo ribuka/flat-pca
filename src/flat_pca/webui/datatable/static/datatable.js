@@ -427,41 +427,58 @@
     reload(root, { page: "1" });
   });
 
-  // The "Columns" menu (`[data-dt-columns-menu]`) shows or hides columns.
-  // The hidden ones are remembered per table id in localStorage and hidden
-  // by a style sheet in the document head, which outlives the reloads, so
-  // a reloaded table shows no hidden column even for a moment. The latest
-  // choice of each table id is also kept in memory (`hiddenColumns`), so it
-  // holds across reloads until the page is left even where the storage
-  // cannot be read or written.
-  const hiddenColumns = new Map();
+  // Choices of the look of a table that the browser remembers per table id
+  // (`name` is the kind of choice): kept in localStorage under
+  // `datatable:<name>:<table_id>` as JSON, and in memory (`preferences`),
+  // so a choice holds across reloads until the page is left even where the
+  // storage cannot be read or written.
+  const preferences = new Map();
 
-  function hiddenColumnsKey(root) {
-    return `datatable:hidden-columns:${root.id}`;
+  function preferenceKey(root, name) {
+    return `datatable:${name}:${root.id}`;
   }
 
-  function storedHiddenColumns(root) {
-    if (hiddenColumns.has(root.id)) {
-      return hiddenColumns.get(root.id);
+  // Returns the remembered choice, or `fallback` when there is none or
+  // `valid` rejects the stored value.
+  function preference(root, name, fallback, valid) {
+    const key = preferenceKey(root, name);
+    if (preferences.has(key)) {
+      return preferences.get(key);
     }
-    let hidden = new Set();
+    let value = fallback;
     try {
-      const stored = JSON.parse(localStorage.getItem(hiddenColumnsKey(root)) ?? "[]");
-      hidden = new Set(Array.isArray(stored) ? stored : []);
+      const stored = localStorage.getItem(key);
+      if (stored !== null) {
+        const parsed = JSON.parse(stored);
+        value = valid(parsed) ? parsed : fallback;
+      }
     } catch {
-      // Unreadable storage: every column is shown.
+      // Unreadable storage: the fallback.
     }
-    hiddenColumns.set(root.id, hidden);
-    return hidden;
+    preferences.set(key, value);
+    return value;
   }
 
-  function storeHiddenColumns(root, names) {
-    hiddenColumns.set(root.id, new Set(names));
+  function storePreference(root, name, value) {
+    const key = preferenceKey(root, name);
+    preferences.set(key, value);
     try {
-      localStorage.setItem(hiddenColumnsKey(root), JSON.stringify([...names]));
+      localStorage.setItem(key, JSON.stringify(value));
     } catch {
       // The choice in memory lasts until the page is left.
     }
+  }
+
+  // The "Columns" menu (`[data-dt-columns-menu]`) shows or hides columns.
+  // The hidden ones are remembered (`hidden-columns`) and hidden by a style
+  // sheet in the document head, which outlives the reloads, so a reloaded
+  // table shows no hidden column even for a moment.
+  function storedHiddenColumns(root) {
+    return new Set(preference(root, "hidden-columns", [], Array.isArray));
+  }
+
+  function storeHiddenColumns(root, names) {
+    storePreference(root, "hidden-columns", [...names]);
   }
 
   // Hides the columns unchecked in the "Columns" menu, checks its boxes from
@@ -508,6 +525,28 @@
         root,
         [...root.querySelectorAll("[data-dt-show-column]")].filter((box) => !box.checked).map((box) => box.dataset.dtShowColumn),
       );
+    }
+  });
+
+  // The "Pin columns" toggle (`[data-dt-pin-toggle]`) pins the cells marked
+  // `.dt-pinned` (the checkbox column and the first column) at the left. The
+  // choice is remembered (`pinned-columns`, off by default) and shown on the
+  // container (`data-dt-pinned`), which the reloads keep, so a reloaded table
+  // does not jump; the toggle shows it with `aria-pressed`. A table without
+  // the toggle pins nothing.
+  function syncPinned(root) {
+    const toggle = root.querySelector("[data-dt-pin-toggle]");
+    const pinned = Boolean(toggle) && preference(root, "pinned-columns", false, (value) => typeof value === "boolean");
+    root.toggleAttribute("data-dt-pinned", pinned);
+    toggle?.setAttribute("aria-pressed", String(pinned));
+  }
+
+  document.addEventListener("click", (event) => {
+    const toggle = event.target.closest?.("[data-dt-pin-toggle]");
+    const root = toggle && tableOf(toggle);
+    if (root) {
+      storePreference(root, "pinned-columns", !root.hasAttribute("data-dt-pinned"));
+      syncPinned(root);
     }
   });
 
@@ -705,11 +744,12 @@
 
   // Reopen as soon as the new menus are in the page, so that no Escape or
   // click outside falls between the swap and the reopening, and hide the
-  // hidden columns before the new rows are drawn.
+  // hidden columns and show the pinned state before the new rows are drawn.
   document.addEventListener("htmx:afterSwap", (event) => {
     const root = event.detail.target ?? event.target;
     if (root?.matches?.("[data-datatable]")) {
       syncColumns(root, true);
+      syncPinned(root);
       reopenMenu(root);
     }
   });

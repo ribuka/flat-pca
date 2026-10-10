@@ -76,6 +76,7 @@ def file_table_config(columns: Mapping[str, MetadataColumnSettings]) -> TableCon
         search=True,
         filter_chips=True,
         column_chooser=True,
+        pin_toggle=True,
         histograms=True,
         export_url=FILE_EXPORT_URL,
         export_name="catalog",

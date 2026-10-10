@@ -36,7 +36,12 @@ def test_file_table_config_filters_metadata_but_not_statistics(settings: Setting
     """The metadata columns have filters; the stem has the search box; the statistics neither."""
     config = file_table_config(settings.metadata_columns)
 
-    assert (config.search, config.filter_chips, config.column_chooser) == (True, True, True)
+    assert (config.search, config.filter_chips, config.column_chooser, config.pin_toggle) == (
+        True,
+        True,
+        True,
+        True,
+    )
     assert config.histograms
     assert (config.export_url, config.export_name) == ("/catalog/files/export", "catalog")
     assert {name: column.filter for name, column in config.filtered_columns.items()} == {

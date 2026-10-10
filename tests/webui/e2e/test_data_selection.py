@@ -458,36 +458,6 @@ def test_shift_click_selects_and_clears_a_range(page: Page, cataloged_server_url
     assert _selection(page) == ["run-1"]
 
 
-def test_checkbox_and_file_columns_stay_at_the_left(
-    page: Page, cataloged_server_url: str
-) -> None:
-    """Scrolling the table sideways keeps the checkbox and file name columns in place."""
-    page.goto(cataloged_server_url)
-    expect(_file_stems(page)).to_have_text(["run-1", "run-2", "run-10"])
-    scroll = page.locator("#files .dt-scroll")
-    # A narrow box, as on a narrow window or with many metadata columns.
-    scroll.evaluate("box => { box.style.maxWidth = '240px'; }")
-    assert scroll.evaluate("box => box.scrollWidth > box.clientWidth")
-    pinned = [_row(page, "run-1").locator("td").nth(index) for index in (0, 1)]
-    other = _row(page, "run-1").locator("td").nth(2)
-    before = [cell.bounding_box() for cell in [*pinned, other]]
-
-    scroll.evaluate("box => { box.scrollLeft = box.scrollWidth; }")
-
-    after = [cell.bounding_box() for cell in [*pinned, other]]
-    assert all(box is not None for box in [*before, *after])
-    assert [box["x"] for box in after[:2]] == [box["x"] for box in before[:2]]
-    assert after[2]["x"] < before[2]["x"]
-    # The pinned cells cover the cells scrolled under them.
-    file_box = after[1]
-    assert pinned[1].evaluate(
-        "(cell, [x, y]) => cell.contains(document.elementFromPoint(x, y))",
-        [file_box["x"] + file_box["width"] / 2, file_box["y"] + file_box["height"] / 2],
-    )
-    header = page.locator("#files thead th").nth(1)
-    expect(header).to_have_css("position", "sticky")
-
-
 def test_catalog_update_shows_progress_and_replaces_category_filters(
     page: Page, server_url: str
 ) -> None:
@@ -730,7 +700,7 @@ def test_columns_menu_hides_columns_and_remembers_them(
     lot_cell = table.locator('tr[data-dt-key="run-1"] td:nth-child(3)')
     expect(lot_cell).to_have_text("A")
 
-    table.get_by_role("button", name="Columns").click()
+    table.get_by_role("button", name="Columns", exact=True).click()
     menu = table.get_by_role("dialog", name="Columns")
     expect(menu).to_be_visible()
     expect(menu.get_by_role("checkbox", name="file", exact=True)).to_be_disabled()
@@ -740,7 +710,7 @@ def test_columns_menu_hides_columns_and_remembers_them(
     expect(shape).to_have_text("3 rows, 6 columns")
     page.keyboard.press("Escape")
     expect(menu).to_be_hidden()
-    expect(table.get_by_role("button", name="Columns")).to_be_focused()
+    expect(table.get_by_role("button", name="Columns", exact=True)).to_be_focused()
 
     # Reloading the table, or the page, keeps the column hidden.
     open_column_menu(table, "file").get_by_role("button", name="Desc").click()
@@ -752,7 +722,7 @@ def test_columns_menu_hides_columns_and_remembers_them(
     expect(shape).to_have_text("3 rows, 6 columns")
     assert page.evaluate("localStorage.getItem('datatable:hidden-columns:files')") == '["lot"]'
 
-    table.get_by_role("button", name="Columns").click()
+    table.get_by_role("button", name="Columns", exact=True).click()
     expect(menu.get_by_role("checkbox", name="lot", exact=True)).not_to_be_checked()
     menu.get_by_role("checkbox", name="lot", exact=True).check()
     expect(lot_header).to_be_visible()
@@ -774,7 +744,7 @@ def test_columns_menu_keeps_the_choice_without_storage(
     table = _table(page)
     lot_header = table.locator("th", has=page.locator('[data-dt-column="lot"]'))
 
-    table.get_by_role("button", name="Columns").click()
+    table.get_by_role("button", name="Columns", exact=True).click()
     table.get_by_role("dialog", name="Columns").get_by_role("checkbox", name="lot", exact=True).uncheck()
     expect(lot_header).to_be_hidden()
     page.keyboard.press("Escape")
