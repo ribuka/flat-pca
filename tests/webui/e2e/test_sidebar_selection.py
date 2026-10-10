@@ -46,6 +46,16 @@ def test_files_chosen_in_the_dialog_follow_every_screen_and_reload(
     )
     close_column_menu(page, menu)
     expect(dialog).to_be_visible()
+    expect(dialog.get_by_role("button", name="file", exact=True)).to_be_focused()
+    # Without the clipboard API (plain HTTP from another host) the name is
+    # still copied from inside the modal dialog.
+    page.context.grant_permissions(["clipboard-read", "clipboard-write"])
+    page.evaluate(
+        "() => { window.realClipboard = navigator.clipboard;"
+        " Object.defineProperty(navigator, 'clipboard', {value: undefined, configurable: true}); }"
+    )
+    open_column_menu(dialog, "lot").get_by_role("button", name="Copy column name").click()
+    assert page.evaluate("() => window.realClipboard.readText()") == "lot"
     open_column_menu(dialog, "file").get_by_role("button", name="Desc").click()
     expect(rows).to_have_count(2)
     expect(rows.first).to_have_attribute("data-dt-key", "s-11")

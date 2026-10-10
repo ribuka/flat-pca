@@ -143,6 +143,20 @@ def test_column_menu_works_from_the_keyboard(page: Page, cataloged_server_url: s
     page.mouse.click(5, 5)
     expect(menu).to_be_hidden()
 
+    # A menu reopened after a reload also returns the focus on Escape.
+    button.focus()
+    page.keyboard.press("Enter")
+    # Asc, Desc (Clear sort is disabled while not sorted), then the first value.
+    for _ in range(3):
+        page.keyboard.press("Tab")
+    expect(menu.get_by_role("checkbox", name="A 1", exact=True)).to_be_focused()
+    page.keyboard.press("Space")
+    expect(_file_stems(page)).to_have_text(["run-1"])
+    expect(menu.get_by_role("checkbox", name="A 1", exact=True)).to_be_focused()
+    page.keyboard.press("Escape")
+    expect(menu).to_be_hidden()
+    expect(table.get_by_role("button", name="lot", exact=True)).to_be_focused()
+
 
 def test_column_menu_copies_the_column_name(page: Page, cataloged_server_url: str) -> None:
     """The copy button puts the frame's column name on the clipboard and closes the menu."""

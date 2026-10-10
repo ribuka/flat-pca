@@ -216,8 +216,10 @@
   }
 
   // Copies text to the clipboard, also where navigator.clipboard is missing
-  // (a page served over plain HTTP from another host).
-  function copyText(text) {
+  // (a page served over plain HTTP from another host). The fallback selects
+  // the text in a textarea put in `container` (the open menu), which stays
+  // usable inside a modal <dialog>, where the rest of the page is inert.
+  function copyText(text, container) {
     if (navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(text).catch(() => {});
       return;
@@ -227,11 +229,27 @@
     area.setAttribute("readonly", "");
     area.style.position = "fixed";
     area.style.opacity = "0";
-    document.body.append(area);
+    container.append(area);
     area.select();
     document.execCommand("copy");
     area.remove();
   }
+
+  // Escape in an open menu closes it and returns the focus to its column
+  // name, also for a menu reopened after a reload (which has no invoker to
+  // return to). Cancelling the key keeps a surrounding <dialog> open.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented) {
+      return;
+    }
+    const menu = document.activeElement?.closest?.("[data-dt-menu]");
+    if (!menu?.matches(":popover-open")) {
+      return;
+    }
+    event.preventDefault();
+    menu.hidePopover();
+    menuButton(menu).focus();
+  });
 
   // A sort button of a column menu sorts by its column (or clears the sort
   // with an empty `data-dt-sort`) and closes the menu; "Copy column name"
@@ -249,7 +267,7 @@
     }
     const copy = event.target.closest("[data-dt-copy]");
     if (copy) {
-      copyText(copy.dataset.dtCopy);
+      copyText(copy.dataset.dtCopy, copy.closest("[data-dt-menu]"));
       closeMenu(copy);
       return;
     }
@@ -265,8 +283,8 @@
   const reopenedMenus = new WeakMap();
 
   document.addEventListener("htmx:beforeSwap", (event) => {
-    const root = event.detail.target;
-    if (!root.matches?.("[data-datatable]")) {
+    const root = event.detail.target ?? event.target;
+    if (!root?.matches?.("[data-datatable]")) {
       return;
     }
     const menu = root.querySelector("[data-dt-menu]:popover-open");
@@ -317,13 +335,18 @@
     }
   }
 
+  // Reopen as soon as the new menus are in the page, so that no Escape or
+  // click outside falls between the swap and the reopening.
+  document.addEventListener("htmx:afterSwap", (event) => {
+    const root = event.detail.target ?? event.target;
+    if (root?.matches?.("[data-datatable]")) {
+      reopenMenu(root);
+    }
+  });
+
   document.addEventListener("htmx:afterSettle", (event) => {
     const root = event.detail.elt;
-    if (!root.matches?.("[data-datatable]")) {
-      return;
-    }
-    reopenMenu(root);
-    if (root.dataset.dtSelection) {
+    if (root.matches?.("[data-datatable]") && root.dataset.dtSelection) {
       syncChecks(root);
     }
   });
