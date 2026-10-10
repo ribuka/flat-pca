@@ -17,7 +17,7 @@
       {% endif %}
       <button type="button" hx-post="/runs/{{ run.run_id }}/cancel" hx-swap="none">Cancel</button>
     {% elif run.status == "failed" %}
-      <p class="error">{{ run.error }}</p>
+      <p class="error">{{ run.error|error_text }}</p>
     {% elif run.status == "succeeded" %}
       <p>{{ run.n_files }} files ({{ "%.1f"|format(run.duration_s or 0) }} s)</p>
     {% endif %}

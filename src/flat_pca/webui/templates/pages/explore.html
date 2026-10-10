@@ -67,7 +67,7 @@
       <p class="warnings" data-omitted>Not shown because at most {{ max_files }} files can be chosen ({{ shown.omitted|length }} files): {{ shown.omitted|join(", ") }}</p>
     {% endif %}
     {% if shown.error %}
-      <p class="error" data-explore-error>{{ shown.error }}</p>
+      <p class="error" data-explore-error>{{ shown.error|error_text }}</p>
     {% elif not shown.matrices %}
       <p class="muted">Nothing to show.</p>
     {% endif %}

@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from .datatable import STATIC_DIR as DATATABLE_STATIC_DIR
 from .datatable import configure_environment, format_value
+from .error_text import truncate_error
 from .services.system_status import app_version, format_gib
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -84,6 +85,7 @@ NAV_ITEMS = (
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 templates.env.filters["cell"] = format_value
 templates.env.filters["gib"] = format_gib
+templates.env.filters["error_text"] = truncate_error
 templates.env.globals["nav_items"] = NAV_ITEMS
 templates.env.globals["app_version"] = app_version()
 templates.env.globals["static_version"] = static_version

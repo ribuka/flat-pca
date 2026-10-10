@@ -35,7 +35,7 @@
       </div>
       <button type="button" hx-post="/runs/{{ run.run_id }}/cancel" hx-swap="none">Cancel</button>
     {% elif run.status == "failed" %}
-      <p class="error" data-run-error>{{ run.error }}</p>
+      <p class="error" data-run-error>{{ run.error|error_text }}</p>
     {% elif run.status == "succeeded" %}
       <p data-run-summary>
         {{ run.n_files }} files, {{ run.n_features }} features, {{ run.n_components }} components

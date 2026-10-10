@@ -32,7 +32,7 @@
       </form>
     {% endif %}
     {% if shown.error %}
-      <p class="error" data-monitoring-error>{{ shown.error }}</p>
+      <p class="error" data-monitoring-error>{{ shown.error|error_text }}</p>
     {% elif figures %}
       <p class="muted">run {{ shown.run_id }} の T² と Q です。</p>
       <p data-exceeding>
