@@ -77,7 +77,7 @@ and get element references for `browser_click`, `browser_select_option`, and `br
 | Asc / Desc in a column menu | The table sorts ascending (▲) or descending (▼) and the menu closes. |
 | Header checkbox of the file table | Checks / clears every row matching the filters, on all pages; with only some of them checked it shows the indeterminate state. |
 | Click a row, then Shift + click another row | The first click toggles the row; Shift + click selects (or clears) every row between them. Under the table "3 rows, 7 columns", "k selected" with Clear, and "1–3 of 3" follow. |
-| Narrow the table and scroll it sideways | The checkbox and file columns stay at the left. |
+| `Pin columns` above the table, then narrow the table and scroll it sideways | Off at first: every column scrolls. Turned on (the switch moves right, `aria-pressed="true"`), the checkbox and file columns stay at the left; the choice survives paging, filtering, and a page reload. |
 | Click a group heading (catalog / Files) | The group folds and unfolds. |
 | "Select" (below the table, right) | A green check icon (Material Symbols `check_circle`) and "Fit target: N files" appear left of the button; the sidebar's Fit target count updates. |
 

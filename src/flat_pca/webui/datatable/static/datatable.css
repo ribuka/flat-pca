@@ -78,8 +78,8 @@
   color: var(--dt-muted);
 }
 
-/* Above the table: the search box, the "Columns" button, and the chips of
-   the filters in use. */
+/* Above the table: the search box, the "Columns" and "Pin columns"
+   buttons, the "Export" button, and the chips of the filters in use. */
 .dt-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -98,8 +98,51 @@
 }
 
 .dt-columns-button,
+.dt-pin-button,
 .dt-export-button {
   padding: 0.2rem 0.6rem;
+}
+
+/* The "Pin columns" toggle shows its state as a switch: the knob at the
+   left and a plain track while off, at the right on the accent color while
+   on (`aria-pressed`). */
+.dt-pin-button {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.dt-switch {
+  position: relative;
+  box-sizing: border-box;
+  width: 1.75rem;
+  height: 1rem;
+  flex: none;
+  border: 1px solid var(--dt-muted);
+  border-radius: 999px;
+  background: var(--dt-bg);
+}
+
+.dt-switch::before {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: calc(1rem - 4px);
+  height: calc(1rem - 4px);
+  border-radius: 50%;
+  background: var(--dt-muted);
+  content: "";
+}
+
+.dt-pin-button[aria-pressed="true"] .dt-switch {
+  border-color: var(--dt-accent);
+  background: var(--dt-accent);
+}
+
+.dt-pin-button[aria-pressed="true"] .dt-switch::before {
+  left: auto;
+  right: 1px;
+  background: var(--dt-bg);
 }
 
 .dt-chips {
@@ -483,23 +526,24 @@
   text-align: center;
 }
 
-/* The checkbox column and the first column stay at the left while the
-   table scrolls sideways; the header cells stay above them. */
-.dt-table .dt-pinned {
+/* While the "Pin columns" toggle is on (`data-dt-pinned` on the
+   container), the checkbox column and the first column stay at the left
+   while the table scrolls sideways; the header cells stay above them. */
+.dt-root[data-dt-pinned] .dt-table .dt-pinned {
   position: sticky;
   left: 0;
   z-index: 1;
 }
 
-.dt-root[data-dt-selection] .dt-table .dt-pinned:not(.dt-check) {
+.dt-root[data-dt-pinned][data-dt-selection] .dt-table .dt-pinned:not(.dt-check) {
   left: var(--dt-check-width);
 }
 
-.dt-table .dt-pinned:not(.dt-check) {
+.dt-root[data-dt-pinned] .dt-table .dt-pinned:not(.dt-check) {
   box-shadow: inset -1px 0 0 var(--dt-border);
 }
 
-.dt-table thead th.dt-pinned {
+.dt-root[data-dt-pinned] .dt-table thead th.dt-pinned {
   z-index: 3;
 }
 

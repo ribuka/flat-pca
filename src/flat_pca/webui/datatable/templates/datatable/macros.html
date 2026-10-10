@@ -183,12 +183,12 @@
 {%- endmacro %}
 
 {#- Above the table, by the settings: the search box of the whole table, the
-    "Columns" menu showing or hiding columns (datatable.js applies and
-    remembers the choice), the "Export" menu, and the chips of the filters in
-    use, each with a button clearing its controls. The search box is
+    "Columns" menu showing or hiding columns and the "Pin columns" toggle
+    (datatable.js applies and remembers both choices), the "Export" menu, and
+    the chips of the filters in use, each with a button clearing its controls. The search box is
     preserved across reloads (hx-preserve), like the typed filters. -#}
 {% macro _toolbar(config, view, selected_count) -%}
-{% if config.search or config.column_chooser or config.export_url %}
+{% if config.search or config.column_chooser or config.pin_toggle or config.export_url %}
 <div class="dt-toolbar">
   {% if config.search %}
     <input type="search" id="{{ config.table_id }}-search" class="dt-search" name="{{ config.prefix }}search" value="{{ view.state.search }}" placeholder="Search…"
@@ -207,6 +207,10 @@
         {% endfor %}
       </fieldset>
     </div>
+  {% endif %}
+  {% if config.pin_toggle %}
+    {#- Off until datatable.js shows the remembered choice. -#}
+    <button type="button" class="dt-pin-button" aria-pressed="false" data-dt-pin-toggle><span class="dt-switch" aria-hidden="true"></span>Pin columns</button>
   {% endif %}
   {% if config.export_url %}{{ _export_menu(config, view, selected_count) }}{% endif %}
 </div>
@@ -258,7 +262,8 @@
   <thead>
     <tr>
       {#- The checkbox column and the first column (dt-pinned) stay at the
-          left while the table scrolls sideways. -#}
+          left while the table scrolls sideways when the "Pin columns"
+          toggle is on. -#}
       {% if config.selectable %}
         <th class="dt-check dt-pinned"><input type="checkbox" data-dt-check-all aria-label="{{ config.select_all_label }}"{% if header_blocked %} disabled{% endif %}></th>
       {% endif %}

@@ -706,3 +706,23 @@ def test_fragment_without_export_has_no_export_menu(
 
     assert "Export" not in html
     assert "data-dt-export" not in html
+
+
+def test_fragment_has_a_pin_toggle_off_by_default(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """The "Pin columns" toggle is a button, not pressed until the browser shows the choice."""
+    pinnable = replace(config, pin_toggle=True)
+    view = apply_state(frame, TableState(), pinnable)
+    call = "{{ fragment(config, view) }}"
+
+    html = _render(environment, call, config=pinnable, view=view)
+    plain = _render(environment, call, config=config, view=view)
+
+    toggle = re.search(r"<button[^>]*data-dt-pin-toggle[^>]*>.*?</button>", html)
+    assert toggle is not None
+    assert 'type="button"' in toggle[0]
+    assert 'aria-pressed="false"' in toggle[0]
+    assert toggle[0].endswith("Pin columns</button>")
+    assert html.index("dt-toolbar") < html.index("data-dt-pin-toggle")
+    assert "data-dt-pin-toggle" not in plain
