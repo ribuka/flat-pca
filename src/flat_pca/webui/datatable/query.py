@@ -202,6 +202,30 @@ def sort_frame(
     )
 
 
+def matching_rows(frame: pl.LazyFrame, state: TableState, config: TableConfig) -> pl.LazyFrame:
+    """Return the rows matching a state's filters, in its sort order.
+
+    The table view (``apply_state``), the header checkbox's matching keys,
+    and the exported rows (``export_rows``) all take their rows from here.
+
+    Parameters
+    ----------
+    frame : pl.LazyFrame
+        Every row of the table in its default order.
+    state : TableState
+        Sort order and filters.
+    config : TableConfig
+        Table settings.
+
+    Returns
+    -------
+    pl.LazyFrame
+        The rows that ``filter_expression`` keeps, sorted by ``sort_frame``.
+    """
+    schema = frame.collect_schema()
+    return sort_frame(frame.filter(filter_expression(state, config, schema)), state, config)
+
+
 def choice_options(
     frame: pl.DataFrame | pl.LazyFrame, config: TableConfig
 ) -> dict[str, list[str]]:
@@ -262,7 +286,7 @@ def apply_state(
     """
     lazy = frame.lazy()
     schema = lazy.collect_schema()
-    matching = sort_frame(lazy.filter(filter_expression(state, config, schema)), state, config)
+    matching = matching_rows(lazy, state, config)
     if config.selectable:
         matching_keys = matching.select(key_text(config)).collect().to_series().to_list()
         total = len(matching_keys)

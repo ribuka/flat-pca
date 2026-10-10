@@ -27,6 +27,7 @@ def view_file_table_config(
     since the transform screen shows both tables, and its selection input
     belongs to the dialog's form ``VIEW_FILE_FORM_ID``. The headers have no
     histograms: they would count every cataloged file, not the dialog's rows.
+    The dialog has no "Export" menu either: it only chooses the shown files.
 
     Parameters
     ----------
@@ -48,6 +49,7 @@ def view_file_table_config(
         selection_form=VIEW_FILE_FORM_ID,
         max_selected=max_files,
         histograms=False,
+        export_url=None,
     )
 
 

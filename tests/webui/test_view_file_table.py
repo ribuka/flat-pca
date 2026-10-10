@@ -30,6 +30,8 @@ def test_config_has_the_file_table_columns_with_its_own_id_and_limit(
     assert config.max_selected == 5
     assert files.histograms
     assert not config.histograms
+    assert files.export_url is not None
+    assert config.export_url is None
 
 
 def test_frame_keeps_the_targets_in_order_with_blank_uncataloged_rows(

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import json
 import re
 from collections.abc import Callable, Iterator
 
+import polars as pl
 import pytest
 from fastapi.testclient import TestClient
 
@@ -243,6 +245,74 @@ def test_file_table_rejects_invalid_filter(cataloged_client: TestClient) -> None
     response = cataloged_client.get("/catalog/files", params={"files.min__lot": "1"})
 
     assert response.status_code == 400
+
+
+def test_data_selection_page_offers_the_export(cataloged_client: TestClient) -> None:
+    """The file table posts its exports to the export route."""
+    assert 'data-dt-export-url="/catalog/files/export"' in cataloged_client.get("/").text
+    assert 'popovertarget="files-export-menu"' in cataloged_client.get("/catalog/files").text
+
+
+def test_file_export_writes_the_filtered_files_as_csv(cataloged_client: TestClient) -> None:
+    """The CSV holds the shown columns of every filtered file, in the sort order."""
+    response = cataloged_client.post(
+        "/catalog/files/export",
+        data={
+            "files.export_format": "csv",
+            "files.export_rows": "filtered",
+            "files.null__lot": "is_not_null",
+            "files.sort": "yield_pct",
+            "files.order": "desc",
+            "files.page": "1",
+            "stems": '["run-10"]',
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/csv; charset=utf-8"
+    assert re.fullmatch(
+        r'attachment; filename="catalog_\d{8}-\d{6}\.csv"; filename\*=UTF-8\'\'catalog_\d{8}-\d{6}\.csv',
+        response.headers["content-disposition"],
+    )
+    assert response.content.startswith(b"\xef\xbb\xbf")
+    lines = response.content[3:].decode("utf-8").splitlines()
+    assert lines[0] == "stem,lot,date,yield_pct,n_steps,n_segments,n_rows"
+    assert [line.split(",")[0] for line in lines[1:]] == ["run-1", "run-2"]
+    assert ",2026-01-02T03:04:05" in lines[1]
+
+
+def test_file_export_writes_the_selected_files_as_parquet(cataloged_client: TestClient) -> None:
+    """The Parquet file holds every selected file, also those the filters hide."""
+    response = cataloged_client.post(
+        "/catalog/files/export",
+        data={
+            "files.export_format": "parquet",
+            "files.export_rows": "selected",
+            "files.eq__lot": "A",
+            "files.order": "desc",
+            "stems": '["run-1", "run-10", "ghost"]',
+        },
+    )
+
+    assert response.status_code == 200
+    assert re.search(r'filename="catalog_\d{8}-\d{6}\.parquet"', response.headers["content-disposition"])
+    rows = pl.read_parquet(io.BytesIO(response.content))
+    assert rows["stem"].to_list() == ["run-10", "run-1"]
+    assert rows.schema["lot"] == pl.Categorical
+    assert "path" not in rows.columns
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"files.export_format": "xlsx", "files.export_rows": "filtered"},
+        {"files.export_format": "csv", "files.export_rows": "filtered", "files.min__lot": "1"},
+        {"files.export_format": "csv", "files.export_rows": "selected", "stems": "run-1"},
+    ],
+)
+def test_file_export_rejects_invalid_fields(cataloged_client: TestClient, data: dict[str, str]) -> None:
+    """An unknown format, a bad filter, or a bad selection is a client error."""
+    assert cataloged_client.post("/catalog/files/export", data=data).status_code == 400
 
 
 def test_selection_keeps_cataloged_stems(cataloged_client: TestClient) -> None:
