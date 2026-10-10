@@ -280,10 +280,18 @@
     }
   });
 
+  // Only the note of the page whose request failed is forgotten: a request
+  // replaced by a newer one (hx-sync) also ends unsuccessfully, and must not
+  // drop the note of the page the newer one asks for.
   document.addEventListener("htmx:afterRequest", (event) => {
     const root = event.detail.elt;
-    if (!event.detail.successful && root.matches?.("[data-datatable]")) {
-      for (const input of root.querySelectorAll("[data-dt-page-input]")) {
+    if (event.detail.successful || !root.matches?.("[data-datatable]")) {
+      return;
+    }
+    const path = event.detail.pathInfo?.finalRequestPath ?? "";
+    const failedPage = new URL(path, window.location.href).searchParams.get(`${root.id}.page`);
+    for (const input of root.querySelectorAll("[data-dt-page-input]")) {
+      if (String(askedPages.get(input)) === failedPage) {
         askedPages.delete(input);
       }
     }
