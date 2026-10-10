@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from itertools import pairwise
@@ -165,7 +164,8 @@ def integer_bins(minimum: int, maximum: int) -> list[tuple[int, int]]:
         ``ceil(values / MAX_BINS)`` values (at most ``MAX_BINS`` of them, the
         last one ending at ``maximum``).
     """
-    width = math.ceil((maximum - minimum + 1) / MAX_BINS)
+    # Integer division keeps every digit of a 64-bit range.
+    width = -(-(maximum - minimum + 1) // MAX_BINS)
     return [
         (first, min(first + width - 1, maximum))
         for first in range(minimum, maximum + 1, width)
@@ -184,12 +184,18 @@ def float_bins(minimum: float, maximum: float) -> list[tuple[float, float]]:
     -------
     list[tuple[float, float]]
         ``(lower, upper)`` edges of ``MAX_BINS`` bins from ``minimum`` to
-        ``maximum``, or of one bin when they are equal.
+        ``maximum``, or of one bin when they are equal. The edges are
+        interpolated without computing ``maximum - minimum``, so that they
+        stay finite over the whole float range, and never decrease.
     """
     if minimum == maximum:
         return [(minimum, maximum)]
-    span = maximum - minimum
-    edges = [minimum + span * index / MAX_BINS for index in range(MAX_BINS)] + [maximum]
+    edges = [minimum]
+    for index in range(1, MAX_BINS):
+        share = index / MAX_BINS
+        edge = minimum * (1 - share) + maximum * share
+        edges.append(min(max(edge, edges[-1]), maximum))
+    edges.append(maximum)
     return list(pairwise(edges))
 
 
@@ -208,20 +214,18 @@ def _binned_values(name: str, kind: BinKind) -> pl.Expr:
 def _bin_index(
     name: str, kind: BinKind, bins: list[tuple[int, int]] | list[tuple[float, float]]
 ) -> pl.Expr:
-    """Return the 0-based bin of each value of a column (null for no bin)."""
+    """Return the 0-based bin of each value of a column (null for no bin).
+
+    A float value goes to the last bin whose lower edge is not above it, by
+    the same edges that the bins show and that the bounds are compared with.
+    """
     values = _binned_values(name, kind)
-    minimum, maximum = bins[0][0], bins[-1][1]
     if kind == "integer":
         width = bins[0][1] - bins[0][0] + 1
-        return (values - pl.lit(minimum, dtype=pl.Int128)) // width
-    if len(bins) == 1:
-        return pl.when(values.is_not_null()).then(pl.lit(0, dtype=pl.Int128))
-    return (
-        ((values - minimum) * len(bins) / (maximum - minimum))
-        .floor()
-        .clip(0, len(bins) - 1)
-        .cast(pl.Int128)
-    )
+        return (values - pl.lit(bins[0][0], dtype=pl.Int128)) // width
+    inner = pl.Series([lower for lower, _ in bins[1:]], dtype=pl.Float64)
+    index = pl.lit(inner).search_sorted(values, side="right").cast(pl.Int128)
+    return pl.when(values.is_not_null()).then(index)
 
 
 def _physical(dtype: pl.DataType) -> pl.DataType:

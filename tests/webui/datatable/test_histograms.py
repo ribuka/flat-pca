@@ -302,3 +302,54 @@ def test_apply_state_shows_histograms_only_when_set(
         assert sum(b.count for b in view.histograms["count"].bins) == 3
     else:
         assert view.histograms == {}
+
+
+def test_integer_bins_round_the_width_up_exactly_near_64_bits() -> None:
+    """The width is rounded up in integers, so a wide range still has at most 20 bins."""
+    bins = integer_bins(0, 2**64 - 1025)
+
+    assert len(bins) == 20
+    assert bins[0] == (0, 922337203685477530 - 1)
+    assert bins[-1][1] == 2**64 - 1025
+
+
+def test_float_values_on_an_edge_go_to_the_bin_that_the_bounds_keep() -> None:
+    """A value equal to a bin's lower edge is counted in that bin, which a lower bound there keeps."""
+    frame = pl.DataFrame({"key": list("abc"), "x": [0.1, 0.18, 0.5]})
+    config = _config(ColumnConfig("x", filter="number"))
+    state = parse_state({"t.min__x": ["0.18"]}, config)
+
+    histogram = column_histograms(frame, state, config)["x"]
+
+    # Each bin holding a value is kept exactly when the filter keeps the value.
+    edges = float_bins(0.1, 0.5)
+    for value, kept in ((0.1, False), (0.18, True), (0.5, True)):
+        index = next(
+            index
+            for index, (lower, upper) in enumerate(edges)
+            if lower <= value < upper or index == len(edges) - 1
+        )
+        assert (histogram.bins[index].count, histogram.bins[index].in_filter) == (1, kept)
+    assert sum(b.count for b in histogram.bins) == 3
+    assert apply_state(frame, state, config).page.total == 2
+
+
+@pytest.mark.parametrize(
+    ("values", "counts"),
+    [
+        ([-1e308, 0.0, 1e308], {0: 1, 10: 1, 19: 1}),
+        ([0.0, 1e307, 2e307], {0: 1, 10: 1, 19: 1}),
+    ],
+)
+def test_float_histograms_cover_the_whole_float_range(
+    values: list[float], counts: dict[int, int]
+) -> None:
+    """Edges and bins stay finite and correct for ranges wider than the largest float."""
+    frame = pl.DataFrame({"key": list("abc"), "x": values})
+
+    histogram = column_histograms(frame, TableState(), _config(ColumnConfig("x")))["x"]
+
+    assert {index: b.count for index, b in enumerate(histogram.bins) if b.count} == counts
+    edges = float_bins(values[0], values[-1])
+    assert all(lower <= upper for lower, upper in edges)
+    assert all(abs(edge) < float("inf") for pair in edges for edge in pair)
