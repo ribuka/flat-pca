@@ -49,6 +49,23 @@ def test_main_exits_on_invalid_settings(
     assert not uvicorn_calls
 
 
+@pytest.mark.parametrize("reload", [False, True])
+def test_main_exits_on_invalid_fit_defaults(
+    project_dir: Path, uvicorn_calls: list[Call], reload: bool
+) -> None:
+    """Invalid ``fit_defaults.toml`` next to the settings stops the server."""
+    (project_dir / "fit_defaults.toml").write_text("[pca]\nunknown = 1\n", encoding="utf-8")
+    argv = ["--settings", str(project_dir / "settings.toml")] + (
+        ["--reload"] if reload else []
+    )
+
+    with pytest.raises(SystemExit) as raised:
+        entry.main(argv)
+
+    assert raised.value.code == 2
+    assert not uvicorn_calls
+
+
 def test_main_serves_app_object_without_reload(
     project_dir: Path, uvicorn_calls: list[Call]
 ) -> None:

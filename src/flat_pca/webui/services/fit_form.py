@@ -67,7 +67,7 @@ class FitForm:
         return not self.errors
 
 
-def _text(value: float | None) -> str:
+def number_text(value: float | None) -> str:
     """Format a number for a form input.
 
     Parameters
@@ -112,7 +112,9 @@ def _default(config: type[Any], name: str) -> Any:
     raise ValueError(f"{config.__name__} has no default for {name}")
 
 
-def default_form_values(ranges: SelectionRanges) -> FormValues:
+def default_form_values(
+    ranges: SelectionRanges, overrides: Mapping[str, object] | None = None
+) -> FormValues:
     """Return the initial form values.
 
     Every step is selected, the optional ranges are disabled with the
@@ -120,53 +122,59 @@ def default_form_values(ranges: SelectionRanges) -> FormValues:
     downsampling, missing ratio, and T² and Q settings take the defaults of
     ``PreprocessConfig``, ``MahalanobisConfig``, and ``SpeConfig``. The PCA
     settings are the Web UI's own: ``n_component`` automatic, rows with
-    missing values dropped, and no scaling.
+    missing values dropped, and no scaling. ``overrides`` then replaces
+    any of these values.
 
     Parameters
     ----------
     ranges : SelectionRanges
         Steps and ranges of the selected files.
+    overrides : Mapping[str, object] | None, default None
+        Form values keyed by input name that replace the built-in initial
+        values, such as those of ``fit_defaults.toml``.
 
     Returns
     -------
     dict[str, object]
         Form values keyed by input name.
     """
-    return {
+    values: FormValues = {
         "target_steps": [str(step) for step in ranges.steps],
         "edge_trim_start": "",
         "edge_trim_end": "",
         "wavelength_range_enabled": False,
-        "wavelength_range_lower": _text(ranges.wavelength_min),
-        "wavelength_range_upper": _text(ranges.wavelength_max),
+        "wavelength_range_lower": number_text(ranges.wavelength_min),
+        "wavelength_range_upper": number_text(ranges.wavelength_max),
         "t_normalization_range_enabled": False,
-        "t_normalization_range_lower": _text(ranges.time_min),
-        "t_normalization_range_upper": _text(ranges.time_max),
+        "t_normalization_range_lower": number_text(ranges.time_min),
+        "t_normalization_range_upper": number_text(ranges.time_max),
         "w_normalization_range_enabled": False,
-        "w_normalization_range_lower": _text(ranges.wavelength_min),
-        "w_normalization_range_upper": _text(ranges.wavelength_max),
+        "w_normalization_range_lower": number_text(ranges.wavelength_min),
+        "w_normalization_range_upper": number_text(ranges.wavelength_max),
         "t_smoothing_window": "",
         "w_smoothing_window": "",
         "intensity_transform": _default(PreprocessConfig, "intensity_transform"),
-        "intensity_transform_scale": _text(
+        "intensity_transform_scale": number_text(
             _default(PreprocessConfig, "intensity_transform_scale")
         ),
-        "t_downsampling_stride": _text(_default(PreprocessConfig, "t_downsampling_stride")),
-        "w_downsampling_stride": _text(_default(PreprocessConfig, "w_downsampling_stride")),
-        "max_null_ratio": _text(_default(PreprocessConfig, "max_null_ratio")),
+        "t_downsampling_stride": number_text(_default(PreprocessConfig, "t_downsampling_stride")),
+        "w_downsampling_stride": number_text(_default(PreprocessConfig, "w_downsampling_stride")),
+        "max_null_ratio": number_text(_default(PreprocessConfig, "max_null_ratio")),
         "n_component": "",
         "impute_strategy": "drop",
         "impute_kmeans_n_clusters": "",
         "scaling_strategy": "none",
-        "mahalanobis_cumulative_explained_variance": _text(
+        "mahalanobis_cumulative_explained_variance": number_text(
             _default(MahalanobisConfig, "cumulative_explained_variance")
         ),
-        "mahalanobis_alpha": _text(_default(MahalanobisConfig, "alpha")),
-        "spe_cumulative_explained_variance": _text(
+        "mahalanobis_alpha": number_text(_default(MahalanobisConfig, "alpha")),
+        "spe_cumulative_explained_variance": number_text(
             _default(SpeConfig, "cumulative_explained_variance")
         ),
-        "spe_alpha": _text(_default(SpeConfig, "alpha")),
+        "spe_alpha": number_text(_default(SpeConfig, "alpha")),
     }
+    values.update(overrides or {})
+    return values
 
 
 def form_values_from_config(config: Mapping[str, Any], ranges: SelectionRanges) -> FormValues:
@@ -191,12 +199,12 @@ def form_values_from_config(config: Mapping[str, Any], ranges: SelectionRanges) 
     values["target_steps"] = [str(step) for step in preprocess["target_steps"]]
     edge_trim = preprocess["edge_trim"]
     if edge_trim is not None:
-        values["edge_trim_start"], values["edge_trim_end"] = map(_text, edge_trim)
+        values["edge_trim_start"], values["edge_trim_end"] = map(number_text, edge_trim)
     for name in RANGE_FIELDS:
         bounds = preprocess[name]
         if bounds is not None:
             values[f"{name}_enabled"] = True
-            values[f"{name}_lower"], values[f"{name}_upper"] = map(_text, bounds)
+            values[f"{name}_lower"], values[f"{name}_upper"] = map(number_text, bounds)
     for name in (
         *WINDOW_FIELDS,
         "intensity_transform_scale",
@@ -204,16 +212,16 @@ def form_values_from_config(config: Mapping[str, Any], ranges: SelectionRanges) 
         "w_downsampling_stride",
         "max_null_ratio",
     ):
-        values[name] = _text(preprocess[name])
+        values[name] = number_text(preprocess[name])
     values["intensity_transform"] = preprocess["intensity_transform"]
-    values["n_component"] = _text(pca["n_component"])
+    values["n_component"] = number_text(pca["n_component"])
     values["impute_strategy"] = pca["impute_strategy"]
-    values["impute_kmeans_n_clusters"] = _text(pca["impute_kmeans_n_clusters"])
+    values["impute_kmeans_n_clusters"] = number_text(pca["impute_kmeans_n_clusters"])
     values["scaling_strategy"] = pca["scaling_strategy"]
     for prefix in STATISTIC_FIELDS:
         statistic = config[prefix]
         for key in ("cumulative_explained_variance", "alpha"):
-            values[f"{prefix}_{key}"] = _text(statistic[key])
+            values[f"{prefix}_{key}"] = number_text(statistic[key])
     return values
 
 

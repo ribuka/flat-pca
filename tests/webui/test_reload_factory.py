@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from flat_pca.webui.reload_factory import (
     FACTORY_IMPORT_STRING,
@@ -39,3 +40,14 @@ def test_factory_requires_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(RuntimeError, match=SETTINGS_ENV):
         create_app_from_environment()
+
+
+def test_factory_reads_fit_defaults_next_to_the_settings(
+    project_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The factory gives the workspace the ``fit_defaults.toml`` next to the settings."""
+    (project_dir / "fit_defaults.toml").write_text("[pca]\nn_component = 2\n", encoding="utf-8")
+    monkeypatch.setenv(SETTINGS_ENV, str(project_dir / "settings.toml"))
+
+    with TestClient(create_app_from_environment()) as client:
+        assert client.app.state.workspace.fit_defaults.pca.n_component == 2

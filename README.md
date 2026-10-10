@@ -31,6 +31,8 @@ uv run -m flat_pca.webui --reload                     # 開発用：src/flat_pca
 
 `settings.toml` の書式は [docs/spec/webui.md](docs/spec/webui.md) の「設定（settings.toml）」を参照してください。相対パスは `settings.toml` のあるディレクトリ基準で解決されます。同じディレクトリに `settings.local.toml`（git 管理外）があれば、`settings.toml` の代わりにそちらだけが読まれます。
 
+Preprocess / PCA 画面のフォームの初期値は、`settings.toml` と同じディレクトリの `fit_defaults.toml` で変えられます（例: [config/fit_defaults.toml](config/fit_defaults.toml)。書かなかった項目とファイルが無いときは組み込みの初期値）。`fit_defaults.local.toml`（git 管理外）があれば、`fit_defaults.toml` の代わりにそちらだけが読まれます。未知のキーや不正な値があると起動時にエラーになります。書式は [docs/spec/webui.md](docs/spec/webui.md) の「前処理・PCAフォームの初期値（fit_defaults.toml）」を参照してください。
+
 ### 開発環境（任意）
 
 コーディングエージェント向けに [graphify](https://github.com/Graphify-Labs/graphify) のコードグラフを使います。

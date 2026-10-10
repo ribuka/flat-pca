@@ -8,6 +8,7 @@ from functools import partial
 from loguru import logger
 
 from .database import Database
+from .fit_defaults import BUILTIN_FIT_DEFAULTS, FitDefaults
 from .jobs.catalog import build_catalog_config, run_catalog
 from .jobs.executor import JobExecutor, JobSpec
 from .jobs.fit_run import run_fit
@@ -38,10 +39,15 @@ class Workspace:
     ----------
     settings : Settings
         Validated application settings.
+    fit_defaults : FitDefaults, default BUILTIN_FIT_DEFAULTS
+        Initial values of the preprocessing and PCA form.
     """
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self, settings: Settings, fit_defaults: FitDefaults = BUILTIN_FIT_DEFAULTS
+    ) -> None:
         self.settings = settings
+        self.fit_defaults = fit_defaults
         settings.runs_dir.mkdir(parents=True, exist_ok=True)
         self.database = Database(settings.database_path, settings.metadata_columns)
         interrupted = fail_interrupted_runs(self.database)

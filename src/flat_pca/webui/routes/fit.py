@@ -105,7 +105,8 @@ def _initial_form(workspace: Workspace, run: dict[str, object] | None) -> FitFor
     workspace : Workspace
         Application workspace.
     run : dict[str, object] | None
-        Fit run to reproduce, or ``None`` for the defaults.
+        Fit run to reproduce, or ``None`` for the defaults (with the
+        workspace's ``fit_defaults.toml`` values).
 
     Returns
     -------
@@ -115,7 +116,7 @@ def _initial_form(workspace: Workspace, run: dict[str, object] | None) -> FitFor
     stems = workspace.selection.stems
     ranges = selection_ranges(workspace.database, stems)
     values = (
-        default_form_values(ranges)
+        default_form_values(ranges, workspace.fit_defaults.form_values())
         if run is None
         else form_values_from_config(run_config(run), ranges)
     )
