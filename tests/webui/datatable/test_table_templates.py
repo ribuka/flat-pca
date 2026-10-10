@@ -18,6 +18,7 @@ from flat_pca.webui.datatable import (
     apply_state,
     configure_environment,
     parse_state,
+    summarize_table,
 )
 
 
@@ -135,7 +136,7 @@ def test_fragment_opens_a_menu_from_each_column_name(
         assert ('data-dt-sort="' in menu) == column.sortable
         assert (f'name="t.null__{column.name}"' in menu) == (column.filter is not None)
     assert '<span class="dt-type">datetime[μs]</span>' in html
-    assert '<span class="dt-sort-mark" aria-hidden="true">▲</span>' in _header(html, "count")
+    assert '<span class="dt-sort-mark" aria-hidden="true" data-dt-part="sort-4">▲</span>' in _header(html, "count")
     count_menu = _menu(html, "count")
     assert 'data-dt-order="asc" aria-pressed="true"' in count_menu
     assert 'data-dt-order="desc" aria-pressed="false"' in count_menu
@@ -150,7 +151,7 @@ def test_fragment_shows_choice_and_null_counts_and_filter_marks(
     state = parse_state(
         {"t.eq__group": ["b", "gone"], "t.null__when": ["is_not_null"], "t.q__name": ["a"]}, config
     )
-    view = apply_state(frame, state, config, {"group": ["a", "b"]})
+    view = apply_state(frame, state, config, summarize_table(frame, config, {"group": ["a", "b"]}))
 
     html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
 
@@ -187,8 +188,8 @@ def test_fragment_puts_apply_cancel_and_clear_under_the_filters(
         assert ("data-dt-draft-status hidden>Unapplied changes" in menu) == (column.filter is not None)
         if column.filter is not None:
             assert menu.index("data-dt-copy=") < menu.index("data-dt-apply")
-    assert re.search(r"data-dt-clear-filter>", _menu(html, "group"))
-    assert re.search(r"data-dt-clear-filter disabled>", _menu(html, "when"))
+    assert re.search(r'data-dt-clear-filter data-dt-part="clear-\d+">', _menu(html, "group"))
+    assert re.search(r'data-dt-clear-filter data-dt-part="clear-\d+" disabled>', _menu(html, "when"))
 
 
 def test_fragment_lists_the_rows_of_every_filter_for_the_header_checkbox(
@@ -202,14 +203,14 @@ def test_fragment_lists_the_rows_of_every_filter_for_the_header_checkbox(
 
     html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
 
-    matching = re.search(r"<script type=\"application/json\" data-dt-matching>(.*?)</script>", html)
+    matching = re.search(r"<script type=\"application/json\" data-dt-matching[^>]*>(.*?)</script>", html)
     assert matching is not None
     assert json.loads(matching[1]) == ["k1", "k4"]
 
 
 def _footer(html: str) -> str:
     """Return the footer under the table."""
-    match = re.search(r'<div class="dt-footer">.*</nav>\s*</div>', html, re.DOTALL)
+    match = re.search(r'<div class="dt-footer"[^>]*>.*</nav>\s*</div>', html, re.DOTALL)
     assert match is not None
     return match[0]
 
@@ -480,7 +481,7 @@ def test_fragment_without_toolbar_settings_has_no_toolbar(
     html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
 
     assert "dt-toolbar" not in html
-    assert "dt-chips" not in html
+    assert 'class="dt-chips"' not in html
     assert "data-dt-columns-menu" not in html
 
 
@@ -522,7 +523,7 @@ def test_fragment_lists_the_filters_in_use_as_chips(
     assert """data-dt-remove-filter='["t.eq__group"]'""" in chips[0]
     assert '<span class="dt-chip-label">score ≥ 1</span>' in chips[1]
     assert """data-dt-remove-filter='["t.min__score", "t.max__score"]'""" in chips[1]
-    assert "dt-chips" not in unfiltered
+    assert 'class="dt-chips"' not in unfiltered
 
 
 def test_fragment_has_a_columns_menu_of_every_column(
@@ -782,3 +783,71 @@ def test_columns_menu_resets_the_column_widths(
     assert menu is not None
     assert '<button type="button" data-dt-reset-widths disabled>Reset column widths</button>' in menu[0]
     assert "data-dt-reset-widths" not in plain
+
+
+def test_container_called_with_a_block_holds_it_and_does_not_load(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """A container given its first fragment shows it and only reloads on later triggers."""
+    view = apply_state(frame, TableState(), config)
+
+    html = _render(
+        environment,
+        '{% call container(config, [], triggers="data-changed from:body") %}'
+        "{{ fragment(config, view) }}{% endcall %}",
+        config=config,
+        view=view,
+    )
+
+    container = re.search(r'<div id="t"[^>]*>', html)
+    assert container is not None
+    assert 'hx-trigger="dt-reload, data-changed from:body"' in container[0]
+    assert "Loading" not in html
+    assert html.index('<tr data-dt-key="k1"') < html.index('id="t-selection"')
+
+
+def test_fragment_marks_the_parts_that_a_reload_swaps(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """Rows, footer, keys, marks, histograms, and chips are parts; the toolbar and menus are not."""
+    config = replace(
+        config, histograms=True, filter_chips=True, max_selected=3, export_url="/table/export"
+    )
+    view = apply_state(frame, TableState(), config)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    parts = re.findall(r'data-dt-part="([^"]+)"', html)
+    assert sorted(parts) == sorted(
+        [
+            "state", "chips", "matching", "limit", "rows", "footer", "export-filtered",
+            *(f"sort-{index}" for index in range(1, 8)),
+            *(f"sorts-{index}" for index in range(1, 7)),
+            *(f"filtered-{index}" for index in range(1, 8)),
+            *(f"clear-{index}" for index in range(2, 7)),
+            *(f"histogram-{index}" for index in (4, 5, 6)),
+        ]
+    )
+    assert len(parts) == len(set(parts))
+    assert '<tbody data-dt-part="rows">' in html
+
+
+def test_fragment_offers_the_rows_per_page(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """With page sizes, the footer chooses the rows per page and notes the first row shown."""
+    choosing = replace(config, page_sizes=(3, 10))
+    view = apply_state(frame, parse_state({"t.page_size": ["3"], "t.page": ["2"]}, choosing), choosing)
+
+    footer = _footer_end(_render(environment, "{{ fragment(config, view) }}", config=choosing, view=view))
+    plain = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    assert re.findall(r'<option value="(\d+)"( selected)?>', footer) == [("2", ""), ("3", " selected"), ("10", "")]
+    assert 'name="t.page_size" data-dt-query data-dt-page-size' in footer
+    assert 'data-dt-page-range data-dt-start="4">4–4 of 4' in footer
+    assert "data-dt-page-size" not in plain
+
+
+def _footer_end(html: str) -> str:
+    """Return the footer under the table, to the end of the fragment."""
+    return html[html.index('<div class="dt-footer"'):]

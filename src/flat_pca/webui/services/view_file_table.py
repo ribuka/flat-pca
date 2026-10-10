@@ -10,7 +10,8 @@ import polars as pl
 from ..database import Database
 from ..datatable import TableConfig
 from ..settings import MetadataColumnSettings
-from .file_table import file_frame, file_table_config
+from .file_table import file_table_config
+from .file_table_cache import catalog_snapshot
 
 VIEW_FILE_TABLE_ID = "view-files"
 VIEW_FILE_TABLE_URL = "/sidebar/selection/files/table"
@@ -66,10 +67,11 @@ def view_file_frame(database: Database, stems: list[str]) -> pl.DataFrame:
     Returns
     -------
     pl.DataFrame
-        One row per stem with the columns of ``file_frame``. A file missing
-        from the catalog keeps its row with nulls (and a blank path).
+        One row per stem with the columns of ``file_frame`` (from the kept
+        ``catalog_snapshot``). A file missing from the catalog keeps its row
+        with nulls (and a blank path).
     """
-    frame = file_frame(database)
+    frame = catalog_snapshot(database).frame
     targets = pl.DataFrame({"stem": stems}, schema={"stem": pl.String()})
     return targets.join(frame, on="stem", how="left", maintain_order="left").with_columns(
         pl.col("path").fill_null("")

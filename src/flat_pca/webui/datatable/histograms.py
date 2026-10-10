@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import pairwise
 from typing import Literal
 
@@ -61,11 +61,19 @@ class Histogram:
         Bins from the smallest value to the largest, of equal width.
     minimum, maximum : str
         Smallest and largest value as text, written under the bars.
+    kind : BinKind
+        How the column was cut (``bin_kind``).
+    edges : tuple[tuple[int, int], ...] | tuple[tuple[float, float], ...]
+        ``(lower, upper)`` of each bin as the values the column is binned by
+        (``integer_bins`` or ``float_bins``), which ``mark_histograms``
+        compares with the bounds in use.
     """
 
     bins: tuple[HistogramBin, ...]
     minimum: str
     maximum: str
+    kind: BinKind
+    edges: tuple[tuple[int, int], ...] | tuple[tuple[float, float], ...]
 
 
 @dataclass(frozen=True)
@@ -281,25 +289,21 @@ def _in_bounds(
     return edges.select(pl.all_horizontal(conditions).fill_null(False)).to_series().to_list()
 
 
-def column_histograms(
+def count_histograms(
     frame: pl.DataFrame | pl.LazyFrame,
-    state: TableState,
     config: TableConfig,
     schema: Mapping[str, pl.DataType] | None = None,
 ) -> dict[str, ColumnHistogram]:
-    """Summarize the distribution of each shown column over every row.
+    """Count the distribution of each shown column over every row.
 
-    The distributions do not depend on the filters, so they stay the same
-    while the filters change; the filters only fade the bins outside the
-    bounds and the values not checked.
+    The distributions do not depend on the filters, so an application can
+    count them once per frame (``summarize_table``) and only mark the filters
+    of each state on them (``mark_histograms``).
 
     Parameters
     ----------
     frame : pl.DataFrame | pl.LazyFrame
         Every row of the table.
-    state : TableState
-        State whose bounds (``ranges``) and checked values (``equals``) fade
-        the bins and values outside them.
     config : TableConfig
         Table settings.
     schema : Mapping[str, pl.DataType] | None, default None
@@ -311,7 +315,8 @@ def column_histograms(
         By column name, a ``Histogram`` of each number, date, and datetime
         column (``bin_kind``; NaN and infinite floats are not counted) and
         the ``TopValues`` of each categorical, enum, and boolean column
-        (``has_top_values``). A column without a non-null value has none.
+        (``has_top_values``), every bin and value in the filter. A column
+        without a non-null value has none.
     """
     lazy = frame.lazy()
     if schema is None:
@@ -376,14 +381,15 @@ def column_histograms(
         counts = {pair["bin"]: pair["n"] for pair in counted[f"bins{index}"]}
         lowers = _value_texts([lower for lower, _ in bins], dtype)
         uppers = _value_texts([upper for _, upper in bins], dtype)
-        in_filter = _in_bounds(bins, kind, dtype, state.ranges.get(name, (None, None)))
         histograms[name] = Histogram(
             bins=tuple(
-                HistogramBin(lowers[bin], uppers[bin], counts.get(bin, 0), in_filter[bin])
+                HistogramBin(lowers[bin], uppers[bin], counts.get(bin, 0), True)
                 for bin in range(len(bins))
             ),
             minimum=lowers[0],
             maximum=uppers[-1],
+            kind=kind,
+            edges=tuple(bins),  # type: ignore[arg-type]
         )
     for index, name in enumerate(topped):
         pairs = sorted(
@@ -392,13 +398,91 @@ def column_histograms(
         )
         if not pairs:
             continue
-        chosen = state.equals.get(name)
         histograms[name] = TopValues(
-            values=tuple(
-                TopValue(value, count, chosen is None or value in chosen)
-                for value, count in pairs[:TOP_VALUES]
-            ),
+            values=tuple(TopValue(value, count, True) for value, count in pairs[:TOP_VALUES]),
             others=sum(count for _, count in pairs[TOP_VALUES:]),
         )
     order = [column.name for column in config.columns]
     return {name: histograms[name] for name in order if name in histograms}
+
+
+def mark_histograms(
+    histograms: Mapping[str, ColumnHistogram],
+    state: TableState,
+    schema: Mapping[str, pl.DataType],
+) -> dict[str, ColumnHistogram]:
+    """Mark the bins and values of the distributions that a state's filters keep.
+
+    Parameters
+    ----------
+    histograms : Mapping[str, ColumnHistogram]
+        Distributions by column name, from ``count_histograms``.
+    state : TableState
+        State whose bounds (``ranges``) and checked values (``equals``) fade
+        the bins and values outside them.
+    schema : Mapping[str, pl.DataType]
+        Column types of the frame the distributions were counted on.
+
+    Returns
+    -------
+    dict[str, ColumnHistogram]
+        The same distributions, in the same order, with ``in_filter`` set: a
+        bin overlapping the column's bounds (every bin without bounds), and a
+        value among those checked (every value when none is checked).
+    """
+    marked: dict[str, ColumnHistogram] = {}
+    for name, histogram in histograms.items():
+        if isinstance(histogram, Histogram):
+            in_filter = _in_bounds(
+                list(histogram.edges),
+                histogram.kind,
+                schema[name],
+                state.ranges.get(name, (None, None)),
+            )
+            marked[name] = replace(
+                histogram,
+                bins=tuple(
+                    replace(bin, in_filter=kept)
+                    for bin, kept in zip(histogram.bins, in_filter, strict=True)
+                ),
+            )
+        else:
+            chosen = state.equals.get(name)
+            marked[name] = replace(
+                histogram,
+                values=tuple(
+                    replace(item, in_filter=chosen is None or item.value in chosen)
+                    for item in histogram.values
+                ),
+            )
+    return marked
+
+
+def column_histograms(
+    frame: pl.DataFrame | pl.LazyFrame,
+    state: TableState,
+    config: TableConfig,
+    schema: Mapping[str, pl.DataType] | None = None,
+) -> dict[str, ColumnHistogram]:
+    """Summarize the distribution of each shown column with a state's filters marked.
+
+    Parameters
+    ----------
+    frame : pl.DataFrame | pl.LazyFrame
+        Every row of the table.
+    state : TableState
+        State whose bounds and checked values fade the bins and values
+        outside them.
+    config : TableConfig
+        Table settings.
+    schema : Mapping[str, pl.DataType] | None, default None
+        Column types of the frame; collected from it if ``None``.
+
+    Returns
+    -------
+    dict[str, ColumnHistogram]
+        ``count_histograms`` of the frame marked by ``mark_histograms``.
+    """
+    if schema is None:
+        schema = frame.lazy().collect_schema()
+    return mark_histograms(count_histograms(frame, config, schema), state, schema)

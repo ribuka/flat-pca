@@ -21,10 +21,11 @@ Update this document whenever the component gains a feature.
 | --- | --- |
 | `config.py` | `TableConfig` and `ColumnConfig`: what the application decides. |
 | `state.py` | `TableState` and `parse_state`: query parameters → table state. |
-| `query.py` | `apply_state`: table state + frame → `TableView` (rows of one page, the page, matching keys, choices, counts, column types, filter chips, histograms); `matching_rows` (the filtered and sorted rows that the view and the export share), `filter_expression`, `search_columns`, and `search_terms`. A `LazyFrame` is collected only for the page's rows, for the matching keys (or their count), and for the counts. |
+| `query.py` | `apply_state`: table state + frame (+ its `TableSummary`) → `TableView` (rows of one page, the page and its size, matching keys, choices, counts, column types, filter chips, histograms); `matching_rows` (the filtered and sorted rows that the view and the export share), `filter_expression`, `search_columns`, and `search_terms`. A `LazyFrame` is collected only for the page's rows and for the matching keys (or their count). |
+| `summary.py` | `TableSummary` and `summarize_table`: what the table shows over every row of the frame, whatever the state (column types, choices from `choice_options`, counts, histograms), made once per frame. |
 | `export.py` | `parse_export`: form fields → `ExportRequest`; `export_file`: the filtered or selected rows as an `ExportFile` (CSV or Parquet, its name and download headers); `export_rows`, `file_content`, `export_filename`, `parse_selection`. |
 | `bounds.py` | `bound_condition`: a column compared with a lower or upper bound, exactly for integers. |
-| `histograms.py` | `column_histograms`: the distribution of each column under its name (`Histogram` of bins, or `TopValues`); `integer_bins` and `float_bins`. |
+| `histograms.py` | `count_histograms`: the distribution of each column under its name (`Histogram` of bins, or `TopValues`) over every row; `mark_histograms`: the bins and values a state's filters keep (`in_filter`); `column_histograms` (both at once), `integer_bins`, and `float_bins`. |
 | `chips.py` | `FilterChip` and `filter_chips`: the column filters in use as chips above the table. |
 | `counts.py` | `ColumnCounts` and `count_values`: rows of each choice value and null values per filtered column, for the column menus. |
 | `pagination.py` | `Page` and `paginate`: the page among the rows. |
@@ -61,7 +62,8 @@ Update this document whenever the component gains a feature.
            ColumnConfig("n_rows", label="rows"),   # sortable, no filter
        ),
        url="/catalog/files",          # returns the fragment
-       page_size=1000,
+       page_size=100,                 # rows per page at first
+       page_sizes=(50, 200, 500),     # "Rows per page" choice; () for none
        selectable=True,
        selection_name="stems",        # name of the hidden selection input
        selection_form=None,           # its form attribute, if any
@@ -87,6 +89,13 @@ Update this document whenever the component gains a feature.
 
    `triggers` adds htmx triggers that reload the table. `locked` shows the
    selection with every checkbox disabled (the filters and pages still work).
+   To show the table without a second request, call the container with the
+   first fragment (the view of `parse_state({}, config)`) as its block; it
+   then does not load it again:
+
+   ```jinja
+   {% call container(config, selected) %}{{ fragment(config, view, selected) }}{% endcall %}
+   ```
 
 4. Answer the fragment request with a thin route:
 
@@ -96,7 +105,7 @@ Update this document whenever the component gains a feature.
        state = parse_state(parameters, config)   # ValueError -> 400
    except ValueError as error:
        raise HTTPException(status_code=400, detail=str(error)) from error
-   view = apply_state(frame, state, config)      # frame: DataFrame or LazyFrame
+   view = apply_state(frame, state, config, summary)  # frame: DataFrame or LazyFrame
    ```
 
    ```jinja
@@ -104,12 +113,17 @@ Update this document whenever the component gains a feature.
    {{ fragment(config, view, selected) }}
    ```
 
-   The frame is every row in its default order. `apply_state` takes the
-   choices of `"choice"` filters as its fourth argument; without it they are
-   the sorted distinct values of the frame. The counts beside the choices,
-   the null counts, and the histograms are always taken over every row of
-   the frame (not only the filtered ones); a given choice missing from the
-   frame counts 0.
+   The frame is every row in its default order. `summary` is
+   `summarize_table(frame, config, options)`: the column types, the choices
+   of the `"choice"` filters (`options`, or without it the sorted distinct
+   values of the frame), the counts beside them, the null counts, and the
+   histograms, always over every row of the frame (not only the filtered
+   ones); a given choice missing from the frame counts 0. None of it depends
+   on the state, so keep the summary while the frame does not change, and
+   only filtering, sorting, and paging run per request (flat-pca keeps the
+   file table's frame and summary until the catalog changes:
+   `services/file_table_cache.py`). Without `summary`, `apply_state` makes
+   it from the frame.
 
 5. With `export_url`, answer the export (a form POST) with another thin route:
 
@@ -154,6 +168,7 @@ does not fit its column, or an unparsable value is a `ValueError`.
 | `sort` | A sortable column (default: `default_sort`, or the frame's order). An empty value clears the sort back to the default. |
 | `order` | `asc` (default) or `desc`. |
 | `page` | 1-based page number; a page past the last shows the last. |
+| `page_size` | Rows per page, one of `page_size_choices` (`page_sizes` and `page_size`; only with `page_sizes`); default `page_size`. |
 | `search` | Search of the whole table (only with `search=True`): every whitespace-separated word, in any order, ignoring case, as plain text, must be in some shown `pl.String` column of the row (`search_columns`; each word in any of them). Other types, `title_column`, and columns of the frame that are not shown are not searched; nulls hold no word. |
 | `q__<column>` | Search of a `"text"` column: the value must contain every whitespace-separated word, in any order, ignoring case, as plain text (not a regular expression). `b01 lotA` matches `LotA_B01_run3`. |
 | `eq__<column>` | A value of a `"choice"` column, repeated for several (`?t.eq__lot=A&t.eq__lot=B`); a row matches any of them (`is_in`). |
@@ -315,10 +330,33 @@ header checkbox's matching keys, the export, and anything else built on
     a chip's × (reached with Tab) closes the menu, dropping the draft, and
     removes the applied filter.
 - Sorting (Asc, Desc, Clear sort) and copying the name take effect at once
-  and close the menu. Outside the column menus, the search box of the whole
+  and close the menu; Asc and Desc show the new sort mark and the pressed
+  button before the rows arrive. Outside the column menus, the search box of the whole
   table (after 300 ms), a chip's ×, and the `Columns` menu also take effect
   without Apply. Sorting or filtering returns to the first page. Reloads trigger
   `dt-reload` on the container.
+- A reload of the table's own (`dt-reload`: sorting, filtering, paging, the
+  search box, a chip, the rows per page) swaps only the parts of the fragment
+  that change, marked `data-dt-part` (the rows, the footer, the matching
+  keys, the sort and filter marks, the histograms, the sort buttons and
+  `Clear` of the menus, the filtered count of `Export`, the chips, the limit
+  notice, and the hidden sort / order / page inputs), and the `aria-sort` of
+  the headers. `datatable.js` swaps them itself from the response, so htmx
+  neither cleans up nor processes the old and new rows, and the toolbar, the
+  menus (an open one keeps its draft and focus), and the header cells stay.
+  A focused control of a swapped part (a page button, for example) is
+  focused again in the new part. The new rows show from the top of the
+  scroll box (the sideways scroll stays); after a change of the rows per
+  page, the row that began the page shown is at the top, under the header. A reload triggered by the page (`triggers`,
+  such as a catalog update), or a response with other parts, swaps the whole
+  fragment with htmx.
+- A table drawn with the page (the container called with its first
+  fragment) gets the remembered hidden columns, pinning, and column widths
+  and shows the selection as soon as `datatable.js` runs, and one that htmx
+  puts in the page later on its `htmx:load`, as a whole swap does.
+- While a reload is pending, the container has `htmx-request` and
+  `aria-busy="true"`: after 0.1 s the rows fade and a spinner turns over the
+  table.
 - Under the table, the footer shows "N rows, M columns" (the rows matching
   the filters and the shown columns), for a selectable table the selection
   count ("k selected", or "k / max selected" with `max_selected`) and Clear
@@ -327,7 +365,9 @@ header checkbox's matching keys, the export, and anything else built on
   page buttons around a page number input. Enter or leaving the input goes
   to the typed page (kept between 1 and the last page); a blank or invalid
   value puts the current page back. The number of rows per page is
-  `page_size`; it cannot be changed from the page.
+  `page_size`; with `page_sizes`, `Rows per page` (a `select`) after the page
+  controls chooses it among `page_size_choices` and reloads the page holding
+  the first row shown. The choice lasts until the page is left.
 - The selection of a selectable table spans pages and filters. It is a JSON
   array in the hidden input `#<table_id>-selection` (named `selection_name`),
   outside the reloaded fragment, so a form or `hx-include` can send it as one
@@ -375,7 +415,9 @@ container, so several tables can share a page.
 
 | Selector | Element |
 | --- | --- |
-| `.dt-root[data-datatable]` | Container (`id` = `table_id`); `data-dt-locked` when locked; `data-dt-pinned` while the left columns are pinned; `data-dt-max-selected` with the limit; `data-dt-export-url` with `export_url`. |
+| `.dt-root[data-datatable]` | Container (`id` = `table_id`); `data-dt-locked` when locked; `data-dt-pinned` while the left columns are pinned; `data-dt-max-selected` with the limit; `data-dt-export-url` with `export_url`; `htmx-request` and `aria-busy` while reloading. |
+| `[data-dt-part]` | A part of the fragment swapped after the table's own reloads (`state`, `rows`, `footer`, `matching`, `chips`, `limit`, `export-filtered`, and per column `sort-<n>`, `filtered-<n>`, `histogram-<n>`, `sorts-<n>`, `clear-<n>`). |
+| `.dt-state`, `.dt-chips-slot`, `.dt-filter-state` | Holders of the hidden sort / order / page inputs, of the chips, and of a column's filter mark (no box of their own). |
 | `.dt-scroll` / `.dt-table` | Scroll box with a fixed header / the table (`table-layout: fixed`). |
 | `.dt-head`, `.dt-column[data-dt-column]`, `.dt-label` | Header line and the column name button opening the menu. |
 | `.dt-resizer[data-dt-resize]` | Handle on the right edge of a header resizing its column (`role="separator"`, named `Resize column <label>`, `aria-valuenow` the width in pixels); `data-dt-resizing` while dragged, also on the container. |
@@ -402,7 +444,8 @@ container, so several tables can share a page.
 | `.dt-footer` | Footer under the table. |
 | `.dt-shape[data-dt-shape]`, `[data-dt-column-count]` | "N rows, M columns", and M (the shown columns). |
 | `.dt-selection-state`, `.dt-selected-count[data-dt-selected-count]`, `[data-dt-clear]` | Selection count and the Clear button (selectable tables). |
-| `.dt-pager`, `[data-dt-page-range]`, `[data-dt-page]`, `.dt-page-jump`, `.dt-page-input[data-dt-page-input][data-dt-page-current]` | "a–b of N", the first / previous / next / last page buttons (named `First page` and so on), and the page number input. |
+| `.dt-pager`, `[data-dt-page-range][data-dt-start]`, `[data-dt-page]`, `.dt-page-jump`, `.dt-page-input[data-dt-page-input][data-dt-page-current]` | "a–b of N" (`data-dt-start` = a), the first / previous / next / last page buttons (named `First page` and so on), and the page number input. |
+| `.dt-page-size`, `[data-dt-page-size]` | `Rows per page` and its `select` (with `page_sizes`). |
 
 ## CSS variables
 

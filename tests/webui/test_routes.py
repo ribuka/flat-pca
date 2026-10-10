@@ -16,6 +16,7 @@ from flat_pca.webui.app import create_app
 from flat_pca.webui.database import Database
 from flat_pca.webui.routes import catalog as catalog_routes
 from flat_pca.webui.services import file_table
+from flat_pca.webui.services.file_table_cache import CatalogSnapshot
 from flat_pca.webui.services.runs import latest_run
 from flat_pca.webui.settings import Settings
 from flat_pca.webui.templating import STATIC_DIR
@@ -63,6 +64,18 @@ def test_data_selection_page_renders_controls(client: TestClient) -> None:
     assert 'hx-post="/catalog/refresh"' in response.text
     assert 'hx-get="/catalog/files"' in response.text
     assert "No catalog has been built yet" in response.text
+
+
+def test_data_selection_page_draws_the_first_page_of_the_file_table(
+    cataloged_client: TestClient,
+) -> None:
+    """The file table comes with the page and reloads only on its own triggers."""
+    text = cataloged_client.get("/").text
+
+    assert re.findall(r'<tr data-dt-key="([^"]+)"', text) == ["run-1", "run-2", "run-10"]
+    assert 'hx-trigger="dt-reload, catalog-updated from:body"' in text
+    assert "Loading" not in text
+    assert 'name="files.page_size" data-dt-query data-dt-page-size' in text
 
 
 def test_data_selection_groups_are_collapsible(client: TestClient) -> None:
@@ -144,7 +157,7 @@ def test_file_table_lists_files_and_metadata_warnings(
     assert 'data-warning="files-without-metadata"' in text
     assert "<li>ghost</li>" in text
     assert text.count("data-dt-check-all") == 1
-    assert text.index("data-dt-check-all") < text.index("<tbody>")
+    assert text.index("data-dt-check-all") < text.index("<tbody")
     assert "1–3 of 3" in text
     assert "data-dt-page=" not in text
 
@@ -310,9 +323,9 @@ def test_file_export_reads_the_catalog_off_the_event_loop(
 ) -> None:
     """The catalog is read in a worker thread, so other requests are answered meanwhile."""
     loops: list[bool] = []
-    read = catalog_routes.file_frame
+    read = catalog_routes.catalog_snapshot
 
-    def file_frame(database: Database) -> pl.DataFrame:
+    def catalog_snapshot(database: Database) -> CatalogSnapshot:
         """Note whether an event loop runs in this thread, then read the files."""
         try:
             asyncio.get_running_loop()
@@ -321,7 +334,7 @@ def test_file_export_reads_the_catalog_off_the_event_loop(
             loops.append(False)
         return read(database)
 
-    monkeypatch.setattr(catalog_routes, "file_frame", file_frame)
+    monkeypatch.setattr(catalog_routes, "catalog_snapshot", catalog_snapshot)
 
     response = cataloged_client.post(
         "/catalog/files/export", data={"files.export_format": "csv", "files.export_rows": "filtered"}

@@ -4,7 +4,9 @@
 
 {#- The table's container, which loads its fragment, and (for a selectable
     table) the hidden input holding the selection as a JSON array, kept
-    outside the reloaded fragment.
+    outside the reloaded fragment. Called with a block ({% call container(...) %}),
+    the container holds the block (the fragment of the first view, drawn in
+    the page's own response) and does not load it again.
     - config: TableConfig.
     - selected: keys selected at first.
     - locked: show the selection with every checkbox disabled; the filters
@@ -14,12 +16,16 @@
 {% macro container(config, selected=[], locked=false, triggers="") -%}
 <div id="{{ config.table_id }}" class="dt-root" data-datatable hx-get="{{ config.url }}" hx-include="this"
      hx-target="this" hx-swap="innerHTML" hx-sync="this:replace"
-     hx-trigger="load, dt-reload{% if triggers %}, {{ triggers }}{% endif %}"
+     hx-trigger="{% if caller is not defined %}load, {% endif %}dt-reload{% if triggers %}, {{ triggers }}{% endif %}"
      {%- if config.selectable %} data-dt-selection="{{ config.table_id }}-selection"{% endif %}
      {%- if config.max_selected is not none %} data-dt-max-selected="{{ config.max_selected }}"{% endif %}
      {%- if config.export_url %} data-dt-export-url="{{ config.export_url }}"{% endif %}
      {%- if locked %} data-dt-locked{% endif %}>
+  {%- if caller is defined %}
+  {{ caller() }}
+  {%- else %}
   <p class="dt-loading">Loading…</p>
+  {%- endif %}
 </div>
 {% if config.selectable -%}
 <input type="hidden" id="{{ config.table_id }}-selection" name="{{ config.selection_name }}" value='{{ selected|list|tojson }}'
@@ -81,13 +87,13 @@
     datatable.js while the filters differ from those applied), Cancel, and
     Clear (enabled while the column has a filter applied), with the notice
     of unapplied changes. -#}
-{% macro _filter_actions(view, column) -%}
+{% macro _filter_actions(view, column, index) -%}
   <div class="dt-menu-section dt-filter-actions">
     <p class="dt-draft-status" role="status" data-dt-draft-status hidden>Unapplied changes</p>
     <div class="dt-filter-buttons">
       <button type="button" class="dt-apply" data-dt-apply disabled><span aria-hidden="true">✓</span> Apply</button>
       <button type="button" data-dt-cancel><span aria-hidden="true">×</span> Cancel</button>
-      <button type="button" title="Clear the filters of this column" data-dt-clear-filter{% if not view.state.is_filtered(column.name) %} disabled{% endif %}><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M6 1.5h4M2.5 3.5h11M4 3.5l.75 11h6.5l.75-11M6.75 6v6M9.25 6v6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg> Clear</button>
+      <button type="button" title="Clear the filters of this column" data-dt-clear-filter data-dt-part="clear-{{ index }}"{% if not view.state.is_filtered(column.name) %} disabled{% endif %}><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M6 1.5h4M2.5 3.5h11M4 3.5l.75 11h6.5l.75-11M6.75 6v6M9.25 6v6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg> Clear</button>
     </div>
   </div>
 {%- endmacro %}
@@ -100,7 +106,7 @@
   {% set current = view.state.sort_by == column.name %}
   <div popover id="{{ menu_id }}" class="dt-menu" role="dialog" aria-label="{{ column.header }} menu" data-dt-menu="{{ column.name }}">
     {% if column.sortable %}
-      <div class="dt-menu-section dt-sorts" role="group" aria-label="Sort">
+      <div class="dt-menu-section dt-sorts" role="group" aria-label="Sort" data-dt-part="sorts-{{ index }}">
         <button type="button" data-dt-sort="{{ column.name }}" data-dt-order="asc" aria-pressed="{{ 'true' if current and not view.state.descending else 'false' }}"><span aria-hidden="true">▲</span> Asc</button>
         <button type="button" data-dt-sort="{{ column.name }}" data-dt-order="desc" aria-pressed="{{ 'true' if current and view.state.descending else 'false' }}"><span aria-hidden="true">▼</span> Desc</button>
         <button type="button" data-dt-sort="" data-dt-order="asc"{% if not current %} disabled{% endif %}>Clear sort</button>
@@ -113,7 +119,7 @@
     <div class="dt-menu-section">
       <button type="button" data-dt-copy="{{ column.name }}">Copy column name</button>
     </div>
-    {% if column.filter %}{{ _filter_actions(view, column) }}{% endif %}
+    {% if column.filter %}{{ _filter_actions(view, column, index) }}{% endif %}
   </div>
 {%- endmacro %}
 
@@ -124,11 +130,11 @@
     largest value under it, or bars of the most frequent values. Bins outside
     the bounds in use and values not checked are faded (dt-out). Each bar's
     tooltip gives its values and rows. -#}
-{% macro _histogram(column, histogram) -%}
+{% macro _histogram(column, histogram, index) -%}
   {% if histogram.bins is defined %}
     {% set peak = histogram.bins|map(attribute="count")|max %}
     {% set height = 32 %}
-    <div class="dt-histogram" data-dt-histogram>
+    <div class="dt-histogram" data-dt-histogram data-dt-part="histogram-{{ index }}">
       <svg class="dt-bins" viewBox="0 0 {{ histogram.bins|length * 10 }} {{ height }}" preserveAspectRatio="none"
            role="img" aria-label="Histogram of {{ column.header }}, {{ histogram.minimum }} to {{ histogram.maximum }}">
         {% for bin in histogram.bins %}
@@ -143,7 +149,7 @@
     </div>
   {% else %}
     {% set peak = histogram.values[0].count %}
-    <ul class="dt-top-values" aria-label="Most frequent values of {{ column.header }}" data-dt-top-values>
+    <ul class="dt-top-values" aria-label="Most frequent values of {{ column.header }}" data-dt-top-values data-dt-part="histogram-{{ index }}">
       {% for item in histogram.values %}
         <li class="dt-top-value{% if not item.in_filter %} dt-out{% endif %}" title="{{ item.value }}: {{ _rows(item.count) }}">
           <span class="dt-top-bar" style="width: {{ '%.1f'|format(item.count / peak * 100) }}%"></span>
@@ -168,15 +174,15 @@
   <div class="dt-head">
     <button type="button" class="dt-column" popovertarget="{{ menu_id }}" aria-haspopup="dialog" data-dt-column="{{ column.name }}">
       <span class="dt-label">{{ column.header }}</span>
-      <span class="dt-sort-mark" aria-hidden="true">{% if current %}{{ "▼" if view.state.descending else "▲" }}{% endif %}</span>
+      <span class="dt-sort-mark" aria-hidden="true" data-dt-part="sort-{{ index }}">{% if current %}{{ "▼" if view.state.descending else "▲" }}{% endif %}</span>
       <span class="dt-menu-mark" aria-hidden="true">⋯</span>
     </button>
-    {% if view.state.is_filtered(column.name) %}
-      <span class="dt-filter-mark" role="img" aria-label="Filtered" title="Filtered" data-dt-filtered><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M1.5 2h13l-5 6v5.5l-3-1.5V8z" fill="currentColor"/></svg></span>
-    {% endif %}
+    <span class="dt-filter-state" data-dt-part="filtered-{{ index }}">
+      {%- if view.state.is_filtered(column.name) %}<span class="dt-filter-mark" role="img" aria-label="Filtered" title="Filtered" data-dt-filtered><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M1.5 2h13l-5 6v5.5l-3-1.5V8z" fill="currentColor"/></svg></span>{% endif -%}
+    </span>
   </div>
   <span class="dt-type">{{ view.types[column.name] }}</span>
-  {% if column.name in view.histograms %}{{ _histogram(column, view.histograms[column.name]) }}{% endif %}
+  {% if column.name in view.histograms %}{{ _histogram(column, view.histograms[column.name], index) }}{% endif %}
   {{ _menu(config, view, column, menu_id, index) }}
   <span class="dt-resizer" role="separator" aria-orientation="vertical" aria-label="Resize column {{ column.header }}" tabindex="0"
         data-dt-resize="{{ column.name }}"></span>
@@ -192,7 +198,7 @@
 <button type="button" class="dt-export-button" popovertarget="{{ menu_id }}" aria-haspopup="dialog">Export</button>
 <div popover id="{{ menu_id }}" class="dt-menu" role="dialog" aria-label="Export" data-dt-menu data-dt-export-menu>
   {% for rows, label, count in [("filtered", "Filtered rows", view.page.total)] + ([("selected", "Selected rows", selected_count)] if config.selectable else []) %}
-    <div class="dt-menu-section dt-export-rows" role="group" aria-label="{{ label }}">
+    <div class="dt-menu-section dt-export-rows" role="group" aria-label="{{ label }}"{% if rows == "filtered" %} data-dt-part="export-filtered"{% endif %}>
       <span class="dt-export-label">{{ label }} <span class="dt-count"{% if rows == "selected" %} data-dt-export-selected-count{% endif %}>{{ count }}</span></span>
       {% for file_format, format_label in [("csv", "CSV"), ("parquet", "Parquet")] %}
         <button type="button" data-dt-export="{{ file_format }}" data-dt-export-rows="{{ rows }}" aria-label="Export {{ label|lower }} as {{ format_label }}"{% if not count %} disabled{% endif %}>{{ format_label }}</button>
@@ -241,20 +247,26 @@
   {% if config.export_url %}{{ _export_menu(config, view, selected_count) }}{% endif %}
 </div>
 {% endif %}
-{% if config.filter_chips and view.chips %}
-<ul class="dt-chips" aria-label="Filters in use">
-  {% for chip in view.chips %}
-    <li class="dt-chip"><span class="dt-chip-label">{{ chip.label }}</span><button type="button" aria-label="Remove filter {{ chip.label }}" title="Remove filter"
-        data-dt-remove-filter='{{ chip.parameters|list|tojson }}'>×</button></li>
-  {% endfor %}
-</ul>
+{% if config.filter_chips %}
+<div class="dt-chips-slot" data-dt-part="chips">
+  {%- if view.chips %}
+  <ul class="dt-chips" aria-label="Filters in use">
+    {% for chip in view.chips %}
+      <li class="dt-chip"><span class="dt-chip-label">{{ chip.label }}</span><button type="button" aria-label="Remove filter {{ chip.label }}" title="Remove filter"
+          data-dt-remove-filter='{{ chip.parameters|list|tojson }}'>×</button></li>
+    {% endfor %}
+  </ul>
+  {%- endif %}
+</div>
 {% endif %}
 {%- endmacro %}
 
 {#- One page of the table with the toolbar above it, its column menus, sort
     and filter marks, column types, the footer (shape, selection count, page controls), and
     (for a selectable table) the keys of every row matching the filters for
-    the header checkbox.
+    the header checkbox. The parts that change with the sort, the filters,
+    and the page carry `data-dt-part`: datatable.js swaps only those into
+    the table after its own reloads, and keeps the rest (toolbar, menus).
     - config: TableConfig.
     - view: TableView from apply_state.
     - selected: keys shown checked and counted under the table; datatable.js
@@ -266,13 +278,15 @@
 {% macro fragment(config, view, selected=[]) -%}
 {#- The query controls carry data-dt-query; datatable.js reloads the table
     when they change, and for the filters of a column menu on Apply. -#}
-<input type="hidden" name="{{ config.prefix }}sort" value="{{ view.state.sort_by or '' }}" data-dt-query>
-<input type="hidden" name="{{ config.prefix }}order" value="{{ 'desc' if view.state.descending else 'asc' }}" data-dt-query>
-<input type="hidden" name="{{ config.prefix }}page" value="{{ view.page.number }}" data-dt-query>
+<div class="dt-state" data-dt-part="state" hidden>
+  <input type="hidden" name="{{ config.prefix }}sort" value="{{ view.state.sort_by or '' }}" data-dt-query>
+  <input type="hidden" name="{{ config.prefix }}order" value="{{ 'desc' if view.state.descending else 'asc' }}" data-dt-query>
+  <input type="hidden" name="{{ config.prefix }}page" value="{{ view.page.number }}" data-dt-query>
+</div>
 {% set selected_count = selected|unique(case_sensitive=true)|list|length %}
 {{ _toolbar(config, view, selected_count) }}
 {% if config.selectable %}
-<script type="application/json" data-dt-matching>{{ view.matching_keys|tojson }}</script>
+<script type="application/json" data-dt-matching data-dt-part="matching">{{ view.matching_keys|tojson }}</script>
 {% endif %}
 {#- As datatable.js's canChange: at the limit no row can be added, and the
     header checkbox cannot add the matching rows when they pass it. -#}
@@ -281,7 +295,7 @@
 {% set full = limited and selected_count >= config.max_selected %}
 {% set header_blocked = limited and with_matching > config.max_selected and with_matching > selected_count %}
 {% if limited %}
-<p class="dt-limit" role="status" data-dt-limit{% if not full %} hidden{% endif %}>The limit of {{ config.max_selected }} selected rows is reached; clear one to choose another.</p>
+<p class="dt-limit" role="status" data-dt-limit data-dt-part="limit"{% if not full %} hidden{% endif %}>The limit of {{ config.max_selected }} selected rows is reached; clear one to choose another.</p>
 {% endif %}
 <div class="dt-scroll">
 <table class="dt-table">
@@ -298,7 +312,7 @@
       {% endfor %}
     </tr>
   </thead>
-  <tbody>
+  <tbody data-dt-part="rows">
     {% for row in view.rows %}
       {% set key = view.row_keys[loop.index0] %}
       <tr data-dt-key="{{ key }}">
@@ -317,10 +331,11 @@
 {%- endmacro %}
 
 {#- Under the table: its shape (datatable.js counts only the shown columns), the selection count with Clear (for a
-    selectable table), "a–b of N", and the page controls. datatable.js keeps
-    the count and Clear in step with the selection. -#}
+    selectable table), "a–b of N", the page controls, and the choice of the
+    rows per page (TableConfig.page_size_choices). datatable.js keeps the count and
+    Clear in step with the selection. -#}
 {% macro _footer(config, view, selected_count) -%}
-<div class="dt-footer">
+<div class="dt-footer" data-dt-part="footer">
   <span class="dt-shape" data-dt-shape>{{ view.page.total }} rows, <span data-dt-column-count>{{ config.columns|length }}</span> columns</span>
   {% if config.selectable %}
     <span class="dt-selection-state">
@@ -331,6 +346,14 @@
     </span>
   {% endif %}
   {{ _pager(config, view.page) }}
+  {% if config.page_sizes %}
+    <label class="dt-page-size">Rows per page
+      <select name="{{ config.prefix }}page_size" data-dt-query data-dt-page-size>
+        {% for size in config.page_size_choices %}
+          <option value="{{ size }}"{% if size == view.page_size %} selected{% endif %}>{{ size }}</option>
+        {% endfor %}
+      </select></label>
+  {% endif %}
 </div>
 {%- endmacro %}
 
@@ -338,7 +361,7 @@
     next, and last page around a page number input. -#}
 {% macro _pager(config, page) -%}
 <nav class="dt-pager" aria-label="Pages">
-  <span class="dt-page-range" data-dt-page-range>
+  <span class="dt-page-range" data-dt-page-range data-dt-start="{{ page.start }}">
     {%- if page.total -%}
       {{ page.start }}–{{ page.end }} of {{ page.total }}
     {%- else -%}

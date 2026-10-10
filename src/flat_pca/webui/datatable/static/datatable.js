@@ -330,14 +330,16 @@
   const queryTimers = new WeakMap();
 
   // Sets query values of a table and reloads it from the server. `values`
-  // are keyed by control name without the table's prefix.
-  function reload(root, values) {
+  // are keyed by control name without the table's prefix. `detail` goes
+  // with the `dt-reload` event, so it belongs to this request only (its
+  // response reads it in htmx:beforeSwap).
+  function reload(root, values, detail = {}) {
     clearTimeout(queryTimers.get(root));
     const prefix = `${root.id}.`;
     for (const [name, value] of Object.entries(values)) {
       root.querySelector(`[data-dt-query][name="${CSS.escape(prefix + name)}"]`).value = value;
     }
-    htmx.trigger(root, RELOAD_EVENT);
+    htmx.trigger(root, RELOAD_EVENT, detail);
   }
 
   // Typing in the search box of the whole table reloads the first page
@@ -384,6 +386,20 @@
     if (event.target.matches("[data-dt-page-input]") && event.target.isConnected && tableOf(event.target)) {
       goToTypedPage(event.target, false);
     }
+  });
+
+  // The choice of the rows per page reloads the page holding the first row
+  // of the page shown (`data-dt-start` of "a–b of N"), and its response
+  // shows that row at the top of the table (`keptRow` of the reload, used
+  // by swapParts), so the view stays where it was. A failed or replaced
+  // request leaves no position for the next reload.
+  document.addEventListener("change", (event) => {
+    const root = tableOf(event.target);
+    if (!root || !event.target.matches("[data-dt-page-size]")) {
+      return;
+    }
+    const start = Number(root.querySelector("[data-dt-page-range]")?.dataset.dtStart) || 1;
+    reload(root, { page: String(Math.floor((start - 1) / Number(event.target.value)) + 1) }, { keptRow: start });
   });
 
   document.addEventListener("keydown", (event) => {
@@ -868,6 +884,24 @@
     menuButton(menu).focus();
   });
 
+  // Shows a sort chosen in a column menu at once, before the reload brings
+  // the rows: the column's mark and the pressed sort buttons. Clearing the
+  // sort waits for the reload, which shows the default sort.
+  function showSort(root, name, order) {
+    if (!name) {
+      return;
+    }
+    for (const mark of root.querySelectorAll(".dt-sort-mark")) {
+      const column = mark.closest("[data-dt-column]")?.dataset.dtColumn;
+      mark.textContent = column === name ? (order === "desc" ? "▼" : "▲") : "";
+    }
+    for (const button of root.querySelectorAll("[data-dt-sort]")) {
+      if (button.dataset.dtSort) {
+        button.setAttribute("aria-pressed", String(button.dataset.dtSort === name && button.dataset.dtOrder === order));
+      }
+    }
+  }
+
   // A sort button of a column menu sorts by its column (or clears the sort
   // with an empty `data-dt-sort`) and closes the menu; "Copy column name"
   // copies it and closes the menu; the page buttons move between pages.
@@ -879,6 +913,7 @@
     const sort = event.target.closest("[data-dt-sort]");
     if (sort) {
       closeMenu(sort);
+      showSort(root, sort.dataset.dtSort, sort.dataset.dtOrder);
       reload(root, { sort: sort.dataset.dtSort, order: sort.dataset.dtOrder, page: "1" });
       return;
     }
@@ -1062,14 +1097,122 @@
     }
   });
 
-  // A reload replaces the menus. The menu open before it, the control
+  // While a table reloads (`htmx-request` on the container) it shows that it
+  // is busy: the rows fade and a spinner turns (datatable.css), and
+  // `aria-busy` tells assistive technology.
+  document.addEventListener("htmx:beforeRequest", (event) => {
+    if (event.detail.elt.matches?.("[data-datatable]")) {
+      event.detail.elt.setAttribute("aria-busy", "true");
+    }
+  });
+
+  document.addEventListener("htmx:afterRequest", (event) => {
+    if (event.detail.elt.matches?.("[data-datatable]")) {
+      event.detail.elt.removeAttribute("aria-busy");
+    }
+  });
+
+  // The focusable elements of a swapped part, in their order.
+  function focusables(part) {
+    return [...part.querySelectorAll("button, input, select, textarea, a[href], [tabindex]")];
+  }
+
+  // Swaps the parts of a table that its own reloads change (`data-dt-part`:
+  // the rows, the footer, the matching keys, the header marks, the
+  // histograms, the chips, ...) for those of the response, and copies the
+  // sort of each header (`aria-sort`). The toolbar, the menus (with any
+  // draft and the focus in them), and the header cells stay, so nothing is
+  // laid out again but what changed, and htmx neither cleans up nor
+  // processes the rows. Returns false, changing nothing, when the response
+  // has other parts or columns (then htmx swaps the whole fragment).
+  function swapParts(root, html, keptRow) {
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    const fresh = new Map([...template.content.querySelectorAll("[data-dt-part]")].map((part) => [part.dataset.dtPart, part]));
+    const parts = [...root.querySelectorAll("[data-dt-part]")];
+    const headers = root.querySelectorAll(".dt-table thead tr > th");
+    const freshHeaders = template.content.querySelectorAll(".dt-table thead tr > th");
+    if (parts.length !== fresh.size || !parts.every((part) => fresh.has(part.dataset.dtPart))
+      || headers.length !== freshHeaders.length) {
+      return false;
+    }
+    headers.forEach((header, index) => {
+      const sort = freshHeaders[index].getAttribute("aria-sort");
+      if (sort === null) {
+        header.removeAttribute("aria-sort");
+      } else {
+        header.setAttribute("aria-sort", sort);
+      }
+    });
+    // The focus in a swapped part (a page button, for example) moves to the
+    // same control of the new part, found by its name or its place.
+    const active = document.activeElement;
+    const focusedPart = parts.find((part) => part.dataset.dtPart !== "rows" && part.contains(active));
+    const focused = focusedPart && {
+      key: focusedPart.dataset.dtPart,
+      index: focusables(focusedPart).indexOf(active),
+      label: active.getAttribute("aria-label"),
+      name: active.getAttribute("name"),
+    };
+    for (const part of parts) {
+      part.replaceWith(fresh.get(part.dataset.dtPart));
+    }
+    if (focused) {
+      const candidates = focusables(root.querySelector(`[data-dt-part="${CSS.escape(focused.key)}"]`));
+      const target = candidates.find((candidate) => focused.label && candidate.getAttribute("aria-label") === focused.label)
+        ?? candidates.find((candidate) => focused.name && candidate.getAttribute("name") === focused.name)
+        ?? candidates[focused.index];
+      if (target && !target.disabled) {
+        target.focus({ preventScroll: true });
+      }
+    }
+    scrollToRow(root, keptRow);
+    syncColumns(root, false);
+    if (root.dataset.dtSelection) {
+      syncChecks(root);
+    }
+    return true;
+  }
+
+  // New rows are shown from the top of the table's scroll box, as a whole
+  // swap shows them (the sideways scroll stays): from the first row, or from
+  // the row at `position` (1-based among the matching rows) when it is on
+  // the page, just under the fixed header.
+  function scrollToRow(root, position) {
+    const scroll = root.querySelector(".dt-scroll");
+    if (!scroll) {
+      return;
+    }
+    const start = Number(root.querySelector("[data-dt-page-range]")?.dataset.dtStart) || 1;
+    const row = position === undefined ? null : root.querySelectorAll("tbody tr")[position - start];
+    const header = root.querySelector(".dt-table thead");
+    scroll.scrollTop = row ? row.offsetTop - (header?.offsetHeight ?? 0) : 0;
+  }
+
+  // A reload of the table's own (`dt-reload`: sorting, filtering, paging,
+  // the search box) swaps only the changed parts (swapParts). Other reloads
+  // (a trigger of the page, such as a catalog update) swap the whole
+  // fragment with htmx.
+  document.addEventListener("htmx:beforeSwap", (event) => {
+    const root = event.detail.target ?? event.target;
+    if (!root?.matches?.("[data-datatable]") || !event.detail.shouldSwap
+      || event.detail.requestConfig?.triggeringEvent?.type !== RELOAD_EVENT) {
+      return;
+    }
+    const reloaded = event.detail.requestConfig.triggeringEvent;
+    if (swapParts(root, event.detail.serverResponse, reloaded.detail?.keptRow)) {
+      event.detail.shouldSwap = false;
+    }
+  });
+
+  // A whole swap replaces the menus. The menu open before it, the control
   // focused in it, and its draft are noted here and restored after the
   // swap, so that a reload while a menu is open keeps it open as it was.
   const reopenedMenus = new WeakMap();
 
   document.addEventListener("htmx:beforeSwap", (event) => {
     const root = event.detail.target ?? event.target;
-    if (!root?.matches?.("[data-datatable]")) {
+    if (!root?.matches?.("[data-datatable]") || !event.detail.shouldSwap) {
       return;
     }
     const menu = root.querySelector("[data-dt-menu]:popover-open");
@@ -1141,6 +1284,37 @@
       reopenMenu(root);
     }
   });
+
+  // A table drawn with the page (the `container` macro called with its
+  // first fragment) shows the remembered hidden columns, pinning, and column
+  // widths, and the selection, as a whole swap does (above and below), on
+  // `htmx:load`: htmx sends it for the whole page once the page is loaded
+  // (after its styles, which the widths depend on), and for what it puts in
+  // the page later (a main part swapped by a navigation, for example). A
+  // container still loading its fragment waits for its swap.
+  const initialized = new WeakSet();
+
+  function initTable(root) {
+    if (initialized.has(root) || !root.querySelector(".dt-table")) {
+      return;
+    }
+    initialized.add(root);
+    syncColumns(root, true);
+    syncPinned(root);
+    syncWidths(root);
+    if (root.dataset.dtSelection) {
+      syncChecks(root);
+    }
+  }
+
+  function initTables(element) {
+    if (element.matches?.("[data-datatable]")) {
+      initTable(element);
+    }
+    element.querySelectorAll?.("[data-datatable]").forEach(initTable);
+  }
+
+  document.addEventListener("htmx:load", (event) => initTables(event.target));
 
   // Settling resets the attributes of elements kept by id to those of the
   // response, which drops the placement of a reopened menu; place it again

@@ -51,8 +51,8 @@
     {% endif %}
     {#- Checked, the table shows the fit targets chosen and locked. The chosen
         targets over all pages and filters are kept in #files-selection, as on
-        the data selection screen. -#}
-    {{ container(file_table, selected, locked=use_same_data) }}
+        the data selection screen, and the first page comes with the page. -#}
+    {% call container(file_table, selected, locked=use_same_data) %}{% include "partials/file_table.html" %}{% endcall %}
     <div class="selection-actions">
       {% include "partials/transform_submit.html" %}
       <span class="with-help">

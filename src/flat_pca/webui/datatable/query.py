@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import polars as pl
@@ -10,11 +10,11 @@ import polars as pl
 from .bounds import bound_condition
 from .chips import FilterChip, filter_chips
 from .config import TableConfig
-from .counts import ColumnCounts, count_values
-from .formatting import dtype_label
-from .histograms import ColumnHistogram, column_histograms
+from .counts import ColumnCounts
+from .histograms import ColumnHistogram, mark_histograms
 from .pagination import Page, paginate
 from .state import TableState
+from .summary import TableSummary, summarize_table
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,8 @@ class TableView:
         State the view was made for.
     page : Page
         Position of the shown page; a page past the last one shows the last.
+    page_size : int
+        Rows per page: the state's ``page_size``, or the table's.
     rows : list[dict[str, object]]
         Rows of the shown page with every frame column, in display order.
     row_keys : list[str]
@@ -46,12 +48,14 @@ class TableView:
     chips : list[FilterChip]
         Column filters in use (``filter_chips``).
     histograms : dict[str, ColumnHistogram]
-        Distribution of each shown column over every row
-        (``column_histograms``); empty unless ``TableConfig.histograms``.
+        Distribution of each shown column over every row with the state's
+        filters marked (``mark_histograms``); empty unless
+        ``TableConfig.histograms``.
     """
 
     state: TableState
     page: Page
+    page_size: int
     rows: list[dict[str, object]]
     row_keys: list[str]
     matching_keys: list[str]
@@ -202,7 +206,12 @@ def sort_frame(
     )
 
 
-def matching_rows(frame: pl.LazyFrame, state: TableState, config: TableConfig) -> pl.LazyFrame:
+def matching_rows(
+    frame: pl.LazyFrame,
+    state: TableState,
+    config: TableConfig,
+    schema: Mapping[str, pl.DataType] | None = None,
+) -> pl.LazyFrame:
     """Return the rows matching a state's filters, in its sort order.
 
     The table view (``apply_state``), the header checkbox's matching keys,
@@ -216,49 +225,24 @@ def matching_rows(frame: pl.LazyFrame, state: TableState, config: TableConfig) -
         Sort order and filters.
     config : TableConfig
         Table settings.
+    schema : Mapping[str, pl.DataType] | None, default None
+        Column types of the frame; collected from it if ``None``.
 
     Returns
     -------
     pl.LazyFrame
         The rows that ``filter_expression`` keeps, sorted by ``sort_frame``.
     """
-    schema = frame.collect_schema()
+    if schema is None:
+        schema = frame.collect_schema()
     return sort_frame(frame.filter(filter_expression(state, config, schema)), state, config)
-
-
-def choice_options(
-    frame: pl.DataFrame | pl.LazyFrame, config: TableConfig
-) -> dict[str, list[str]]:
-    """Return the distinct values of each ``"choice"`` column.
-
-    Parameters
-    ----------
-    frame : pl.DataFrame | pl.LazyFrame
-        Every row of the table.
-    config : TableConfig
-        Table settings.
-
-    Returns
-    -------
-    dict[str, list[str]]
-        Non-null values as sorted text, keyed by column name.
-    """
-    names = [
-        column.name for column in config.filtered_columns.values() if column.filter == "choice"
-    ]
-    if not names:
-        return {}
-    values = frame.lazy().select(
-        pl.col(name).cast(pl.String).drop_nulls().unique().sort().implode() for name in names
-    ).collect()
-    return {name: values[name][0].to_list() for name in names}
 
 
 def apply_state(
     frame: pl.DataFrame | pl.LazyFrame,
     state: TableState,
     config: TableConfig,
-    options: Mapping[str, Sequence[str]] | None = None,
+    summary: TableSummary | None = None,
 ) -> TableView:
     """Filter, sort, and page a frame for one table view.
 
@@ -268,11 +252,13 @@ def apply_state(
         Every row of the table in its default order. It holds the key column,
         the shown columns, and any ``title_column``.
     state : TableState
-        Sort order, filters, and page, for example from ``parse_state``.
+        Sort order, filters, page, and page size, for example from
+        ``parse_state``.
     config : TableConfig
         Table settings.
-    options : Mapping[str, Sequence[str]] | None, default None
-        Values offered by each ``"choice"`` filter; ``choice_options`` of the
+    summary : TableSummary | None, default None
+        ``summarize_table`` of the same frame and settings, which an
+        application can keep while the frame does not change; made from the
         frame if ``None``.
 
     Returns
@@ -281,23 +267,26 @@ def apply_state(
         The shown page, the keys of every matching row, and what the column
         menus show. Only the page's rows are collected with every column; the
         matching rows are counted, or only their keys are collected for a
-        selectable table. The counts and histograms take every row of the
-        frame.
+        selectable table. The counts and histograms are the summary's, over
+        every row of the frame.
     """
+    if summary is None:
+        summary = summarize_table(frame, config)
     lazy = frame.lazy()
-    schema = lazy.collect_schema()
-    matching = matching_rows(lazy, state, config)
+    matching = matching_rows(lazy, state, config, summary.schema)
     if config.selectable:
         matching_keys = matching.select(key_text(config)).collect().to_series().to_list()
         total = len(matching_keys)
     else:
         matching_keys = []
         total = matching.select(pl.len()).collect().item()
-    page = paginate(total, state.page, config.page_size)
+    page_size = state.page_size or config.page_size
+    page = paginate(total, state.page, page_size)
     rows = matching.slice(page.offset, page.length).collect()
     return TableView(
         state=state,
         page=page,
+        page_size=page_size,
         rows=rows.to_dicts(),
         row_keys=(
             rows.select(key_text(config)).to_series().to_list()
@@ -305,13 +294,9 @@ def apply_state(
             else [str(value) for value in rows.get_column(config.key).to_list()]
         ),
         matching_keys=matching_keys,
-        options=(
-            choice_options(frame, config)
-            if options is None
-            else {name: list(values) for name, values in options.items()}
-        ),
-        counts=count_values(frame, config),
-        types={column.name: dtype_label(schema[column.name]) for column in config.columns},
+        options=summary.options,
+        counts=summary.counts,
+        types=summary.types,
         chips=filter_chips(state, config),
-        histograms=column_histograms(frame, state, config, schema) if config.histograms else {},
+        histograms=mark_histograms(summary.histograms, state, summary.schema),
     )

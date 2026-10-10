@@ -122,10 +122,26 @@ def test_parse_state_rejects_invalid_parameters(
         parse_state(parameters, config)
 
 
+def test_parse_state_reads_a_page_size_among_the_choices(config: TableConfig) -> None:
+    """The rows per page are one of the offered sizes, or the table's by default."""
+    choosing = replace(config, page_sizes=(10, 5))
+
+    assert choosing.page_size_choices == (2, 5, 10)
+    assert config.page_size_choices == ()
+    assert parse_state({}, choosing).page_size is None
+    assert parse_state({"t.page_size": ["5"]}, choosing).page_size == 5
+    assert parse_state({"t.page_size": ["2"]}, choosing).page_size == 2
+    with pytest.raises(ValueError, match="invalid page size"):
+        parse_state({"t.page_size": ["3"]}, choosing)
+    with pytest.raises(ValueError, match="unknown parameter"):
+        parse_state({"t.page_size": ["2"]}, config)
+
+
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
         ({"page_size": 0}, "page_size"),
+        ({"page_sizes": (10, 0)}, "page_sizes"),
         ({"columns": (ColumnConfig("k"), ColumnConfig("k"))}, "unique"),
         ({"default_sort": "missing"}, "default_sort"),
         ({"selectable": True, "max_selected": 0}, "max_selected must be positive"),
@@ -135,7 +151,7 @@ def test_parse_state_rejects_invalid_parameters(
     ],
 )
 def test_table_config_rejects_invalid_settings(kwargs: dict[str, object], message: str) -> None:
-    """The page size, column names, default sort, and selection limit are checked."""
+    """The page sizes, column names, default sort, and selection limit are checked."""
     settings: dict[str, object] = {
         "table_id": "t",
         "key": "k",

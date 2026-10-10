@@ -13,6 +13,7 @@ from .config import ColumnConfig, TableConfig
 SORT_PARAMETER = "sort"
 ORDER_PARAMETER = "order"
 PAGE_PARAMETER = "page"
+PAGE_SIZE_PARAMETER = "page_size"
 SEARCH_PARAMETER = "search"
 TEXT_PREFIX = "q__"
 EQUALS_PREFIX = "eq__"
@@ -50,6 +51,9 @@ class TableState:
         Whether to sort in descending order.
     page : int, default 1
         1-based number of the shown page.
+    page_size : int | None, default None
+        Rows per page chosen among ``TableConfig.page_size_choices``, or
+        ``None`` for ``TableConfig.page_size``.
     search : str, default ""
         Search of the whole table (``TableConfig.search``): words separated
         by whitespace that the row's ``pl.String`` columns must all contain,
@@ -70,6 +74,7 @@ class TableState:
     sort_by: str | None = None
     descending: bool = False
     page: int = 1
+    page_size: int | None = None
     search: str = ""
     text: dict[str, str] = field(default_factory=dict)
     equals: dict[str, tuple[str, ...]] = field(default_factory=dict)
@@ -185,7 +190,8 @@ def parse_state(parameters: Mapping[str, Sequence[str]], config: TableConfig) ->
     Only parameters named ``<table_id>.<name>`` belong to the table; others
     are ignored, so several tables can share one query string. The names are
     ``sort``, ``order`` (``asc`` or ``desc``), ``page`` (a positive integer),
-    ``search`` (only with ``TableConfig.search``), and, per filtered column, ``q__<column>`` (``"text"``), ``eq__<column>``
+    ``page_size`` (one of ``TableConfig.page_size_choices``), ``search`` (only with
+    ``TableConfig.search``), and, per filtered column, ``q__<column>`` (``"text"``), ``eq__<column>``
     (``"choice"``; repeated once per value), ``min__<column>`` /
     ``max__<column>`` (``"number"`` and ``"datetime"``), and
     ``null__<column>`` (``is_null`` or ``is_not_null``; every filter kind).
@@ -207,7 +213,7 @@ def parse_state(parameters: Mapping[str, Sequence[str]], config: TableConfig) ->
     ------
     ValueError
         If a parameter of the table is unknown (``search`` of a table
-        without the search box too), names a column without that filter, or has an unparsable value, sort column, order, or page.
+        without the search box too), names a column without that filter, or has an unparsable value, sort column, order, page, or page size.
     """
     every = {
         key.removeprefix(config.prefix): raw
@@ -223,6 +229,8 @@ def parse_state(parameters: Mapping[str, Sequence[str]], config: TableConfig) ->
     nulls: dict[str, NullFilter] = {}
     for key, value in values.items():
         if key in (SORT_PARAMETER, ORDER_PARAMETER, PAGE_PARAMETER):
+            continue
+        if key == PAGE_SIZE_PARAMETER and config.page_sizes:
             continue
         if key == SEARCH_PARAMETER and config.search:
             continue
@@ -259,6 +267,9 @@ def parse_state(parameters: Mapping[str, Sequence[str]], config: TableConfig) ->
     page = values.get(PAGE_PARAMETER, "").strip() or "1"
     if not (page.isascii() and page.isdigit()) or int(page) < 1:
         raise ValueError(f"invalid page: {page!r}")
+    page_size = values.get(PAGE_SIZE_PARAMETER, "").strip()
+    if page_size and page_size not in {str(size) for size in config.page_size_choices}:
+        raise ValueError(f"invalid page size: {page_size!r}")
 
     ranges = {
         name: (lower.get(name), upper.get(name))
@@ -269,6 +280,7 @@ def parse_state(parameters: Mapping[str, Sequence[str]], config: TableConfig) ->
         sort_by=sort_by,
         descending=order == "desc",
         page=int(page),
+        page_size=int(page_size) if page_size else None,
         search=values.get(SEARCH_PARAMETER, "").strip(),
         text=text,
         equals=equals,

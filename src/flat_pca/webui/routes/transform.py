@@ -7,9 +7,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 
+from ..datatable import parse_state
 from ..jobs.transform_run import build_transform_config
 from ..services.catalog_query import list_files
 from ..services.file_table import file_table_config
+from ..services.file_table_cache import file_table_context
 from ..services.model_settings import model_settings
 from ..services.run_dirs import fit_run_reference
 from ..services.runs import get_run, latest_run, list_runs, run_status
@@ -127,12 +129,14 @@ def transform_page(request: Request, workspace: WorkspaceDependency) -> HTMLResp
     -------
     HTMLResponse
         Full page, or its main part for an htmx request
-        (see ``render_view_page``).
+        (see ``render_view_page``), with the first page of the file table in
+        its default state (``file_table_context``).
     """
     model_run = current_model_run(workspace)
     model_run_id = None if model_run is None else str(model_run["run_id"])
     use_same_data = workspace.transform_settings.use_same_data
     fit_targets = [] if model_run is None else _fit_targets(model_run)
+    config = file_table_config(workspace.settings.metadata_columns)
     return render_view_page(
         request,
         "pages/transform.html",
@@ -143,7 +147,13 @@ def transform_page(request: Request, workspace: WorkspaceDependency) -> HTMLResp
             "use_same_data": use_same_data,
             "fit_targets": fit_targets,
             "selected": fit_targets if use_same_data else workspace.transform_selection.stems,
-            "file_table": file_table_config(workspace.settings.metadata_columns),
+            "file_table": config,
+            **file_table_context(
+                workspace.database,
+                config,
+                parse_state({}, config),
+                workspace.settings.metadata is not None,
+            ),
             "status": run_status(latest_run(workspace.database, TRANSFORM_JOB)),
         },
     )

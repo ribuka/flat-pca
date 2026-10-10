@@ -25,6 +25,35 @@ class MetadataWarnings:
     metadata_without_files: list[str]
 
 
+def files_query(database: Database) -> str:
+    """Return the query of every cataloged file with its metadata.
+
+    Parameters
+    ----------
+    database : Database
+        Workspace database.
+
+    Returns
+    -------
+    str
+        SQL giving one row per file with ``stem``, ``path``, ``n_rows``,
+        ``n_steps``, ``n_segments``, and every metadata column (null without
+        a CSV row), in no particular order.
+    """
+    metadata_columns = ", ".join(
+        f"m.{quote_identifier(name)}" for name in database.metadata_columns
+    )
+    return (
+        "SELECT f.stem, f.path, f.n_rows, "
+        "coalesce(s.n_steps, 0) AS n_steps, coalesce(s.n_segments, 0) AS n_segments"
+        f"{', ' + metadata_columns if metadata_columns else ''} "
+        "FROM files f "
+        "LEFT JOIN (SELECT stem, count(DISTINCT step) AS n_steps, count(*) AS n_segments "
+        "FROM segments GROUP BY stem) s USING (stem) "
+        "LEFT JOIN file_metadata m USING (stem)"
+    )
+
+
 def list_files(database: Database) -> list[dict[str, object]]:
     """Return every cataloged file with its metadata.
 
@@ -40,18 +69,7 @@ def list_files(database: Database) -> list[dict[str, object]]:
         ``n_segments``, and every metadata column (null without a CSV row),
         with stems in natural order.
     """
-    metadata_columns = ", ".join(
-        f"m.{quote_identifier(name)}" for name in database.metadata_columns
-    )
-    rows = database.fetch_dicts(
-        "SELECT f.stem, f.path, f.n_rows, "
-        "coalesce(s.n_steps, 0) AS n_steps, coalesce(s.n_segments, 0) AS n_segments"
-        f"{', ' + metadata_columns if metadata_columns else ''} "
-        "FROM files f "
-        "LEFT JOIN (SELECT stem, count(DISTINCT step) AS n_steps, count(*) AS n_segments "
-        "FROM segments GROUP BY stem) s USING (stem) "
-        "LEFT JOIN file_metadata m USING (stem)"
-    )
+    rows = database.fetch_dicts(files_query(database))
     rows.sort(key=lambda row: natural_keys(str(row["stem"])))
     return rows
 
