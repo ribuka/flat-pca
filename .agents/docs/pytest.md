@@ -22,4 +22,8 @@
 - Each test serves the app with uvicorn in a background thread on a free port (`server_url` / `cataloged_server_url` fixtures)
   and fails when the page logs a console error.
 - Use browser tests only for what needs a browser (JS, htmx swaps, polling, navigation); check HTML content with the `TestClient` tests.
+- A route handler that holds a request (does not continue, fulfill or abort it) must append the route to the `held_routes` fixture,
+  which passes on every route still unhandled after the test with `route.fallback()`.
+  A held route left unhandled is closed later by the garbage collector, possibly in a server thread, and can hang the session.
+  To release a held request that the page may have aborted, use `route.fallback()`: it does not fail for an aborted request, while `route.continue_()` does and leaves the route unhandled.
 - CI runs them in the `E2E` job.

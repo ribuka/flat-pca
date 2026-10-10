@@ -6,13 +6,14 @@ import socket
 import threading
 import time
 from collections.abc import Callable, Iterator
+from contextlib import suppress
 from pathlib import Path
 
 import executor_jobs
 import pytest
 import uvicorn
 from fit_runs import register_fit_run, register_transform_run
-from playwright.sync_api import ConsoleMessage, Error, Page
+from playwright.sync_api import ConsoleMessage, Error, Page, Route
 
 from flat_pca.webui.app import create_app
 from flat_pca.webui.settings import Settings
@@ -227,6 +228,32 @@ def one_file_server_url(settings: Settings, spectra_paths: list[Path]) -> Iterat
     )
     register_fit_runs(limited, spectra_paths, ("fit-1",))
     yield from serve(limited)
+
+
+@pytest.fixture
+def held_routes(page: Page) -> Iterator[list[Route]]:
+    """Collect the routes a test holds, and pass on those left unhandled.
+
+    Playwright keeps handling a held route until it is continued, fulfilled,
+    aborted or passed on. A handling left pending is finished when the garbage
+    collector closes it, possibly in a server thread, whose event loop then
+    sends a message to the Playwright driver. That message races the Playwright
+    event loop for the reply, so a reply can be lost and the session can hang.
+    Each collected route is therefore passed on with ``fallback``, which does
+    not fail even when the page has already aborted the request; a route the
+    test has already handled is skipped.
+
+    Yields
+    ------
+    list[Route]
+        Initially empty; the test appends the routes it holds.
+    """
+    routes: list[Route] = []
+    yield routes
+    for route in routes:
+        # Raised only for a route that is already handled.
+        with suppress(Error):
+            route.fallback()
 
 
 @pytest.fixture
