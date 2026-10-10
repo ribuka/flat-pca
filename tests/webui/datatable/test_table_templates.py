@@ -171,6 +171,26 @@ def test_fragment_shows_choice_and_null_counts_and_filter_marks(
     assert marked == ["name", "group", "when"]
 
 
+def test_fragment_puts_apply_cancel_and_clear_under_the_filters(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """A menu with filters ends in Apply (disabled until a draft differs), Cancel, and Clear (disabled while unfiltered)."""
+    state = parse_state({"t.eq__group": ["b"]}, config)
+    view = apply_state(frame, state, config)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    for column in config.columns:
+        menu = _menu(html, column.name)
+        assert ("data-dt-apply disabled>" in menu) == (column.filter is not None)
+        assert ("data-dt-cancel>" in menu) == (column.filter is not None)
+        assert ("data-dt-draft-status hidden>Unapplied changes" in menu) == (column.filter is not None)
+        if column.filter is not None:
+            assert menu.index("data-dt-copy=") < menu.index("data-dt-apply")
+    assert re.search(r"data-dt-clear-filter>", _menu(html, "group"))
+    assert re.search(r"data-dt-clear-filter disabled>", _menu(html, "when"))
+
+
 def test_fragment_lists_the_rows_of_every_filter_for_the_header_checkbox(
     environment: Environment, config: TableConfig, frame: pl.DataFrame
 ) -> None:

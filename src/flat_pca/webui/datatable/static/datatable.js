@@ -213,17 +213,32 @@
     }
   });
 
-  // Returns the table's query controls (sort, order, page, search, and
-  // filters) as they would be sent to reload it: unchecked boxes and radios
-  // are left out.
-  function queryFields(root) {
+  function isChosen(control) {
+    return control.type === "checkbox" || control.type === "radio";
+  }
+
+  // Returns the values of query controls as they would be sent: unchecked
+  // boxes and radios are left out.
+  function fieldsOf(controls) {
     const fields = new URLSearchParams();
-    for (const control of root.querySelectorAll("[data-dt-query][name]")) {
-      if ((control.type === "checkbox" || control.type === "radio") && !control.checked) {
-        continue;
+    for (const control of controls) {
+      if (!isChosen(control) || control.checked) {
+        fields.append(control.name, control.value);
       }
-      fields.append(control.name, control.value);
     }
+    return fields;
+  }
+
+  function queryControls(element) {
+    return element.querySelectorAll("[data-dt-query][name]");
+  }
+
+  // Returns the table's query (sort, order, page, search, and filters) as
+  // applied: an unapplied draft of a column menu is left out
+  // (withAppliedFilters).
+  function appliedQueryFields(root) {
+    const fields = fieldsOf(queryControls(root));
+    withAppliedFilters(root, fields);
     return fields;
   }
 
@@ -266,7 +281,7 @@
     setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
   }
 
-  // An export button posts the table's query controls, the format and rows
+  // An export button posts the table's applied query, the format and rows
   // asked for, and the selection (the hidden input's JSON array, as one
   // field) to `data-dt-export-url`, and saves the file it answers. The
   // server filters and sorts the rows as for the table. A failure is shown
@@ -275,7 +290,7 @@
     const menu = button.closest("[data-dt-menu]");
     const error = menu.querySelector("[data-dt-export-error]");
     const buttons = [...menu.querySelectorAll("[data-dt-export]")];
-    const fields = queryFields(root);
+    const fields = appliedQueryFields(root);
     fields.append(`${root.id}.export_format`, button.dataset.dtExport);
     fields.append(`${root.id}.export_rows`, button.dataset.dtExportRows);
     if (root.dataset.dtSelection) {
@@ -325,14 +340,13 @@
     htmx.trigger(root, RELOAD_EVENT);
   }
 
-  // Typing in a filter reloads the first page after a pause; checking a
-  // value or a null filter reloads it at once.
+  // Typing in the search box of the whole table reloads the first page
+  // after a pause. The filters of the column menus wait for Apply (below).
   const TYPED_QUERY = "input[data-dt-query]:not([type='checkbox'], [type='radio'])";
-  const CHOSEN_QUERY = "input[data-dt-query]:is([type='checkbox'], [type='radio'])";
 
   document.addEventListener("input", (event) => {
     const root = tableOf(event.target);
-    if (!root || !event.target.matches(TYPED_QUERY)) {
+    if (!root || !event.target.matches(TYPED_QUERY) || event.target.closest("[data-dt-menu]")) {
       return;
     }
     clearTimeout(queryTimers.get(root));
@@ -340,13 +354,6 @@
       root,
       setTimeout(() => reload(root, { page: "1" }), QUERY_DELAY_MS),
     );
-  });
-
-  document.addEventListener("change", (event) => {
-    const root = tableOf(event.target);
-    if (root && event.target.matches(CHOSEN_QUERY)) {
-      reload(root, { page: "1" });
-    }
   });
 
   // The page number input under the table moves to the page typed, kept
@@ -403,10 +410,21 @@
     }
   });
 
+  // Clears a filter control: a typed filter is emptied, its values
+  // unchecked, and a null filter set back to "Any" (the empty value).
+  function clearControl(control) {
+    if (control.type === "checkbox") {
+      control.checked = false;
+    } else if (control.type === "radio") {
+      control.checked = control.value === "";
+    } else {
+      control.value = "";
+    }
+  }
+
   // A chip of a filter in use clears the controls of its parameters
   // (`data-dt-remove-filter`, a JSON array of names) and reloads the first
-  // page: a typed filter is emptied, its values unchecked, and a null filter
-  // set back to "Any" (the empty value).
+  // page.
   document.addEventListener("click", (event) => {
     const remove = event.target.closest?.("[data-dt-remove-filter]");
     const root = remove && tableOf(remove);
@@ -414,15 +432,7 @@
       return;
     }
     for (const name of JSON.parse(remove.dataset.dtRemoveFilter)) {
-      for (const control of root.querySelectorAll(`[data-dt-query][name="${CSS.escape(name)}"]`)) {
-        if (control.type === "checkbox") {
-          control.checked = false;
-        } else if (control.type === "radio") {
-          control.checked = control.value === "";
-        } else {
-          control.value = "";
-        }
-      }
+      root.querySelectorAll(`[data-dt-query][name="${CSS.escape(name)}"]`).forEach(clearControl);
     }
     reload(root, { page: "1" });
   });
@@ -876,9 +886,163 @@
     }
   });
 
-  // A reload replaces the menus. The menu open before it, and the control
-  // focused in it, are noted here and restored after the swap, so that
-  // checking values or typing a search keeps the menu open.
+  // The filters of a column menu (one with `[data-dt-apply]`) are a draft
+  // while it is open: changing them reloads nothing. Opening the menu notes
+  // its filters as applied (`drafts`, per table: the menu's id and its
+  // fields). Apply reloads the first page with the draft and closes the
+  // menu; Cancel, Escape, a click outside, or any other closing puts the
+  // applied filters back. Clear empties the column's filters, reloads the
+  // first page, and closes the menu. A reload while a draft is open (the
+  // search box or a page button reached with Tab, or a trigger of the page)
+  // and an export send the applied filters, and the menu reopened after the
+  // reload gets its draft back.
+  const drafts = new WeakMap();
+
+  function hasFilters(menu) {
+    return Boolean(menu.matches?.("[data-dt-menu]") && menu.querySelector("[data-dt-apply]"));
+  }
+
+  // Returns the open draft of `menu`, or undefined when it has none.
+  function draftOf(menu) {
+    const draft = drafts.get(tableOf(menu));
+    return draft?.menu === menu.id ? draft : undefined;
+  }
+
+  // Sets filter controls to `fields` (as fieldsOf returns them).
+  function setControls(controls, fields) {
+    for (const control of controls) {
+      if (isChosen(control)) {
+        control.checked = fields.getAll(control.name).includes(control.value);
+      } else {
+        control.value = fields.get(control.name) ?? "";
+      }
+    }
+  }
+
+  // Shows whether a menu's draft differs from the applied filters: then
+  // Apply is enabled and stands out (`data-dt-dirty` on the menu) and the
+  // notice of unapplied changes shows. An open menu is placed again, since
+  // the notice changes its height.
+  function syncDraft(menu) {
+    const draft = draftOf(menu);
+    const dirty = draft !== undefined && fieldsOf(queryControls(menu)).toString() !== draft.applied.toString();
+    menu.toggleAttribute("data-dt-dirty", dirty);
+    menu.querySelector("[data-dt-apply]").disabled = !dirty;
+    const status = menu.querySelector("[data-dt-draft-status]");
+    if (status.hidden !== !dirty) {
+      status.hidden = !dirty;
+      if (menu.matches(":popover-open")) {
+        placeMenu(menu);
+      }
+    }
+  }
+
+  // Puts the applied filters of the table's open draft, if any, in place of
+  // the draft's in `fields` (URLSearchParams or FormData).
+  function withAppliedFilters(root, fields) {
+    const draft = drafts.get(root);
+    const menu = draft && document.getElementById(draft.menu);
+    if (!menu) {
+      return;
+    }
+    for (const name of new Set([...queryControls(menu)].map((control) => control.name))) {
+      fields.delete(name);
+    }
+    for (const [name, value] of draft.applied) {
+      fields.append(name, value);
+    }
+  }
+
+  function applyDraft(menu) {
+    const root = tableOf(menu);
+    drafts.delete(root);
+    closeMenu(menu);
+    reload(root, { page: "1" });
+  }
+
+  function clearFilters(menu) {
+    const root = tableOf(menu);
+    drafts.delete(root);
+    queryControls(menu).forEach(clearControl);
+    closeMenu(menu);
+    reload(root, { page: "1" });
+  }
+
+  // beforetoggle comes before the menu closes, also when a click outside
+  // closes it, so the applied filters are back before that click lands.
+  // Toggle events do not bubble, so listen while capturing. A menu taken
+  // out of the page by a reload closes without the event and keeps its
+  // draft for the reopening.
+  document.addEventListener(
+    "beforetoggle",
+    (event) => {
+      const menu = event.target;
+      if (!hasFilters(menu)) {
+        return;
+      }
+      const draft = draftOf(menu);
+      if (event.newState === "open") {
+        if (!draft) {
+          drafts.set(tableOf(menu), { menu: menu.id, applied: fieldsOf(queryControls(menu)) });
+        }
+      } else if (draft) {
+        setControls(queryControls(menu), draft.applied);
+        drafts.delete(tableOf(menu));
+      }
+      syncDraft(menu);
+    },
+    true,
+  );
+
+  for (const type of ["input", "change"]) {
+    document.addEventListener(type, (event) => {
+      const menu = event.target.closest?.("[data-dt-menu]");
+      if (menu && event.target.matches("[data-dt-query]") && hasFilters(menu) && tableOf(menu)) {
+        syncDraft(menu);
+      }
+    });
+  }
+
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-dt-apply], [data-dt-cancel], [data-dt-clear-filter]");
+    const menu = button?.closest("[data-dt-menu]");
+    if (!menu || !tableOf(menu)) {
+      return;
+    }
+    if (button.matches("[data-dt-apply]")) {
+      applyDraft(menu);
+    } else if (button.matches("[data-dt-clear-filter]")) {
+      clearFilters(menu);
+    } else {
+      closeMenu(menu);
+      menuButton(menu)?.focus();
+    }
+  });
+
+  // Enter in a search or a bound of a column menu is Apply (nothing while
+  // the draft equals the applied filters). Enter that ends an IME
+  // composition only confirms the text.
+  document.addEventListener("keydown", (event) => {
+    const menu = event.target.closest?.("[data-dt-menu]");
+    if (event.key !== "Enter" || event.isComposing || !menu || !event.target.matches(TYPED_QUERY) || !hasFilters(menu)) {
+      return;
+    }
+    event.preventDefault();
+    if (!menu.querySelector("[data-dt-apply]").disabled) {
+      applyDraft(menu);
+    }
+  });
+
+  document.addEventListener("htmx:configRequest", (event) => {
+    const root = event.detail.elt;
+    if (root?.matches?.("[data-datatable]")) {
+      withAppliedFilters(root, event.detail.formData);
+    }
+  });
+
+  // A reload replaces the menus. The menu open before it, the control
+  // focused in it, and its draft are noted here and restored after the
+  // swap, so that a reload while a menu is open keeps it open as it was.
   const reopenedMenus = new WeakMap();
 
   document.addEventListener("htmx:beforeSwap", (event) => {
@@ -889,6 +1053,7 @@
     const menu = root.querySelector("[data-dt-menu]:popover-open");
     if (!menu) {
       reopenedMenus.delete(root);
+      drafts.delete(root);
       return;
     }
     const focused = menu.contains(document.activeElement) ? document.activeElement : null;
@@ -900,6 +1065,7 @@
       selection: focused && typeof focused.selectionStart === "number"
         ? [focused.selectionStart, focused.selectionEnd]
         : null,
+      draft: hasFilters(menu) && draftOf(menu) ? fieldsOf(queryControls(menu)) : null,
     });
   });
 
@@ -908,13 +1074,19 @@
     reopenedMenus.delete(root);
     const menu = noted && document.getElementById(noted.menu);
     if (!menu) {
+      drafts.delete(root);
       return;
     }
     try {
       menu.showPopover({ source: menuButton(menu) });
     } catch {
       // Another popover took its place or the table left the page.
+      drafts.delete(root);
       return;
+    }
+    if (noted.draft && hasFilters(menu)) {
+      setControls(queryControls(menu), noted.draft);
+      syncDraft(menu);
     }
     // Place it at once: a control in a menu not yet placed cannot be focused.
     placeMenu(menu);

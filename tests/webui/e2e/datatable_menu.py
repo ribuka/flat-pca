@@ -44,6 +44,18 @@ def column_menu(table: Locator, header: str) -> Locator:
     return table.locator(f'[data-dt-menu][aria-label="{header} menu"]')
 
 
+def apply_column_menu(menu: Locator) -> None:
+    """Apply the draft filters of an open column menu, which closes it.
+
+    Parameters
+    ----------
+    menu : Locator
+        The open menu, with filters changed from those applied.
+    """
+    menu.get_by_role("button", name="Apply").click()
+    expect(menu).to_be_hidden()
+
+
 def close_column_menu(page: Page, menu: Locator) -> None:
     """Close an open column menu with Escape.
 
