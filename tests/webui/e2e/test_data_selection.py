@@ -146,6 +146,8 @@ def test_column_menu_works_from_the_keyboard(page: Page, cataloged_server_url: s
     # A menu reopened after a reload also returns the focus on Escape.
     button.focus()
     page.keyboard.press("Enter")
+    expect(menu).to_be_visible()
+    opened = menu.bounding_box()
     # Asc, Desc (Clear sort is disabled while not sorted), then the first value.
     for _ in range(3):
         page.keyboard.press("Tab")
@@ -153,6 +155,11 @@ def test_column_menu_works_from_the_keyboard(page: Page, cataloged_server_url: s
     page.keyboard.press("Space")
     expect(_file_stems(page)).to_have_text(["run-1"])
     expect(menu.get_by_role("checkbox", name="A 1", exact=True)).to_be_focused()
+    # The reopened menu stays under its column name after htmx settles.
+    page.wait_for_timeout(200)
+    reopened = menu.bounding_box()
+    assert opened is not None and reopened is not None
+    assert (reopened["x"], reopened["y"]) == (opened["x"], opened["y"])
     page.keyboard.press("Escape")
     expect(menu).to_be_hidden()
     expect(table.get_by_role("button", name="lot", exact=True)).to_be_focused()

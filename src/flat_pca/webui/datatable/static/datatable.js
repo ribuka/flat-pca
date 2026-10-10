@@ -344,9 +344,19 @@
     }
   });
 
+  // Settling resets the attributes of elements kept by id to those of the
+  // response, which drops the placement of a reopened menu; place it again
+  // in the same task, before it is drawn. A menu closed meanwhile stays
+  // closed.
   document.addEventListener("htmx:afterSettle", (event) => {
     const root = event.detail.elt;
-    if (root.matches?.("[data-datatable]") && root.dataset.dtSelection) {
+    if (!root.matches?.("[data-datatable]")) {
+      return;
+    }
+    for (const menu of root.querySelectorAll("[data-dt-menu]:popover-open")) {
+      placeMenu(menu);
+    }
+    if (root.dataset.dtSelection) {
       syncChecks(root);
     }
   });
