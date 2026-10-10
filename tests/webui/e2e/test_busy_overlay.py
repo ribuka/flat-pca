@@ -90,15 +90,14 @@ def _is_main_request(request: Request) -> bool:
 
 
 def test_cancelling_a_refresh_shows_the_server_choice(
-    page: Page, fitted_server_url: str
+    page: Page, fitted_server_url: str, held_routes: list[Route]
 ) -> None:
     """Cancelling the refresh after a choice keeps the main part and shows the choice."""
-    pending: list[Route] = []
 
     def hold_main(route: Route) -> None:
         """Leave the request of the main part pending."""
         if _is_main_request(route.request):
-            pending.append(route)
+            held_routes.append(route)
         else:
             route.continue_()
 
@@ -119,7 +118,7 @@ def test_cancelling_a_refresh_shows_the_server_choice(
     # The server took the choice before the cancel, and the sidebar shows it.
     expect(shown_files(page)).to_have_text(["s-05"])
     expect(heatmap).to_have_attribute("data-heatmap-label", "s-00")
-    assert len(pending) == 1
+    assert len(held_routes) == 1
 
 
 def test_a_failed_refresh_releases_the_page(

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import re
-from contextlib import suppress
 from typing import Literal
 
 import polars as pl
@@ -15,7 +14,6 @@ from datatable_menu import (
     column_menu,
     open_column_menu,
 )
-from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Locator, Page, Route, expect
 
 from flat_pca.webui.services import file_table
@@ -554,6 +552,7 @@ def test_page_move_replacing_a_pending_one_is_asked_once(
     cataloged_server_url: str,
     monkeypatch: pytest.MonkeyPatch,
     expected_console_errors: list[str],
+    held_routes: list[Route],
 ) -> None:
     """Moving again before a move answers, then leaving the input, asks for each page once."""
     # htmx logs the request that the newer one replaces (hx-sync) as aborted.
@@ -562,13 +561,12 @@ def test_page_move_replacing_a_pending_one_is_asked_once(
     page.goto(cataloged_server_url)
     stems = _file_stems(page)
     expect(stems).to_have_text(["run-1"])
-    held: list[Route] = []
     asked: list[str] = []
 
     def hold(route: Route) -> None:
         """Keep every table request waiting until released."""
         asked.append(re.sub(r".*files\.page=(\d+).*", r"\1", route.request.url))
-        held.append(route)
+        held_routes.append(route)
 
     page.route("**/catalog/files?*", hold)
     number = page.get_by_label("Page number")
@@ -580,10 +578,9 @@ def test_page_move_replacing_a_pending_one_is_asked_once(
     number.press("Tab")
     page.wait_for_timeout(300)
     page.unroute("**/catalog/files?*")
-    for route in held:
-        # A request the page aborted cannot continue.
-        with suppress(PlaywrightError):
-            route.continue_()
+    for route in held_routes:
+        # Unlike continue_, passing on does not fail for a request the page aborted.
+        route.fallback()
 
     expect(stems).to_have_text(["run-10"])
     assert asked == ["2", "3"]

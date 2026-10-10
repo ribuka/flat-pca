@@ -113,17 +113,18 @@ def test_rows_per_page_keep_the_first_row_shown(
     expect(stems).to_have_text(["run-1", "run-2", "run-10"])
 
 
-def test_reload_shows_that_the_table_is_busy(page: Page, cataloged_server_url: str) -> None:
+def test_reload_shows_that_the_table_is_busy(
+    page: Page, cataloged_server_url: str, held_routes: list[Route]
+) -> None:
     """While the rows are on their way, the table is busy and shows the chosen sort."""
     page.goto(cataloged_server_url)
     stems = _file_stems(page)
     expect(stems).to_have_text(["run-1", "run-2", "run-10"])
     table = _table(page)
-    held: list[Route] = []
 
     def hold(route: Route) -> None:
         """Keep the request of the reload unanswered until the test lets it go."""
-        held.append(route)
+        held_routes.append(route)
 
     page.route("**/catalog/files?*", hold)
 
@@ -134,7 +135,7 @@ def test_reload_shows_that_the_table_is_busy(page: Page, cataloged_server_url: s
     expect(table.locator('[data-dt-column="yield_pct"] .dt-sort-mark')).to_have_text("▼")
     expect(table.locator('[data-dt-column="stem"] .dt-sort-mark')).to_have_text("")
     expect(stems).to_have_text(["run-1", "run-2", "run-10"])
-    held[0].continue_()
+    held_routes[0].continue_()
     page.unroute("**/catalog/files?*", hold)
 
     expect(stems).to_have_text(["run-1", "run-2", "run-10"])

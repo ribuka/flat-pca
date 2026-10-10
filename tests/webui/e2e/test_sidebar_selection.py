@@ -163,7 +163,7 @@ def test_changing_the_run_clears_the_files(page: Page, two_fits_server_url: str)
 
 
 def test_show_clicked_while_the_run_list_reloads_still_refreshes(
-    page: Page, two_fits_server_url: str
+    page: Page, two_fits_server_url: str, held_routes: list[Route]
 ) -> None:
     """A run list reloaded while "Show" is pending does not leave the overlay on."""
     page.goto(f"{two_fits_server_url}/transform")
@@ -175,6 +175,7 @@ def test_show_clicked_while_the_run_list_reloads_still_refreshes(
 
     def hold(route: Route) -> None:
         """Keep the run list and the choice of the run waiting until released."""
+        held_routes.append(route)
         held[route.request.method] = route
 
     page.route("**/transform/runs", hold)
