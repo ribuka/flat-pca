@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import replace
 from datetime import datetime
@@ -84,7 +85,8 @@ def test_fragment_shows_controls_rows_and_pages(
     assert html.count('aria-sort="descending"') == 1
     assert 'aria-label="Select all filtered rows"' in html
     assert 'name="t.q__name"' in html
-    assert '<option value="a" selected>' in html
+    assert 'name="t.eq__group" value="a" data-dt-query checked>' in html
+    assert 'name="t.eq__group" value="b" data-dt-query>' in html
     assert re.search(r'type="number" id="t-filter-min-\d+" name="t.min__count"', html)
     assert re.search(r'type="datetime-local" id="t-filter-max-\d+" name="t.max__when"', html)
     assert 'data-dt-sort="note"' not in html
@@ -95,6 +97,94 @@ def test_fragment_shows_controls_rows_and_pages(
     assert "<td>2026-01-01 00:00:00</td>" in html
     assert "1–2 of 2" in html
     assert "data-dt-page=" not in html
+
+
+def _menu(html: str, column: str) -> str:
+    """Return the column menu of ``column``."""
+    match = re.search(rf'<div popover id="t-menu-\d+"[^>]*data-dt-menu="{column}">.*?</th>', html, re.DOTALL)
+    assert match is not None
+    return match[0]
+
+
+def _header(html: str, column: str) -> str:
+    """Return the header cell of ``column`` up to its menu."""
+    match = re.search(rf'<th[^>]*>\s*<div class="dt-head">\s*<button[^>]*data-dt-column="{column}">.*?<div popover', html, re.DOTALL)
+    assert match is not None
+    return match[0]
+
+
+def test_fragment_opens_a_menu_from_each_column_name(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """Each header holds its name, sort mark, and type; the controls are in its menu."""
+    state = parse_state({"t.sort": ["count"], "t.order": ["asc"]}, config)
+    view = apply_state(frame, state, config)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    for index, column in enumerate(config.columns, start=1):
+        header = _header(html, column.name)
+        assert f'popovertarget="t-menu-{index}"' in header
+        assert f'<span class="dt-label">{column.header}</span>' in header
+        assert f'<span class="dt-type">{view.types[column.name]}</span>' in header
+        assert "data-dt-query" not in header
+        menu = _menu(html, column.name)
+        assert f'id="t-menu-{index}"' in menu
+        assert f'aria-label="{column.header} menu"' in menu
+        assert f'data-dt-copy="{column.name}"' in menu
+        assert ('data-dt-sort="' in menu) == column.sortable
+        assert (f'name="t.null__{column.name}"' in menu) == (column.filter is not None)
+    assert '<span class="dt-type">datetime[μs]</span>' in html
+    assert '<span class="dt-sort-mark" aria-hidden="true">▲</span>' in _header(html, "count")
+    count_menu = _menu(html, "count")
+    assert 'data-dt-order="asc" aria-pressed="true"' in count_menu
+    assert 'data-dt-order="desc" aria-pressed="false"' in count_menu
+    assert 'data-dt-sort="" data-dt-order="asc">Clear sort' in count_menu
+    assert 'data-dt-sort="" data-dt-order="asc" disabled>Clear sort' in _menu(html, "score")
+
+
+def test_fragment_shows_choice_and_null_counts_and_filter_marks(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """Menus count values and nulls; filtered columns carry a mark in the header."""
+    state = parse_state(
+        {"t.eq__group": ["b", "gone"], "t.null__when": ["is_not_null"], "t.q__name": ["a"]}, config
+    )
+    view = apply_state(frame, state, config, {"group": ["a", "b"]})
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    group = _menu(html, "group")
+    values = re.findall(
+        r'value="([^"]*)" data-dt-query( checked)?>\s*<span class="dt-choice-value">[^<]*</span> <span class="dt-count">(\d+)</span>',
+        group,
+    )
+    assert values == [("a", "", "2"), ("b", " checked", "1"), ("gone", " checked", "0")]
+    assert 'Null values <span class="dt-count">1</span>' in group
+    when = _menu(html, "when")
+    assert 'name="t.null__when" value="is_not_null" data-dt-query checked>' in when
+    assert 'name="t.null__when" value="" data-dt-query>' in when
+    assert 'name="t.null__count" value="" data-dt-query checked>' in _menu(html, "count")
+    marked = [
+        column.name for column in config.columns if "data-dt-filtered" in _header(html, column.name)
+    ]
+    assert marked == ["name", "group", "when"]
+
+
+def test_fragment_lists_the_rows_of_every_filter_for_the_header_checkbox(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """The header checkbox gets every filtered row, beyond the shown page."""
+    state = parse_state(
+        {"t.eq__group": ["a", "b"], "t.null__count": ["is_not_null"], "t.q__name": ["A"]}, config
+    )
+    view = apply_state(frame, state, config)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    matching = re.search(r"<script type=\"application/json\" data-dt-matching>(.*?)</script>", html)
+    assert matching is not None
+    assert json.loads(matching[1]) == ["k1", "k4"]
 
 
 def test_fragment_links_pages(

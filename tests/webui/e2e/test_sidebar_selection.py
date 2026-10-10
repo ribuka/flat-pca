@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from datatable_menu import close_column_menu, open_column_menu
 from playwright.sync_api import Page, Request, expect
 from sidebar_choice import (
     choose_files,
@@ -31,9 +32,21 @@ def test_files_chosen_in_the_dialog_follow_every_screen_and_reload(
     rows = dialog.locator("tr[data-dt-key]")
     expect(rows).to_have_count(12)
     expect(rows.first).to_have_attribute("data-dt-key", "s-00")
-    dialog.get_by_label("Filter by file name").fill("s-1")
+    menu = open_column_menu(dialog, "file")
+    menu.get_by_label("Filter by file name").fill("s-1")
     expect(rows).to_have_count(2)
-    dialog.get_by_role("button", name="file", exact=True).click()
+    # The menu shows on top of the dialog; Escape closes it but not the dialog.
+    expect(menu).to_be_visible()
+    box = menu.bounding_box()
+    assert box is not None
+    corners = [[box["x"] + 5, box["y"] + 5], [box["x"] + 5, box["y"] + box["height"] - 5]]
+    assert menu.evaluate(
+        "(menu, corners) => corners.every(([x, y]) => menu.contains(document.elementFromPoint(x, y)))",
+        corners,
+    )
+    close_column_menu(page, menu)
+    expect(dialog).to_be_visible()
+    open_column_menu(dialog, "file").get_by_role("button", name="Desc").click()
     expect(rows).to_have_count(2)
     expect(rows.first).to_have_attribute("data-dt-key", "s-11")
     dialog.get_by_label("Select s-10", exact=True).check()

@@ -218,7 +218,7 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
   - 表示する run のモデル（寄与率・ローディング・PCA成分・前処理の状態）は元の fit run のものを、ファイル（元データ・前処理済み・再構成・スコア・T² / Q）は transform run のものを使う。T² / Q の UCL は fit run のもの（`MahalanobisConfig`・`SpeConfig`）とする。
   - サイドバーの表示ファイル（`/sidebar/selection`。どの画面でも常に表示する）には、件数（`n / max`）、選んだファイル名の一覧（`natural_keys`の順。読み取り専用）、ポップアップを開くボタン（Material Symbols の`open_in_new`、`aria-label`は`Choose shown files`）を置く。選択肢（表示する run の transform 対象。`samples.parquet`の`stem`）がなければ、ボタンを置かずにその旨を表示する。fit・transform が終わったら（`fit-updated`・`transform-updated`イベント）取得し直す。
   - ポップアップは`base.html`の`<dialog id="view-files-dialog">`（`.layout`の外）を`showModal()`で開く。中身（`/sidebar/selection/files/dialog`、`partials/view_file_dialog.html`）は開くたびにサーバーから取得し、開いた時点の選択から始める（キャンセルした途中の選択は残さない）。閉じたダイアログは中身を捨てる（「Select」の要求中は、その応答を処理し終えるまで残す）。
-    - 表は`webui/datatable/`の部品で、`services/view_file_table.py`が設定と行を作る。列・フィルタ・ソートはデータ選択の表（`file_table_config`）と同じで、表のidは`view-files`（transform 画面では本体の表`files`と同じページに載るため）、表の断片は`/sidebar/selection/files/table`（`parse_state`→`apply_state`→`fragment`）とする。行は表示する run の transform 対象を`natural_keys`の順に並べたもの（`file_frame`を対象ファイルに絞る）で、catalogにないファイルもメタデータ・件数を空欄にして出す。category列の選択肢はデータ選択の表と同じ（`category_options`）。
+    - 表は`webui/datatable/`の部品で、`services/view_file_table.py`が設定と行を作る。列・フィルタ・ソートはデータ選択の表（`file_table_config`）と同じで、表のidは`view-files`（transform 画面では本体の表`files`と同じページに載るため）、表の断片は`/sidebar/selection/files/table`（`parse_state`→`apply_state`→`fragment`）とする。行は表示する run の transform 対象を`natural_keys`の順に並べたもの（`file_frame`を対象ファイルに絞る）で、catalogにないファイルもメタデータ・件数を空欄にして出す。category列の選択肢はデータ選択の表と同じ（`category_options`）で、値ごとの件数と null の件数はこの表の行で数える。列のメニューはダイアログの上に表示する。
     - 上限は`ui.explore_max_files`件（既定 20。datatable の`max_selected`）で、上限に達したら未選択の行のチェックボックスを無効にしてその旨を表示する。ダイアログの下に選択の件数（`n / max`）を表示し、選択の変更（`datatable:selection-change`）に合わせて更新する。
     - 「Select」で、表の選択（hidden input`#view-files-selection`のJSON配列。ダイアログのフォーム`#view-files-form`に属する）と開いたときの run を`POST /sidebar/selection/files`に送って保存し、ダイアログを閉じる。サーバーは不正な JSON を 400 とし、選択肢にないファイルと上限を超えた分（選択肢の順で後ろのもの）を捨てる。
     - Cancel ボタン・Esc・閉じるボタン（Material Symbols の`close`）は保存せずに閉じる。
@@ -242,10 +242,16 @@ memory_warn_gb = 16                   # 実行前見積もりがこれを超え�
 ### 1. データ選択
 
 - catalogのファイル一覧を表示する（ファイル名、メタデータ列、Step/Sequence数）。
-  - 列名のクリックでその列の昇順にソートし、もう一度クリックすると降順にする（以降トグル）。ソート中の列と向きを列名の横に▲ / ▼で示す。
-  - 列名の下に列ごとのフィルタを置く。ファイル名は部分一致、category列はプルダウン、数値・日時の列は下限と上限。Step数・(Step, Sequence)数・行数にはフィルタを置かない。
+  - ヘッダには、列名・ソートの向きの印（▲ / ▼）・フィルタを使っている列の印（漏斗のアイコン）と、列名の下に型を表示する。型は catalog の polars のデータ型の短い表記（`str`・`cat`・`i64`・`f64`・`datetime[μs]`など。部品の`dtype_label`）で、固定の列（file・Steps・(Step, Sequence)s・rows）にも表示する。category のメタデータ列は`pl.Categorical`（`cat`）とする。
+  - ソート・フィルタ・null の扱いは、列名（`…`の印の付いたボタン）のクリックで開く列のメニュー（popover）にまとめ、ヘッダには常には出さない。メニューの外のクリックと Esc で閉じ、キーボード（Enter / Space で開く、Tab でメニューへ移る、Esc で閉じて列名へ戻る）でも操作できる。メニューは最上位の層に出すため、表の中でスクロールしても、表示ファイルのポップアップ（`<dialog>`）の中でも、切れたり隠れたりしない。
+    - ソート: Asc・Desc・Clear sort（既定の順＝ファイル名の自然順に戻す）。ソートしたらメニューを閉じる。
+    - フィルタ: ファイル名は検索（空白で区切ったすべての語を含む行。語の順と大文字・小文字を問わず、正規表現ではなくそのままの文字列として探す。例: `b01 lotA`は`LotA_B01_run3`に一致する）。category列は値ごとの件数を添えたチェックボックスのリストで、選んだ値のどれかに一致する行（OR）を表示し、何も選んでいなければ絞り込まない。数値・日時の列は下限と上限（両端を含む）。Step数・(Step, Sequence)数・行数にはフィルタを置かない。メタデータ列の型は今は category・number・datetime だけで、文字列型の列を足すときはファイル名と同じ検索（部品の`"text"`フィルタ）を使う。
+    - null の扱い: フィルタを置く列ごとに、Any（指定しない）・Is null（null の行だけ）・Is not null（null を除く）から選び、null の件数を添える。他のフィルタとは AND で組み合わせる。値のフィルタ（検索・category の選択・下限と上限）は null の行に一致しないので、値を指定すれば null は自然に外れる（Is null と組み合わせると 0 件、Is not null は効果がない）。
+    - 列名のコピー（Copy column name。表の列名ではなく polars の列名をクリップボードに入れる）。
+    - 値の件数と null の件数は、フィルタに関係なく表の全行（データ選択では catalog の全ファイル、表示ファイルのポップアップでは選択肢のファイル）で数える。
+    - 値のチェックや null の扱いの変更はすぐに、検索や下限・上限の入力は 300 ms 待ってから表を読み直す。読み直してもメニューは開いたまま、フォーカスと入力位置も保つ。
   - 表は`webui/datatable/`の部品（表のid`files`）で、`services/file_table.py`がその設定と行（polarsの表）を作る。
-  - ソート・フィルタ・ページングはサーバー側（`/catalog/files`の`files.sort`・`files.order`・`files.page`・各フィルタ`files.q__stem`・`files.eq__<列>`・`files.min__<列>`・`files.max__<列>`のクエリ）で行う。ソートやフィルタを変えると1ページ目に戻す。
+  - ソート・フィルタ・ページングはサーバー側（`/catalog/files`の`files.sort`・`files.order`・`files.page`・各フィルタ`files.q__stem`・`files.eq__<列>`（値ごとに繰り返す。`?files.eq__lot=A&files.eq__lot=B`。`is_in`で絞り込む）・`files.min__<列>`・`files.max__<列>`・`files.null__<列>`（`is_null`・`is_not_null`）のクエリ）で行う。ソートやフィルタを変えると1ページ目に戻す。表の表示とヘッダのチェックボックスの対象（フィルタに合う全行）は、同じ絞り込みの関数（部品の`filter_expression`）を通す。
   - 表はヘッダと12行ほどの高さを上限とし、はみ出す行は表の中でスクロールする（ヘッダは固定）。1000行ごとにページを分け、表の下にページの移動と「a–b of N」を表示する。
   - 選択はページやフィルタをまたいで保持する（表の外の1つのhiddenのinput`#files-selection`にJSON配列で持つ）。ヘッダのチェックボックスは、表示していないページも含めて今のフィルタに合う全行を対象に選択・解除し、その状態（チェック・一部・なし）を表示する。
   - 表の下の`Select`で、全ページの選択をまとめて保存する。選択はJSON配列の1つのフォームフィールドとして送り、フォームのフィールド数の上限（Starletteの既定で1000）に掛からないようにする。

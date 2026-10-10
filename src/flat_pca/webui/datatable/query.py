@@ -9,6 +9,8 @@ from dataclasses import dataclass
 import polars as pl
 
 from .config import TableConfig
+from .counts import ColumnCounts, count_values
+from .formatting import dtype_label
 from .pagination import Page, paginate
 from .state import Bound, TableState
 
@@ -48,6 +50,11 @@ class TableView:
         for a table that is not selectable.
     options : dict[str, list[str]]
         Values offered by each ``"choice"`` filter.
+    counts : ColumnCounts
+        Rows of each value of the ``"choice"`` columns and null values of
+        the filtered columns, over every row of the table.
+    types : dict[str, str]
+        Type of each shown column (``dtype_label``), keyed by column name.
     """
 
     state: TableState
@@ -56,6 +63,8 @@ class TableView:
     row_keys: list[str]
     matching_keys: list[str]
     options: dict[str, list[str]]
+    counts: ColumnCounts
+    types: dict[str, str]
 
 
 def key_text(config: TableConfig) -> pl.Expr:
@@ -139,6 +148,22 @@ def bound_condition(name: str, bound: Bound, dtype: pl.DataType, *, lower: bool)
     return column >= literal if lower else column <= literal
 
 
+def search_terms(text: str) -> list[str]:
+    """Split a search into the lowercase words a value must contain.
+
+    Parameters
+    ----------
+    text : str
+        Search typed into a ``"text"`` filter.
+
+    Returns
+    -------
+    list[str]
+        Words separated by whitespace, in lowercase, without repeats.
+    """
+    return list(dict.fromkeys(text.lower().split()))
+
+
 def filter_expression(state: TableState, schema: Mapping[str, pl.DataType]) -> pl.Expr:
     """Return the expression selecting the rows that match a state's filters.
 
@@ -154,24 +179,29 @@ def filter_expression(state: TableState, schema: Mapping[str, pl.DataType]) -> p
     Returns
     -------
     pl.Expr
-        Boolean expression combining every filter with AND. A text filter
-        matches a case-insensitive substring; null values match no filter.
+        Boolean expression combining every filter with AND. A search matches
+        a value containing each of its words (``search_terms``) as plain
+        text, in any order and case; a ``"choice"`` filter matches any of its
+        values. Null values match no search, value, or bound, so those
+        filters drop them; a null filter keeps only the null values
+        (``"is_null"``) or drops them (``"is_not_null"``).
     """
     conditions = [pl.lit(True)]
     for name, text in state.text.items():
-        conditions.append(
-            pl.col(name)
-            .cast(pl.String)
-            .str.to_lowercase()
-            .str.contains(text.lower(), literal=True)
+        lowered = pl.col(name).cast(pl.String).str.to_lowercase()
+        conditions.extend(
+            lowered.str.contains(term, literal=True) for term in search_terms(text)
         )
-    for name, value in state.equals.items():
-        conditions.append(pl.col(name).cast(pl.String) == value)
+    for name, values in state.equals.items():
+        conditions.append(pl.col(name).cast(pl.String).is_in(values))
     for name, (lower, upper) in state.ranges.items():
         if lower is not None:
             conditions.append(bound_condition(name, lower, schema[name], lower=True))
         if upper is not None:
             conditions.append(bound_condition(name, upper, schema[name], lower=False))
+    for name, null_filter in state.nulls.items():
+        column = pl.col(name)
+        conditions.append(column.is_null() if null_filter == "is_null" else column.is_not_null())
     return pl.all_horizontal(conditions).fill_null(False)
 
 
@@ -257,14 +287,14 @@ def apply_state(
     Returns
     -------
     TableView
-        The shown page and the keys of every matching row. Only the page's
-        rows are collected with every column; the matching rows are counted,
-        or only their keys are collected for a selectable table.
+        The shown page, the keys of every matching row, and what the column
+        menus show. Only the page's rows are collected with every column; the
+        matching rows are counted, or only their keys are collected for a
+        selectable table.
     """
     lazy = frame.lazy()
-    matching = sort_frame(
-        lazy.filter(filter_expression(state, lazy.collect_schema())), state, config
-    )
+    schema = lazy.collect_schema()
+    matching = sort_frame(lazy.filter(filter_expression(state, schema)), state, config)
     if config.selectable:
         matching_keys = matching.select(key_text(config)).collect().to_series().to_list()
         total = len(matching_keys)
@@ -288,4 +318,6 @@ def apply_state(
             if options is None
             else {name: list(values) for name, values in options.items()}
         ),
+        counts=count_values(frame, config),
+        types={column.name: dtype_label(schema[column.name]) for column in config.columns},
     )

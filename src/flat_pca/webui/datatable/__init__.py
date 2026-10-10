@@ -5,8 +5,9 @@ it can be reused outside flat-pca; see ``README.md`` for its use.
 """
 
 from .config import ColumnConfig, FilterKind, TableConfig
+from .counts import ColumnCounts, count_values
 from .environment import STATIC_DIR, TEMPLATES_DIR, configure_environment
-from .formatting import format_value
+from .formatting import dtype_label, format_value
 from .pagination import Page, paginate
 from .query import (
     TableView,
@@ -14,15 +15,18 @@ from .query import (
     choice_options,
     filter_expression,
     key_text,
+    search_terms,
     sort_frame,
 )
-from .state import TableState, parameter_name, parse_state
+from .state import NullFilter, TableState, parameter_name, parse_state
 
 __all__ = [
     "STATIC_DIR",
     "TEMPLATES_DIR",
     "ColumnConfig",
+    "ColumnCounts",
     "FilterKind",
+    "NullFilter",
     "Page",
     "TableConfig",
     "TableState",
@@ -30,11 +34,14 @@ __all__ = [
     "apply_state",
     "choice_options",
     "configure_environment",
+    "count_values",
+    "dtype_label",
     "filter_expression",
     "format_value",
     "key_text",
     "paginate",
     "parameter_name",
     "parse_state",
+    "search_terms",
     "sort_frame",
 ]

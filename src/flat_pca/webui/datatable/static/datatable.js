@@ -120,15 +120,14 @@
     htmx.trigger(root, RELOAD_EVENT);
   }
 
-  function queryValue(root, name) {
-    return root.querySelector(`[data-dt-query][name="${CSS.escape(`${root.id}.${name}`)}"]`).value;
-  }
+  // Typing in a filter reloads the first page after a pause; checking a
+  // value or a null filter reloads it at once.
+  const TYPED_QUERY = "input[data-dt-query]:not([type='checkbox'], [type='radio'])";
+  const CHOSEN_QUERY = "input[data-dt-query]:is([type='checkbox'], [type='radio'])";
 
-  // Typing in a filter reloads the first page after a pause; choosing a
-  // value reloads it at once.
   document.addEventListener("input", (event) => {
     const root = tableOf(event.target);
-    if (!root || !event.target.matches("input[data-dt-query]")) {
+    if (!root || !event.target.matches(TYPED_QUERY)) {
       return;
     }
     clearTimeout(queryTimers.get(root));
@@ -140,13 +139,103 @@
 
   document.addEventListener("change", (event) => {
     const root = tableOf(event.target);
-    if (root && event.target.matches("select[data-dt-query]")) {
+    if (root && event.target.matches(CHOSEN_QUERY)) {
       reload(root, { page: "1" });
     }
   });
 
-  // A column name sorts by that column, ascending first and then toggling;
-  // the page links move between pages.
+  // Column menus are popovers (`[data-dt-menu]`) opened by the column
+  // names. The browser opens and closes them (a click outside or Esc closes
+  // one) and shows them in the top layer, so neither the table's scroll box
+  // nor a <dialog> clips them; this code places them under their column
+  // name and keeps the one that was open open across reloads.
+  const MENU_GAP_PX = 4;
+  const MENU_MARGIN_PX = 8;
+
+  function menuButton(menu) {
+    return menu.closest("th").querySelector("[data-dt-column]");
+  }
+
+  // Puts a menu under its column name, or above it when there is no room
+  // below, and always inside the window. It stays invisible until placed
+  // (`data-dt-placed`), since its size is known only once it shows.
+  function placeMenu(menu) {
+    const anchor = menuButton(menu).getBoundingClientRect();
+    const width = document.documentElement.clientWidth;
+    const height = document.documentElement.clientHeight;
+    const box = menu.getBoundingClientRect();
+    const left = Math.max(MENU_MARGIN_PX, Math.min(anchor.left, width - box.width - MENU_MARGIN_PX));
+    let top = anchor.bottom + MENU_GAP_PX;
+    if (top + box.height > height - MENU_MARGIN_PX) {
+      const above = anchor.top - MENU_GAP_PX - box.height;
+      top = above >= MENU_MARGIN_PX ? above : height - box.height - MENU_MARGIN_PX;
+    }
+    menu.style.left = `${left}px`;
+    menu.style.top = `${Math.max(MENU_MARGIN_PX, top)}px`;
+    menu.dataset.dtPlaced = "";
+  }
+
+  function openMenus() {
+    return document.querySelectorAll("[data-dt-menu]:popover-open");
+  }
+
+  // Toggle events do not bubble, so listen while capturing.
+  document.addEventListener(
+    "toggle",
+    (event) => {
+      if (!event.target.matches?.("[data-dt-menu]")) {
+        return;
+      }
+      if (event.newState === "open") {
+        placeMenu(event.target);
+      } else {
+        delete event.target.dataset.dtPlaced;
+      }
+    },
+    true,
+  );
+
+  // An open menu follows its column name when the page or the table scrolls.
+  for (const type of ["scroll", "resize"]) {
+    window.addEventListener(
+      type,
+      () => {
+        for (const menu of openMenus()) {
+          placeMenu(menu);
+        }
+      },
+      { capture: true, passive: true },
+    );
+  }
+
+  function closeMenu(element) {
+    const menu = element.closest("[data-dt-menu]");
+    if (menu?.matches(":popover-open")) {
+      menu.hidePopover();
+    }
+  }
+
+  // Copies text to the clipboard, also where navigator.clipboard is missing
+  // (a page served over plain HTTP from another host).
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).catch(() => {});
+      return;
+    }
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+
+  // A sort button of a column menu sorts by its column (or clears the sort
+  // with an empty `data-dt-sort`) and closes the menu; "Copy column name"
+  // copies it and closes the menu; the page links move between pages.
   document.addEventListener("click", (event) => {
     const root = tableOf(event.target);
     if (!root) {
@@ -154,8 +243,14 @@
     }
     const sort = event.target.closest("[data-dt-sort]");
     if (sort) {
-      const descending = queryValue(root, "sort") === sort.dataset.dtSort && queryValue(root, "order") === "asc";
-      reload(root, { sort: sort.dataset.dtSort, order: descending ? "desc" : "asc", page: "1" });
+      closeMenu(sort);
+      reload(root, { sort: sort.dataset.dtSort, order: sort.dataset.dtOrder, page: "1" });
+      return;
+    }
+    const copy = event.target.closest("[data-dt-copy]");
+    if (copy) {
+      copyText(copy.dataset.dtCopy);
+      closeMenu(copy);
       return;
     }
     const page = event.target.closest("[data-dt-page]");
@@ -164,9 +259,71 @@
     }
   });
 
+  // A reload replaces the menus. The menu open before it, and the control
+  // focused in it, are noted here and restored after the swap, so that
+  // checking values or typing a search keeps the menu open.
+  const reopenedMenus = new WeakMap();
+
+  document.addEventListener("htmx:beforeSwap", (event) => {
+    const root = event.detail.target;
+    if (!root.matches?.("[data-datatable]")) {
+      return;
+    }
+    const menu = root.querySelector("[data-dt-menu]:popover-open");
+    if (!menu) {
+      reopenedMenus.delete(root);
+      return;
+    }
+    const focused = menu.contains(document.activeElement) ? document.activeElement : null;
+    reopenedMenus.set(root, {
+      column: menu.dataset.dtMenu,
+      id: focused?.id || null,
+      name: focused?.name || null,
+      value: focused?.value ?? null,
+      selection: focused && typeof focused.selectionStart === "number"
+        ? [focused.selectionStart, focused.selectionEnd]
+        : null,
+    });
+  });
+
+  function reopenMenu(root) {
+    const noted = reopenedMenus.get(root);
+    reopenedMenus.delete(root);
+    const menu = noted && root.querySelector(`[data-dt-menu="${CSS.escape(noted.column)}"]`);
+    if (!menu) {
+      return;
+    }
+    try {
+      menu.showPopover({ source: menuButton(menu) });
+    } catch {
+      // Another popover took its place or the table left the page.
+      return;
+    }
+    // Place it at once: a control in a menu not yet placed cannot be focused.
+    placeMenu(menu);
+    const focused = noted.id
+      ? menu.querySelector(`#${CSS.escape(noted.id)}`)
+      : noted.name && [...menu.querySelectorAll(`[name="${CSS.escape(noted.name)}"]`)]
+        .find((control) => control.value === noted.value);
+    if (focused) {
+      focused.focus({ preventScroll: true });
+      if (noted.selection) {
+        try {
+          focused.setSelectionRange(...noted.selection);
+        } catch {
+          // Number and date inputs have no text selection.
+        }
+      }
+    }
+  }
+
   document.addEventListener("htmx:afterSettle", (event) => {
     const root = event.detail.elt;
-    if (root.matches?.("[data-datatable]") && root.dataset.dtSelection) {
+    if (!root.matches?.("[data-datatable]")) {
+      return;
+    }
+    reopenMenu(root);
+    if (root.dataset.dtSelection) {
       syncChecks(root);
     }
   });
