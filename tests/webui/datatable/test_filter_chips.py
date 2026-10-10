@@ -53,3 +53,22 @@ def test_filter_chips_name_columns_by_header_and_skip_the_search(config: TableCo
         "count ≥ 2026-01-01 00:00:00",
     ]
     assert filter_chips(TableState(search="x"), config) == []
+
+
+def test_filter_chips_keep_the_precision_of_the_bounds(config: TableConfig) -> None:
+    """Close float bounds and fractional seconds are shown as they filter."""
+    state = parse_state(
+        {
+            "t.min__score": ["1.000001"],
+            "t.max__score": ["1.000002"],
+            "t.min__count": ["12345678901234567890"],
+            "t.min__when": ["2026-01-01T12:30:00.250"],
+        },
+        config,
+    )
+
+    assert [chip.label for chip in filter_chips(state, config)] == [
+        "count ≥ 12345678901234567890",
+        "1.000001 ≤ score ≤ 1.000002",
+        "when ≥ 2026-01-01 12:30:00.250000",
+    ]

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from .config import TableConfig
-from .formatting import format_value
 from .state import (
     EQUALS_PREFIX,
     MAX_PREFIX,
@@ -36,13 +36,33 @@ class FilterChip:
     parameters: tuple[str, ...]
 
 
+def bound_text(bound: Bound) -> str:
+    """Return a range bound as a chip shows it, without losing precision.
+
+    Parameters
+    ----------
+    bound : Bound
+        Bound from ``parse_state``; not ``None``.
+
+    Returns
+    -------
+    str
+        ISO 8601 with a space for a datetime (fractional seconds kept when
+        there are any), and ``str`` otherwise: every digit of an integer and
+        the shortest text that gives back the same float.
+    """
+    if isinstance(bound, datetime):
+        return bound.isoformat(sep=" ")
+    return str(bound)
+
+
 def _range_label(header: str, lower: Bound, upper: Bound) -> str:
     """Return the chip text of inclusive bounds; ``None`` leaves a side open."""
     if lower is not None and upper is not None:
-        return f"{format_value(lower)} ≤ {header} ≤ {format_value(upper)}"
+        return f"{bound_text(lower)} ≤ {header} ≤ {bound_text(upper)}"
     if lower is not None:
-        return f"{header} ≥ {format_value(lower)}"
-    return f"{header} ≤ {format_value(upper)}"
+        return f"{header} ≥ {bound_text(lower)}"
+    return f"{header} ≤ {bound_text(upper)}"
 
 
 def filter_chips(state: TableState, config: TableConfig) -> list[FilterChip]:

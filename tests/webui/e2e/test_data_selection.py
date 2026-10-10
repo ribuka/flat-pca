@@ -756,3 +756,31 @@ def test_columns_menu_hides_columns_and_remembers_them(
     expect(lot_header).to_be_visible()
     expect(lot_cell).to_have_text("A")
     expect(shape).to_have_text("3 rows, 7 columns")
+
+
+def test_columns_menu_keeps_the_choice_without_storage(
+    page: Page, cataloged_server_url: str
+) -> None:
+    """Where localStorage fails, hidden columns stay hidden across reloads of the table."""
+    page.add_init_script(
+        "for (const name of ['getItem', 'setItem']) {"
+        " Storage.prototype[name] = () => { throw new DOMException('denied', 'QuotaExceededError'); }; }"
+    )
+    page.goto(cataloged_server_url)
+    stems = _file_stems(page)
+    expect(stems).to_have_text(["run-1", "run-2", "run-10"])
+    table = _table(page)
+    lot_header = table.locator("th", has=page.locator('[data-dt-column="lot"]'))
+
+    table.get_by_role("button", name="Columns").click()
+    table.get_by_role("dialog", name="Columns").get_by_role("checkbox", name="lot", exact=True).uncheck()
+    expect(lot_header).to_be_hidden()
+    page.keyboard.press("Escape")
+
+    table.get_by_role("searchbox", name="Search").fill("run-1")
+    expect(stems).to_have_text(["run-1", "run-10"])
+    expect(lot_header).to_be_hidden()
+    expect(table.locator("[data-dt-shape]")).to_have_text("2 rows, 6 columns")
+    open_column_menu(table, "file").get_by_role("button", name="Desc").click()
+    expect(stems).to_have_text(["run-10", "run-1"])
+    expect(lot_header).to_be_hidden()

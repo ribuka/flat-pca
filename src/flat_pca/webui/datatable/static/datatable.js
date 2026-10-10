@@ -324,25 +324,37 @@
   // The "Columns" menu (`[data-dt-columns-menu]`) shows or hides columns.
   // The hidden ones are remembered per table id in localStorage and hidden
   // by a style sheet in the document head, which outlives the reloads, so
-  // a reloaded table shows no hidden column even for a moment.
+  // a reloaded table shows no hidden column even for a moment. The latest
+  // choice of each table id is also kept in memory (`hiddenColumns`), so it
+  // holds across reloads until the page is left even where the storage
+  // cannot be read or written.
+  const hiddenColumns = new Map();
+
   function hiddenColumnsKey(root) {
     return `datatable:hidden-columns:${root.id}`;
   }
 
   function storedHiddenColumns(root) {
+    if (hiddenColumns.has(root.id)) {
+      return hiddenColumns.get(root.id);
+    }
+    let hidden = new Set();
     try {
       const stored = JSON.parse(localStorage.getItem(hiddenColumnsKey(root)) ?? "[]");
-      return new Set(Array.isArray(stored) ? stored : []);
+      hidden = new Set(Array.isArray(stored) ? stored : []);
     } catch {
-      return new Set();
+      // Unreadable storage: every column is shown.
     }
+    hiddenColumns.set(root.id, hidden);
+    return hidden;
   }
 
   function storeHiddenColumns(root, names) {
+    hiddenColumns.set(root.id, new Set(names));
     try {
       localStorage.setItem(hiddenColumnsKey(root), JSON.stringify([...names]));
     } catch {
-      // Without storage the choice lasts until the page is left.
+      // The choice in memory lasts until the page is left.
     }
   }
 
