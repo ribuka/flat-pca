@@ -79,24 +79,36 @@
     if (notice) {
       notice.hidden = keys.size < maxSelected(root);
     }
+    syncSelectionState(root, keys);
+  }
+
+  // Shows the selection count under the table ("k selected", or
+  // "k / max selected" with a limit) and enables Clear when it can clear.
+  function syncSelectionState(root, keys) {
+    const count = root.querySelector("[data-dt-selected-count]");
+    if (count) {
+      const max = maxSelected(root);
+      count.textContent = max === null ? `${keys.size} selected` : `${keys.size} / ${max} selected`;
+    }
+    const clear = root.querySelector("[data-dt-clear]");
+    if (clear) {
+      clear.disabled = keys.size === 0 || !canChange(root, keys, [...keys], false);
+    }
   }
 
   function tableOf(element) {
     return element.closest("[data-datatable]");
   }
 
-  // A row checkbox selects its row; the header checkbox selects or clears
-  // every row matching the filters, shown on this page or not.
-  document.addEventListener("change", (event) => {
-    const root = tableOf(event.target);
-    if (!root || !root.dataset.dtSelection || !event.target.matches("[data-dt-check-all], [data-dt-row-check]")) {
-      return;
-    }
+  // Adds `targets` to the selection (`select`) or removes them, when
+  // canChange allows it, then shows the selection. Returns whether it
+  // changed.
+  function changeSelection(root, targets, select) {
     const keys = selectedKeys(root);
-    const targets = event.target.matches("[data-dt-check-all]") ? matchingKeys(root) : [event.target.value];
-    if (canChange(root, keys, targets, event.target.checked)) {
+    const allowed = canChange(root, keys, targets, select);
+    if (allowed) {
       for (const key of targets) {
-        if (event.target.checked) {
+        if (select) {
           keys.add(key);
         } else {
           keys.delete(key);
@@ -105,6 +117,93 @@
       setSelectedKeys(root, keys);
     }
     syncChecks(root);
+    return allowed;
+  }
+
+  // The header checkbox selects or clears every row matching the filters,
+  // shown on this page or not.
+  document.addEventListener("change", (event) => {
+    const root = tableOf(event.target);
+    if (root?.dataset.dtSelection && event.target.matches("[data-dt-check-all]")) {
+      changeSelection(root, matchingKeys(root), event.target.checked);
+    }
+  });
+
+  // The row last clicked (its key) in each table: the start of a range
+  // that Shift + click selects.
+  const rangeAnchors = new WeakMap();
+
+  // Returns the keys of the rows shown from the anchor row to `row`, both
+  // included, or only `row`'s key when the anchor is not shown on the page.
+  function rangeKeys(root, row) {
+    const rows = [...root.querySelectorAll("tbody tr[data-dt-key]")];
+    const anchor = rangeAnchors.get(root);
+    const from = rows.findIndex((shown) => shown.dataset.dtKey === anchor);
+    const to = rows.indexOf(row);
+    if (from < 0) {
+      return [row.dataset.dtKey];
+    }
+    return rows.slice(Math.min(from, to), Math.max(from, to) + 1).map((shown) => shown.dataset.dtKey);
+  }
+
+  // Selects (`select`) or clears the clicked row, or with Shift the rows
+  // from the anchor to it. A range that would pass the limit changes
+  // nothing and keeps the anchor; otherwise the row becomes the anchor.
+  function clickRow(root, row, select, range) {
+    const targets = range ? rangeKeys(root, row) : [row.dataset.dtKey];
+    if (changeSelection(root, targets, select)) {
+      rangeAnchors.set(root, row.dataset.dtKey);
+    }
+  }
+
+  // Elements of a row that handle their own clicks.
+  const INTERACTIVE = "a, button, input, select, textarea, label, summary, [contenteditable], [tabindex]";
+
+  function selectableRow(target) {
+    const row = target.closest?.("tbody tr[data-dt-key]");
+    const root = row && tableOf(row);
+    return root?.dataset.dtSelection ? { root, row, box: row.querySelector("[data-dt-row-check]") } : null;
+  }
+
+  // A row checkbox, or a click anywhere else on a row, selects or clears
+  // the row (with Shift, the range from the row clicked before). A click on
+  // a link or another control in the row, the end of a drag selecting
+  // text, or a row whose checkbox is disabled (a locked table, or an
+  // unselected row at the limit) changes nothing. The checkbox has already
+  // toggled itself when its click arrives.
+  document.addEventListener("click", (event) => {
+    const found = selectableRow(event.target);
+    if (!found?.box) {
+      return;
+    }
+    const { root, row, box } = found;
+    if (event.target === box) {
+      clickRow(root, row, box.checked, event.shiftKey);
+      return;
+    }
+    if (box.disabled || event.target.closest(INTERACTIVE)) {
+      return;
+    }
+    if (!event.shiftKey && !document.getSelection().isCollapsed) {
+      return;
+    }
+    clickRow(root, row, !box.checked, event.shiftKey);
+  });
+
+  // Shift + click would otherwise select the text between the two clicks.
+  document.addEventListener("mousedown", (event) => {
+    if (event.shiftKey && selectableRow(event.target)?.box) {
+      event.preventDefault();
+    }
+  });
+
+  // Clear empties the selection over every page and filter.
+  document.addEventListener("click", (event) => {
+    const clear = event.target.closest?.("[data-dt-clear]");
+    const root = clear && tableOf(clear);
+    if (root?.dataset.dtSelection) {
+      changeSelection(root, [...selectedKeys(root)], false);
+    }
   });
 
   const queryTimers = new WeakMap();
@@ -141,6 +240,60 @@
     const root = tableOf(event.target);
     if (root && event.target.matches(CHOSEN_QUERY)) {
       reload(root, { page: "1" });
+    }
+  });
+
+  // The page number input under the table moves to the page typed, kept
+  // between the first and the last, on Enter or when it loses the focus.
+  // Anything else puts the current page back. An input notes the page it
+  // asked for (`askedPages`), so that the `change` it fires after Enter,
+  // also when the reload removes it, does not ask again; Enter always asks,
+  // and a failed reload forgets the note, so the same page can be retried.
+  const askedPages = new WeakMap();
+
+  function goToTypedPage(input, retry) {
+    const current = Number(input.dataset.dtPageCurrent);
+    const typed = Math.round(Number(input.value));
+    if (input.value.trim() === "" || !Number.isFinite(typed)) {
+      input.value = askedPages.get(input) ?? current;
+      return;
+    }
+    const number = Math.min(Math.max(typed, 1), Number(input.max));
+    input.value = number;
+    if (number === current || (!retry && askedPages.get(input) === number)) {
+      return;
+    }
+    askedPages.set(input, number);
+    reload(tableOf(input), { page: String(number) });
+  }
+
+  document.addEventListener("change", (event) => {
+    if (event.target.matches("[data-dt-page-input]") && event.target.isConnected && tableOf(event.target)) {
+      goToTypedPage(event.target, false);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && event.target.matches?.("[data-dt-page-input]") && tableOf(event.target)) {
+      event.preventDefault();
+      goToTypedPage(event.target, true);
+    }
+  });
+
+  // Only the note of the page whose request failed is forgotten: a request
+  // replaced by a newer one (hx-sync) also ends unsuccessfully, and must not
+  // drop the note of the page the newer one asks for.
+  document.addEventListener("htmx:afterRequest", (event) => {
+    const root = event.detail.elt;
+    if (event.detail.successful || !root.matches?.("[data-datatable]")) {
+      return;
+    }
+    const path = event.detail.pathInfo?.finalRequestPath ?? "";
+    const failedPage = new URL(path, window.location.href).searchParams.get(`${root.id}.page`);
+    for (const input of root.querySelectorAll("[data-dt-page-input]")) {
+      if (String(askedPages.get(input)) === failedPage) {
+        askedPages.delete(input);
+      }
     }
   });
 
@@ -253,7 +406,7 @@
 
   // A sort button of a column menu sorts by its column (or clears the sort
   // with an empty `data-dt-sort`) and closes the menu; "Copy column name"
-  // copies it and closes the menu; the page links move between pages.
+  // copies it and closes the menu; the page buttons move between pages.
   document.addEventListener("click", (event) => {
     const root = tableOf(event.target);
     if (!root) {

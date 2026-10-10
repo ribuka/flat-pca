@@ -190,7 +190,6 @@ def file_dialog(request: Request, workspace: WorkspaceDependency) -> HTMLRespons
         "partials/view_file_dialog.html",
         {
             "choice": choice,
-            "max_files": settings.ui.explore_max_files,
             "table": view_file_table_config(
                 settings.metadata_columns, settings.ui.explore_max_files
             ),

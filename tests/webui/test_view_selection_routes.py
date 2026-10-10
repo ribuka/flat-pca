@@ -172,7 +172,7 @@ def test_dialog_starts_from_the_chosen_files_of_the_newest_run(
     assert """id="view-files-selection" name="stems" value='["s-03"]' form="view-files-form\"""" in dialog
     assert '<form id="view-files-form" hx-post="/sidebar/selection/files"' in dialog
     assert "data-view-choice" in dialog
-    assert "1 / 20" in dialog
+    assert "data-dt-selected-count>1 / 20 selected<" in _table(client)
     assert "data-dialog-close" in dialog
     assert _options(client) == STEMS[:6]
     assert _checked(_table(client)) == ["s-03"]

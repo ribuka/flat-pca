@@ -16,7 +16,6 @@
   {% endif %}
 </div>
 <div class="dialog-actions">
-  <span class="muted" data-view-dialog-count>{{ choice.files|length }} / {{ max_files }}</span>
   <form id="{{ table.selection_form }}" hx-post="/sidebar/selection/files" hx-swap="none" data-view-choice>
     <input type="hidden" name="run" value="{{ choice.run_id or '' }}">
     <button type="button" data-dialog-close>Cancel</button>

@@ -160,28 +160,58 @@ filter through the one `filter_expression`.
   the reload, with the focus (and caret) where it was. Sorting from the menu
   or copying the name closes it. Sorting or filtering returns to the first
   page. Reloads trigger `dt-reload` on the container.
+- The checkbox column and the first column stay at the left while the table
+  scrolls sideways (`position: sticky`, `.dt-pinned`); the header stays on
+  top of them. Which columns are pinned is not configurable: the first
+  column is the one naming the rows (such as the file name).
+- Under the table, the footer shows "N rows, M columns" (the rows matching
+  the filters and the shown columns), for a selectable table the selection
+  count ("k selected", or "k / max selected" with `max_selected`) and Clear
+  (which clears the whole selection, on every page and filter), "a–b of N",
+  and with several pages the page controls: first, previous, next, and last
+  page buttons around a page number input. Enter or leaving the input goes
+  to the typed page (kept between 1 and the last page); a blank or invalid
+  value puts the current page back. The number of rows per page is
+  `page_size`; it cannot be changed from the page.
 - The selection of a selectable table spans pages and filters. It is a JSON
   array in the hidden input `#<table_id>-selection` (named `selection_name`),
   outside the reloaded fragment, so a form or `hx-include` can send it as one
   field. Keys are the key column cast to polars `String` (`key_text`) for the
   row checkboxes, the header checkbox, and the selection alike, so keys of any
   type match; give the initial selection in the same form. A table without
-  selection does not cast its keys (`data-dt-key` is `str()` of the value). The header checkbox selects or clears every row matching the filters
-  and shows all / some / none.
+  selection does not cast its keys (`data-dt-key` is `str()` of the value).
+  The header checkbox selects or clears every row matching the filters and
+  shows all / some / none.
+- A click anywhere on a row toggles its checkbox, once (a click on the
+  checkbox itself is not counted twice). Clicks on a link or another control
+  in the row (`a`, `button`, `input`, `select`, `textarea`, `label`,
+  `summary`, `[contenteditable]`, `[tabindex]`) and the end of a drag that
+  selects text change nothing, and neither does a click on a row whose
+  checkbox is disabled (every row of a locked table, and the unselected
+  rows at the limit). A row that a click changes shows a pointer cursor; a
+  selected row has its own background.
+- Shift + click on a row or on its checkbox selects (or clears, following
+  the clicked row's new state) every row shown from the row clicked before
+  to this one. The range counts the rows of the current page in their shown
+  order; when the row clicked before is not on it (after paging or
+  filtering), only the clicked row changes. Shift + click does not select
+  the text between the clicks.
 - `max_selected` (a positive integer, on a selectable table only) limits the
   selection. When it is reached, the checkboxes of the unselected rows are
   disabled (selected rows can still be cleared) and the notice
   `[data-dt-limit]` above the table says so; both hold after paging,
   filtering, and sorting. The header checkbox is disabled while selecting
   every matching row would pass the limit; when they all fit, or when they
-  are all selected (to clear them), it works as without a limit. An initial
-  selection past the limit is kept and can only be reduced. One function in
-  `datatable.js` (`canChange`) decides whether a change of the selection is
-  allowed, for a locked table too.
+  are all selected (to clear them), it works as without a limit. A Shift +
+  click range that would pass the limit changes nothing, and the row clicked
+  before stays the start of the next range. An initial selection past the
+  limit is kept and can only be reduced. One function in `datatable.js`
+  (`canChange`) decides whether a change of the selection is allowed (row,
+  range, header checkbox, and Clear), for a locked table too.
 - Each change of the selection dispatches `datatable:selection-change` on the
   container. It bubbles; `event.detail.keys` holds the selected keys and
-  `event.detail.max` the limit (`null` without one), so the page can show
-  `n / max`. The table itself does not show the count.
+  `event.detail.max` the limit (`null` without one). The footer already
+  shows the count, so a page needs the event only to act on the selection.
 
 ## Elements and classes
 
@@ -199,9 +229,13 @@ container, so several tables can share a page.
 | `.dt-menu-section`, `.dt-sorts`, `.dt-filter`, `.dt-choices`, `.dt-choice`, `.dt-nulls`, `.dt-count` | Menu parts: sort buttons (`[data-dt-sort][data-dt-order]`, `aria-pressed`), the filter, the value list, the null filter, and counts. |
 | `[data-dt-copy]` | "Copy column name" button. |
 | `.dt-check`, `[data-dt-check-all]`, `[data-dt-row-check]` | Selection checkboxes. |
+| `.dt-pinned` | Cells of the checkbox column and the first column, pinned at the left. |
 | `.dt-limit[data-dt-limit]` | Notice that the selection limit is reached (`hidden` below it). |
 | `tr[data-dt-key]` | Row with its key. |
-| `.dt-pager`, `[data-dt-page]`, `.dt-page-current`, `[data-dt-page-range]` | Page links and "a–b of N". |
+| `.dt-footer` | Footer under the table. |
+| `.dt-shape[data-dt-shape]` | "N rows, M columns". |
+| `.dt-selection-state`, `.dt-selected-count[data-dt-selected-count]`, `[data-dt-clear]` | Selection count and the Clear button (selectable tables). |
+| `.dt-pager`, `[data-dt-page-range]`, `[data-dt-page]`, `.dt-page-jump`, `.dt-page-input[data-dt-page-input][data-dt-page-current]` | "a–b of N", the first / previous / next / last page buttons (named `First page` and so on), and the page number input. |
 
 ## CSS variables
 
@@ -211,13 +245,15 @@ container or an ancestor fixes the scheme.
 
 | Variable | Use |
 | --- | --- |
-| `--dt-fg`, `--dt-muted` | Text, and headers / "a–b of N" / locked rows / the limit notice. |
+| `--dt-fg`, `--dt-muted` | Text, and headers / the footer texts / locked rows / the limit notice. |
 | `--dt-border` | Cell and box borders. |
-| `--dt-header-bg`, `--dt-row-hover-bg` | Header and hovered row backgrounds. |
-| `--dt-accent`, `--dt-accent-fg` | Sort and filter marks, the chosen sort in a menu, and the current page, and its text. |
+| `--dt-bg` | Background of the pinned cells, which cover the cells scrolled under them. |
+| `--dt-header-bg`, `--dt-row-hover-bg`, `--dt-row-selected-bg` | Header, hovered row, and selected row backgrounds. |
+| `--dt-accent` | Sort and filter marks, and the chosen sort in a menu. |
 | `--dt-radius` | Box corner radius. |
 | `--dt-font`, `--dt-font-size` | Font family and table font size. |
 | `--dt-cell-padding` | Cell padding. |
+| `--dt-check-width` | Width of the checkbox column, where the pinned first column starts. |
 | `--dt-max-height` | Height of the scroll box (about the header and 12 rows). |
 | `--dt-filter-max-width` | Width limit of the filter inputs. |
 | `--dt-mono-font` | Font of the column types. |

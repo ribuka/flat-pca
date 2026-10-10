@@ -93,7 +93,7 @@ def test_fragment_shows_controls_rows_and_pages(
     assert html.index('data-dt-key="k4"') < html.index('data-dt-key="k1"')
     assert re.search(r'value="k4"[^>]*data-dt-row-check checked', html)
     assert not re.search(r'value="k1"[^>]*data-dt-row-check checked', html)
-    assert '<td title="fourth">k4</td>' in html
+    assert '<td class="dt-pinned" title="fourth">k4</td>' in html
     assert "<td>2026-01-01 00:00:00</td>" in html
     assert "1–2 of 2" in html
     assert "data-dt-page=" not in html
@@ -187,18 +187,125 @@ def test_fragment_lists_the_rows_of_every_filter_for_the_header_checkbox(
     assert json.loads(matching[1]) == ["k1", "k4"]
 
 
-def test_fragment_links_pages(
+def _footer(html: str) -> str:
+    """Return the footer under the table."""
+    match = re.search(r'<div class="dt-footer">.*</nav>\s*</div>', html, re.DOTALL)
+    assert match is not None
+    return match[0]
+
+
+def test_fragment_moves_between_pages(
     environment: Environment, config: TableConfig, frame: pl.DataFrame
 ) -> None:
-    """Several pages show links to them and mark the current one."""
-    view = apply_state(frame, TableState(sort_by="key", page=2), config)
+    """Several pages have first, previous, next, last, and a page number input."""
+    call = "{{ fragment(config, view) }}"
+    first = _render(
+        environment, call, config=config, view=apply_state(frame, TableState(sort_by="key"), config)
+    )
+    last = _render(
+        environment,
+        call,
+        config=config,
+        view=apply_state(frame, TableState(sort_by="key", page=2), config),
+    )
+
+    assert "1–2 of 4" in first
+    assert re.search(r'data-dt-page="1" aria-label="First page"[^>]* disabled>', first)
+    assert re.search(r'data-dt-page="0" aria-label="Previous page"[^>]* disabled>', first)
+    assert re.search(r'data-dt-page="2" aria-label="Next page"[^>]*">', first)
+    assert re.search(r'data-dt-page="2" aria-label="Last page"[^>]*">', first)
+    assert re.search(
+        r'<input type="number" class="dt-page-input" min="1" max="2" step="1" value="1"\s+'
+        r'aria-label="Page number" data-dt-page-input data-dt-page-current="1"> of 2',
+        first,
+    )
+    assert "3–4 of 4" in last
+    assert re.search(r'data-dt-page="1" aria-label="First page"[^>]*">', last)
+    assert re.search(r'data-dt-page="2" aria-label="Last page"[^>]* disabled>', last)
+    assert 'value="2"\n      aria-label="Page number"' in last
+
+
+def test_fragment_of_one_page_has_no_page_controls(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """One page shows only "a–b of N", and no rows "0 of 0"."""
+    single = replace(config, page_size=10)
+    every = apply_state(frame, TableState(), single)
+    none = apply_state(frame, parse_state({"t.q__name": ["zzz"]}, single), single)
+    call = "{{ fragment(config, view) }}"
+
+    one_page = _footer(_render(environment, call, config=single, view=every))
+    empty = _footer(_render(environment, call, config=single, view=none))
+
+    assert "1–4 of 4" in one_page
+    assert "data-dt-page=" not in one_page
+    assert "data-dt-page-input" not in one_page
+    assert "0 of 0" in empty
+    assert "0 rows, 7 columns" in empty
+
+
+def test_fragment_footer_shows_the_shape_and_the_selection(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """The footer has the matching rows and columns, the count, and Clear."""
+    state = parse_state({"t.eq__group": ["a"]}, config)
+    view = apply_state(frame, state, config)
+    call = "{{ fragment(config, view, selected) }}"
+
+    some = _footer(_render(environment, call, config=config, view=view, selected=["k2", "k3"]))
+    none = _footer(_render(environment, call, config=config, view=view, selected=[]))
+    limited = replace(config, max_selected=3)
+    with_limit = _footer(
+        _render(
+            environment,
+            call,
+            config=limited,
+            view=apply_state(frame, state, limited),
+            selected=["k2", "k3"],
+        )
+    )
+
+    assert '<span class="dt-shape" data-dt-shape>2 rows, 7 columns</span>' in some
+    assert "<span class=\"dt-selected-count\" data-dt-selected-count>2 selected</span>" in some
+    assert "<button type=\"button\" data-dt-clear>Clear</button>" in some
+    assert "<button type=\"button\" data-dt-clear disabled>Clear</button>" in none
+    assert "data-dt-selected-count>0 selected</span>" in none
+    assert "data-dt-selected-count>2 / 3 selected</span>" in with_limit
+
+
+def test_fragment_of_a_plain_table_has_no_selection_state(
+    environment: Environment, frame: pl.DataFrame
+) -> None:
+    """A table without selection shows its shape but no count, and pins its first column."""
+    config = TableConfig(
+        table_id="p", key="key", columns=(ColumnConfig("key"), ColumnConfig("name")), url="/p"
+    )
+    view = apply_state(frame, TableState(), config)
 
     html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
 
-    assert "3–4 of 4" in html
-    assert '<button type="button" data-dt-page="1" >Previous</button>' in html
-    assert 'aria-current="page" disabled>2</button>' in html
-    assert '<button type="button" data-dt-page="3" disabled>Next</button>' in html
+    assert "4 rows, 2 columns" in html
+    assert "data-dt-selected-count" not in html
+    assert "data-dt-clear" not in html
+    assert "dt-check" not in html
+    assert '<th class="dt-pinned">' in html
+    assert '<td class="dt-pinned">k1</td>' in html
+    assert html.count("dt-pinned") == 1 + 4
+
+
+def test_fragment_pins_the_checkbox_and_first_columns(
+    environment: Environment, config: TableConfig, frame: pl.DataFrame
+) -> None:
+    """The checkbox column and the first column are pinned in the header and every row."""
+    view = apply_state(frame, TableState(sort_by="key"), config)
+
+    html = _render(environment, "{{ fragment(config, view) }}", config=config, view=view)
+
+    assert '<th class="dt-check dt-pinned"><input type="checkbox" data-dt-check-all' in html
+    assert re.search(r'<th class="dt-pinned" aria-sort="ascending">\s*<div class="dt-head">\s*<button[^>]*data-dt-column="key"', html)
+    assert html.count('<td class="dt-check dt-pinned">') == 2
+    assert html.count('<td class="dt-pinned" title=') == 2
+    assert html.count("dt-pinned") == 2 + 2 * 2
 
 
 def test_fragment_row_checkboxes_use_the_matching_key_text(environment: Environment) -> None:

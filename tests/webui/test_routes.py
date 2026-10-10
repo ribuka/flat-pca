@@ -199,11 +199,11 @@ def test_file_table_pages_and_lists_matching_stems(
     assert 'data-dt-key="run-2"' in first
     assert 'data-dt-key="run-10"' not in first
     assert "1–2 of 3" in first
-    assert '<button type="button" data-dt-page="2" >Next</button>' in first
+    assert 'data-dt-page="2" aria-label="Next page"' in first
     assert 'data-dt-key="run-10"' in second
     assert 'data-dt-key="run-1"' not in second
     assert "3–3 of 3" in second
-    assert 'aria-current="page" disabled>2</button>' in second
+    assert 'data-dt-page-current="2"' in second
     assert "3–3 of 3" in past
     for text in (first, second):
         assert '["run-1", "run-2", "run-10"]</script>' in text

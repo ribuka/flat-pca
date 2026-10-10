@@ -674,9 +674,10 @@ p.error {
   --dt-muted: var(--muted);
   --dt-border: var(--border);
   --dt-header-bg: var(--surface-alt);
+  --dt-bg: var(--surface);
   --dt-row-hover-bg: var(--surface-alt);
+  --dt-row-selected-bg: var(--accent-soft);
   --dt-accent: var(--accent);
-  --dt-accent-fg: #ffffff;
   --dt-radius: var(--radius);
 }
 

@@ -119,13 +119,14 @@
 {%- endmacro %}
 
 {#- One page of the table with its column menus, sort and filter marks,
-    column types, and page links, and (for a selectable table) the keys of
-    every row matching the
-    filters for the header checkbox.
+    column types, the footer (shape, selection count, page controls), and
+    (for a selectable table) the keys of every row matching the filters for
+    the header checkbox.
     - config: TableConfig.
     - view: TableView from apply_state.
-    - selected: keys shown checked; datatable.js re-checks the rows from the
-      selection input after each swap. With `config.max_selected`, the
+    - selected: keys shown checked and counted under the table; datatable.js
+      re-checks the rows and recounts from the selection input after each
+      swap. With `config.max_selected`, the
       unselected rows are disabled and the limit notice shown when
       `selected` reaches it, and the header checkbox is disabled when
       selecting every matching row would pass it. -#}
@@ -152,11 +153,13 @@
 <table class="dt-table">
   <thead>
     <tr>
+      {#- The checkbox column and the first column (dt-pinned) stay at the
+          left while the table scrolls sideways. -#}
       {% if config.selectable %}
-        <th class="dt-check"><input type="checkbox" data-dt-check-all aria-label="{{ config.select_all_label }}"{% if header_blocked %} disabled{% endif %}></th>
+        <th class="dt-check dt-pinned"><input type="checkbox" data-dt-check-all aria-label="{{ config.select_all_label }}"{% if header_blocked %} disabled{% endif %}></th>
       {% endif %}
       {% for column in config.columns %}
-        <th{{ _aria_sort(view, column) }}>{{ _header(config, view, column, loop.index) }}</th>
+        <th{% if loop.first %} class="dt-pinned"{% endif %}{{ _aria_sort(view, column) }}>{{ _header(config, view, column, loop.index) }}</th>
       {% endfor %}
     </tr>
   </thead>
@@ -165,36 +168,57 @@
       {% set key = view.row_keys[loop.index0] %}
       <tr data-dt-key="{{ key }}">
         {% if config.selectable %}
-          <td class="dt-check"><input type="checkbox" value="{{ key }}" aria-label="Select {{ key }}" data-dt-row-check {% if key in selected %}checked{% elif full %}disabled{% endif %}></td>
+          <td class="dt-check dt-pinned"><input type="checkbox" value="{{ key }}" aria-label="Select {{ key }}" data-dt-row-check {% if key in selected %}checked{% elif full %}disabled{% endif %}></td>
         {% endif %}
         {% for column in config.columns -%}
-          <td{% if column.title_column %} title="{{ row[column.title_column] }}"{% endif %}>{{ row[column.name]|dt_cell }}</td>
+          <td{% if loop.first %} class="dt-pinned"{% endif %}{% if column.title_column %} title="{{ row[column.title_column] }}"{% endif %}>{{ row[column.name]|dt_cell }}</td>
         {%- endfor %}
       </tr>
     {% endfor %}
   </tbody>
 </table>
 </div>
+{{ _footer(config, view, selected_count) }}
+{%- endmacro %}
+
+{#- Under the table: its shape, the selection count with Clear (for a
+    selectable table), "a–b of N", and the page controls. datatable.js keeps
+    the count and Clear in step with the selection. -#}
+{% macro _footer(config, view, selected_count) -%}
+<div class="dt-footer">
+  <span class="dt-shape" data-dt-shape>{{ view.page.total }} rows, {{ config.columns|length }} columns</span>
+  {% if config.selectable %}
+    <span class="dt-selection-state">
+      <span class="dt-selected-count" data-dt-selected-count>
+        {%- if config.max_selected is not none %}{{ selected_count }} / {{ config.max_selected }} selected{% else %}{{ selected_count }} selected{% endif -%}
+      </span>
+      <button type="button" data-dt-clear{% if not selected_count %} disabled{% endif %}>Clear</button>
+    </span>
+  {% endif %}
+  {{ _pager(config, view.page) }}
+</div>
+{%- endmacro %}
+
+{#- "a–b of N" and, with several pages, buttons to the first, previous,
+    next, and last page around a page number input. -#}
+{% macro _pager(config, page) -%}
 <nav class="dt-pager" aria-label="Pages">
   <span class="dt-page-range" data-dt-page-range>
-    {%- if view.page.total -%}
-      {{ view.page.start }}–{{ view.page.end }} of {{ view.page.total }}
+    {%- if page.total -%}
+      {{ page.start }}–{{ page.end }} of {{ page.total }}
     {%- else -%}
       0 of 0
     {%- endif -%}
   </span>
-  {% if view.page.count > 1 %}
-    <button type="button" data-dt-page="{{ view.page.number - 1 }}" {% if view.page.number == 1 %}disabled{% endif %}>Previous</button>
-    {% for number in view.page.links %}
-      {% if number is none %}
-        <span class="dt-gap">…</span>
-      {% elif number == view.page.number %}
-        <button type="button" class="dt-page-current" aria-current="page" disabled>{{ number }}</button>
-      {% else %}
-        <button type="button" data-dt-page="{{ number }}">{{ number }}</button>
-      {% endif %}
-    {% endfor %}
-    <button type="button" data-dt-page="{{ view.page.number + 1 }}" {% if view.page.number == view.page.count %}disabled{% endif %}>Next</button>
+  {% if page.count > 1 %}
+    {% set first = page.number == 1 %}
+    {% set last = page.number == page.count %}
+    <button type="button" data-dt-page="1" aria-label="First page" title="First page"{% if first %} disabled{% endif %}>«</button>
+    <button type="button" data-dt-page="{{ page.number - 1 }}" aria-label="Previous page" title="Previous page"{% if first %} disabled{% endif %}>‹</button>
+    <span class="dt-page-jump">Page <input type="number" class="dt-page-input" min="1" max="{{ page.count }}" step="1" value="{{ page.number }}"
+      aria-label="Page number" data-dt-page-input data-dt-page-current="{{ page.number }}"> of {{ page.count }}</span>
+    <button type="button" data-dt-page="{{ page.number + 1 }}" aria-label="Next page" title="Next page"{% if last %} disabled{% endif %}>›</button>
+    <button type="button" data-dt-page="{{ page.count }}" aria-label="Last page" title="Last page"{% if last %} disabled{% endif %}>»</button>
   {% endif %}
 </nav>
 {%- endmacro %}
