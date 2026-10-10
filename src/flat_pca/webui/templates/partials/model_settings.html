@@ -2,7 +2,7 @@
 {% if model_settings %}
   <div class="model-settings" data-model-settings="{{ model_settings.run_id }}">
     {% if model_settings.error %}
-      <p class="error" data-model-settings-error>{{ model_settings.error }}</p>
+      <p class="error" data-model-settings-error>{{ model_settings.error|error_text }}</p>
     {% else %}
       <details>
         <summary>Settings: <span data-model-settings-headline>{{ model_settings.headline }}</span></summary>

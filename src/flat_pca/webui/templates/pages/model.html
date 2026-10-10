@@ -19,7 +19,7 @@
     {% endif %}
     {% include "partials/model_settings.html" %}
     {% if shown.error %}
-      <p class="error" data-model-error>{{ shown.error }}</p>
+      <p class="error" data-model-error>{{ shown.error|error_text }}</p>
     {% endif %}
     {#- The controls sit in the cards they change and join this form with form="model-form". -#}
     {% if shown.runs %}

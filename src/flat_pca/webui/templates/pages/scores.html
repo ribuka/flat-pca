@@ -14,7 +14,7 @@
       <p class="muted">Scores of run {{ shown.run_id }}.</p>
     {% endif %}
     {% if shown.error %}
-      <p class="error" data-scores-error>{{ shown.error }}</p>
+      <p class="error" data-scores-error>{{ shown.error|error_text }}</p>
     {% endif %}
     {#- The controls sit in the score scatter and trajectory cards and join this form with form="scores-form". -#}
     {% if shown.runs %}
