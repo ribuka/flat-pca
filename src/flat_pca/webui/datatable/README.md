@@ -311,7 +311,9 @@ header checkbox's matching keys, the export, and anything else built on
   - A reload while a menu holds a draft (the search box or a page button
     reached with Tab, or a trigger of the page) sends the applied filters;
     the menu stays open with its draft, the focus (and caret) where they
-    were. The header checkbox and the export use the applied filters too.
+    were. The header checkbox and the export use the applied filters too;
+    a chip's × (reached with Tab) closes the menu, dropping the draft, and
+    removes the applied filter.
 - Sorting (Asc, Desc, Clear sort) and copying the name take effect at once
   and close the menu. Outside the column menus, the search box of the whole
   table (after 300 ms), a chip's ×, and the `Columns` menu also take effect

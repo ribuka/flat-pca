@@ -215,6 +215,52 @@ def test_column_menu_draft_is_discarded_by_cancel_escape_and_a_click_outside(
     expect(stems).to_have_text(["run-2"])
 
 
+def test_opening_another_menu_from_the_keyboard_drops_the_draft(page: Page, cataloged_server_url: str) -> None:
+    """A draft left in one menu is dropped when another column's menu opens with Enter."""
+    page.goto(cataloged_server_url)
+    stems = _file_stems(page)
+    expect(stems).to_have_text(["run-1", "run-2", "run-10"])
+    table = _table(page)
+    lot = open_column_menu(table, "lot")
+    lot.get_by_role("checkbox", name="B 1", exact=True).check()
+
+    table.get_by_role("button", name="yield_pct", exact=True).focus()
+    page.keyboard.press("Enter")
+    expect(column_menu(table, "yield_pct")).to_be_visible()
+    expect(lot).to_be_hidden()
+    expect(lot.locator("input[value='B']")).not_to_be_checked()
+    # A reload now sends no value of the dropped draft.
+    with page.expect_response(lambda response: "/catalog/files?" in response.url) as response:
+        page.evaluate("htmx.trigger('#files', 'dt-reload')")
+    assert "eq__lot" not in response.value.url
+    expect(stems).to_have_text(["run-1", "run-2", "run-10"])
+
+
+def test_chip_removed_under_an_open_draft_clears_the_applied_filter(
+    page: Page, cataloged_server_url: str
+) -> None:
+    """A chip's × reached with Tab while its column's menu holds a draft removes the filter, not the draft."""
+    page.goto(cataloged_server_url)
+    stems = _file_stems(page)
+    expect(stems).to_have_text(["run-1", "run-2", "run-10"])
+    table = _table(page)
+    lot = open_column_menu(table, "lot")
+    lot.get_by_role("checkbox", name="B 1", exact=True).check()
+    apply_column_menu(lot)
+    expect(stems).to_have_text(["run-2"])
+    lot = open_column_menu(table, "lot")
+    lot.get_by_role("checkbox", name="A 1", exact=True).check()
+
+    table.get_by_role("button", name="Remove filter lot ∈ {B}").focus()
+    page.keyboard.press("Enter")
+    expect(stems).to_have_text(["run-1", "run-2", "run-10"])
+    expect(lot).to_be_hidden()
+    expect(table.locator("[data-dt-filtered]")).to_have_count(0)
+    lot = open_column_menu(table, "lot")
+    expect(lot.get_by_role("checkbox", name="A 1", exact=True)).not_to_be_checked()
+    expect(lot.get_by_role("checkbox", name="B 1", exact=True)).not_to_be_checked()
+
+
 def test_reload_under_an_open_draft_uses_the_applied_filters(page: Page, cataloged_server_url: str) -> None:
     """The search reloading while a menu holds a draft sends the applied filters and keeps the draft."""
     page.goto(cataloged_server_url)

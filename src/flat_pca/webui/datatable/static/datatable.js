@@ -424,13 +424,21 @@
 
   // A chip of a filter in use clears the controls of its parameters
   // (`data-dt-remove-filter`, a JSON array of names) and reloads the first
-  // page.
+  // page. A column menu left open with a draft (the chip reached with Tab)
+  // is closed first, which drops the draft, so the chip clears the applied
+  // filters.
   document.addEventListener("click", (event) => {
     const remove = event.target.closest?.("[data-dt-remove-filter]");
     const root = remove && tableOf(remove);
     if (!root) {
       return;
     }
+    const draft = drafts.get(root);
+    const open = draft && document.getElementById(draft.menu);
+    if (open) {
+      closeMenu(open);
+    }
+    discardDraft(root);
     for (const name of JSON.parse(remove.dataset.dtRemoveFilter)) {
       root.querySelectorAll(`[data-dt-query][name="${CSS.escape(name)}"]`).forEach(clearControl);
     }
@@ -953,6 +961,18 @@
     }
   }
 
+  // Drops the table's open draft, if any: its menu's filters go back to
+  // those applied.
+  function discardDraft(root) {
+    const draft = drafts.get(root);
+    const menu = draft && document.getElementById(draft.menu);
+    drafts.delete(root);
+    if (menu) {
+      setControls(queryControls(menu), draft.applied);
+      syncDraft(menu);
+    }
+  }
+
   function applyDraft(menu) {
     const root = tableOf(menu);
     drafts.delete(root);
@@ -970,9 +990,11 @@
 
   // beforetoggle comes before the menu closes, also when a click outside
   // closes it, so the applied filters are back before that click lands.
-  // Toggle events do not bubble, so listen while capturing. A menu taken
-  // out of the page by a reload closes without the event and keeps its
-  // draft for the reopening.
+  // A menu opening while another one of the table holds a draft (opened
+  // from the keyboard, the new menu's event comes before the other closes)
+  // drops that draft first. Toggle events do not bubble, so listen while
+  // capturing. A menu taken out of the page by a reload closes without the
+  // event and keeps its draft for the reopening.
   document.addEventListener(
     "beforetoggle",
     (event) => {
@@ -980,14 +1002,14 @@
       if (!hasFilters(menu)) {
         return;
       }
-      const draft = draftOf(menu);
+      const root = tableOf(menu);
       if (event.newState === "open") {
-        if (!draft) {
-          drafts.set(tableOf(menu), { menu: menu.id, applied: fieldsOf(queryControls(menu)) });
+        if (!draftOf(menu)) {
+          discardDraft(root);
+          drafts.set(root, { menu: menu.id, applied: fieldsOf(queryControls(menu)) });
         }
-      } else if (draft) {
-        setControls(queryControls(menu), draft.applied);
-        drafts.delete(tableOf(menu));
+      } else if (draftOf(menu)) {
+        discardDraft(root);
       }
       syncDraft(menu);
     },
