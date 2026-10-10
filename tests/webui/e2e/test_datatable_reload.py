@@ -140,3 +140,60 @@ def test_reload_shows_that_the_table_is_busy(page: Page, cataloged_server_url: s
     expect(stems).to_have_text(["run-1", "run-2", "run-10"])
     expect(table).not_to_have_attribute("aria-busy", "true")
     expect(page.locator("#files thead th:nth-child(5)")).to_have_attribute("aria-sort", "descending")
+
+
+def _short_table(page: Page) -> None:
+    """Make the file table's scroll box only a few rows high, so that its rows scroll."""
+    page.add_style_tag(content="#files { --dt-max-height: 10rem; }")
+
+
+def _scroll_top(page: Page) -> float:
+    """Return how far the file table's scroll box is scrolled down."""
+    return page.locator("#files .dt-scroll").evaluate("box => box.scrollTop")
+
+
+def test_new_rows_show_from_the_top_of_the_table(
+    page: Page, cataloged_server_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Paging and sorting after scrolling down show the new rows from the first one."""
+    monkeypatch.setattr(file_table, "FILE_PAGE_SIZE", 2)
+    page.goto(cataloged_server_url)
+    stems = _file_stems(page)
+    expect(stems).to_have_text(["run-1", "run-2"])
+    _short_table(page)
+    page.locator("#files .dt-scroll").evaluate("box => { box.scrollTop = box.scrollHeight; }")
+    assert _scroll_top(page) > 0
+
+    page.get_by_role("button", name="Next page").click()
+
+    expect(stems).to_have_text(["run-10"])
+    assert _scroll_top(page) == 0
+    page.get_by_role("button", name="Previous page").click()
+    expect(stems).to_have_text(["run-1", "run-2"])
+    page.locator("#files .dt-scroll").evaluate("box => { box.scrollTop = box.scrollHeight; }")
+    open_column_menu(_table(page), "file").get_by_role("button", name="Desc").click()
+    expect(stems).to_have_text(["run-10", "run-2"])
+    assert _scroll_top(page) == 0
+
+
+def test_rows_per_page_show_the_first_row_at_the_top(
+    page: Page, cataloged_server_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After choosing more rows per page, the row that began the page is at the top of the table."""
+    monkeypatch.setattr(file_table, "FILE_PAGE_SIZE", 1)
+    monkeypatch.setattr(file_table, "FILE_PAGE_SIZES", (3,))
+    page.goto(cataloged_server_url)
+    stems = _file_stems(page)
+    _short_table(page)
+    page.get_by_role("button", name="Next page").click()
+    expect(stems).to_have_text(["run-2"])
+
+    page.get_by_label("Rows per page").select_option("3")
+
+    expect(stems).to_have_text(["run-1", "run-2", "run-10"])
+    gap = page.locator("#files").evaluate(
+        "root => root.querySelector('tr[data-dt-key=\"run-2\"]').getBoundingClientRect().top"
+        " - root.querySelector('thead th').getBoundingClientRect().bottom"
+    )
+    assert abs(gap) <= 1
+    assert _scroll_top(page) > 0

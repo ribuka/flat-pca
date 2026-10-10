@@ -387,13 +387,18 @@
   });
 
   // The choice of the rows per page reloads the page holding the first row
-  // shown (`data-dt-start` of "a–b of N"), so the view stays where it was.
+  // of the page shown (`data-dt-start` of "a–b of N"), and shows that row at
+  // the top of the table (`keptRows`, used by swapParts), so the view stays
+  // where it was.
+  const keptRows = new WeakMap();
+
   document.addEventListener("change", (event) => {
     const root = tableOf(event.target);
     if (!root || !event.target.matches("[data-dt-page-size]")) {
       return;
     }
     const start = Number(root.querySelector("[data-dt-page-range]")?.dataset.dtStart) || 1;
+    keptRows.set(root, start);
     reload(root, { page: String(Math.floor((start - 1) / Number(event.target.value)) + 1) });
   });
 
@@ -1161,11 +1166,28 @@
         target.focus({ preventScroll: true });
       }
     }
+    scrollToRow(root, keptRows.get(root));
+    keptRows.delete(root);
     syncColumns(root, false);
     if (root.dataset.dtSelection) {
       syncChecks(root);
     }
     return true;
+  }
+
+  // New rows are shown from the top of the table's scroll box, as a whole
+  // swap shows them (the sideways scroll stays): from the first row, or from
+  // the row at `position` (1-based among the matching rows) when it is on
+  // the page, just under the fixed header.
+  function scrollToRow(root, position) {
+    const scroll = root.querySelector(".dt-scroll");
+    if (!scroll) {
+      return;
+    }
+    const start = Number(root.querySelector("[data-dt-page-range]")?.dataset.dtStart) || 1;
+    const row = position === undefined ? null : root.querySelectorAll("tbody tr")[position - start];
+    const header = root.querySelector(".dt-table thead");
+    scroll.scrollTop = row ? row.offsetTop - (header?.offsetHeight ?? 0) : 0;
   }
 
   // A reload of the table's own (`dt-reload`: sorting, filtering, paging,

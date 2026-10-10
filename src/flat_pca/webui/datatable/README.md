@@ -345,7 +345,9 @@ header checkbox's matching keys, the export, and anything else built on
   neither cleans up nor processes the old and new rows, and the toolbar, the
   menus (an open one keeps its draft and focus), and the header cells stay.
   A focused control of a swapped part (a page button, for example) is
-  focused again in the new part. A reload triggered by the page (`triggers`,
+  focused again in the new part. The new rows show from the top of the
+  scroll box (the sideways scroll stays); after a change of the rows per
+  page, the row that began the page shown is at the top, under the header. A reload triggered by the page (`triggers`,
   such as a catalog update), or a response with other parts, swaps the whole
   fragment with htmx.
 - A table drawn with the page (the container called with its first
